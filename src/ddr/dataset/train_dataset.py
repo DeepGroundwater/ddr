@@ -41,20 +41,13 @@ class train_dataset(torch.utils.data.Dataset):
         self.flowpath_attr = gpd.read_file(cfg.data_sources.local_hydrofabric, layer="flowpath-attributes-ml")
         self.flowpaths = gpd.read_file(cfg.data_sources.local_hydrofabric, layer="flowpaths")
         self.nexus = gpd.read_file(cfg.data_sources.local_hydrofabric, layer="nexus")
+
+        self.adjacency_matrix = np.load(cfg.data_sources.network)
         
         self.divides_sorted = self.divides.sort_values('tot_drainage_areasqkm')
         self.idx_mapper = {_id: idx for idx, _id in enumerate(self.divides_sorted["id"])}
         self.catchment_mapper = {_id : idx for idx, _id in enumerate(self.divides_sorted["divide_id"])}
-        self.network = np.zeros([len(self.idx_mapper), len(self.idx_mapper)])
         
-        # TODO create manual network connectivity matrix by drainage area
-        for idx, _id in enumerate(self.divides_sorted["id"]):
-            to_id = self.divides_sorted.iloc[idx]["toid"]
-            next_id = self.nexus[self.nexus["id"] == to_id]["toid"]
-            for __id in next_id:
-                col = idx
-                row = self.idx_mapper[__id]
-                self.network[row, col] = 1      
                 
         self.length = torch.tensor([self.flowpath_attr.iloc[self.idx_mapper[_id]]["Length_m"]] * 1000 for _id in self.flowpaths_sorted["id"])  
         self.slope = torch.tensor([self.flowpath_attr.iloc[self.idx_mapper[_id]]["So"]] for _id in self.flowpaths_sorted["id"])      

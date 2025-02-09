@@ -103,6 +103,13 @@ indices_1[:] = coo.col
 values[:] = coo.data
 order[:] = zarr_order
 
+gauge_root.attrs["format"] = "COO"
+gauge_root.attrs["shape"] = list(coo.shape)
+gauge_root.attrs["data_types"] = {
+    "indices_0": coo.row.dtype.__str__(),
+    "indices_1": coo.col.dtype.__str__(),
+    "values": coo.data.dtype.__str__(),
+}
 print(f"Gauge {gauge} written to zarr")
 
 # Visual verification

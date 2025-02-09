@@ -8,7 +8,7 @@
 @version 0.2
 
 An introduction script for building a lower triangular adjancency matrix
-from a NextGen hydrofabric.
+from a NextGen hydrofabric and writing a sparse zarr store
 """
 from pathlib import Path
 
@@ -18,15 +18,11 @@ import graphlib as gl
 import sys
 
 from scipy import sparse
-import xarray as xr
+import zarr
 
-# pkg = sys.argv[1]
-# out_path = sys.argv[2]
-
-gauge = "01563500"
-
-pkg = "/projects/mhpi/data/hydrofabric/v2.2/JRB.gpkg"
-out_path = "/projects/mhpi/tbindas/ddr/data/networks.zarr"
+pkg = sys.argv[1]
+gauge = sys.argv[2]
+out_path = sys.argv[3]
 
 # Useful for some debugging, not needed for algorithm
 # nexi = gpd.read_file(pkg, layer='nexus').set_index('id') 
@@ -79,36 +75,33 @@ for wb in ts_order:
 assert np.allclose(matrix, np.tril(matrix))
 
 out_path = Path(out_path)
+store = zarr.storage.LocalStore(root=out_path)
 
 if out_path.exists():
-    dt = xr.open_datatree(out_path)
+    root = zarr.open_group(store=store) 
 else:
-    dt = xr.DataTree()
+    root = zarr.create_group(store=store)   
 
 coo = sparse.coo_matrix(matrix)
-metadata = {
-    "format": "COO",
-    "shape": list(coo.shape),
-    "data_types": {
-        "indices_0": coo.row.dtype.__str__(),
-        "indices_1": coo.col.dtype.__str__(),
-        "values": coo.data.dtype.__str__(),
-    },
-}
+zarr_order = np.array([int(_id.split("-")[1]) for _id in ts_order], dtype=np.int32)
 
-dt[gauge] = xr.Dataset(
-    data_vars={
-        'indices_0': ('index', coo.row),
-        'indices_1': ('index', coo.col),
-        'values': ('index', coo.data)
-    },
-    coords={
-        'index': np.arange(len(coo.data))
-    },
-    attrs=metadata
+gauge_root = root.create_group(name=gauge)
+indices_0 = gauge_root.create_array(
+    name='indices_0', shape=coo.row.shape, dtype=coo.row.dtype
 )
-
-dt.to_zarr(out_path)
+indices_1 = gauge_root.create_array(
+    name='indices_1', shape=coo.col.shape, dtype=coo.row.dtype
+)
+values = gauge_root.create_array(
+    name='values', shape=coo.data.shape, dtype=coo.data.dtype
+)
+order = gauge_root.create_array(
+    name='order', shape=zarr_order.shape, dtype=zarr_order.dtype
+)
+indices_0[:] = coo.row
+indices_1[:] = coo.col
+values[:] = coo.data
+order[:] = zarr_order
 
 print(f"Gauge {gauge} written to zarr")
 

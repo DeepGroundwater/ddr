@@ -8,7 +8,7 @@
 @version 0.2
 
 An introduction script for building a lower triangular adjancency matrix
-from a NextGen hydrofabric and writing a sparse zarr store
+from a NextGen hydrofabric and writing a sparse zarr group
 """
 from pathlib import Path
 
@@ -74,9 +74,9 @@ for wb in ts_order:
 # Ensure, within tolerance, that this is a lower triangular matrix
 assert np.allclose(matrix, np.tril(matrix))
 
+# Comverting to a sparse COO matrix, and saving the output in many arrays within a zarr v3 group
 out_path = Path(out_path)
 store = zarr.storage.LocalStore(root=out_path)
-
 if out_path.exists():
     root = zarr.open_group(store=store) 
 else:
@@ -104,8 +104,6 @@ values[:] = coo.data
 order[:] = zarr_order
 
 print(f"Gauge {gauge} written to zarr")
-
-# np.save(out_path, matrix)
 
 # Visual verification
 # np.set_printoptions(threshold=np.inf, linewidth=np.inf)

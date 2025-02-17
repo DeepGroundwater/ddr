@@ -62,7 +62,8 @@ class train_dataset(torch.utils.data.Dataset):
 
          # TODO add logic for multiple gauges
          # TODO add sparse logic
-        self.adjacency_matrix, self.order = read_coo(Path(cfg.data_sources.network), self.gage_ids[0])
+        self.adjacency_matrix, root_coo = read_coo(Path(cfg.data_sources.network), self.gage_ids[0])
+        self.order = root_coo["order"][:]
         self.network_matrix = torch.tensor(self.adjacency_matrix.todense(), dtype=torch.float32, device=cfg.device)
         
         # TODO get mike johnson et al. to fix the subset bug: https://github.com/owp-spatial/hfsubsetR/issues/9
@@ -120,8 +121,10 @@ class train_dataset(torch.utils.data.Dataset):
             observations=self.observations,
         )
 
-        # TODO make this a dynamic lookup
-        transition_matrix = pd.read_csv(self.cfg.data_sources.transition_matrix).set_index("COMID")
+        transition_matrix, tm_root_coo = read_coo(Path(self.cfg.data_sources.transition_matrix), "73")
+        merit_basins_order = tm_root_coo["merit_basins_order"] 
+        comid_order = tm_root_coo["comid_order"]
+        col_idx = np.where(comid_order == self.order)[0]
         
         return Hydrofabric(
             spatial_attributes=spatial_attributes,

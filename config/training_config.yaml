@@ -10,7 +10,7 @@ data_sources:
   conus_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/conus_nextgen.gpkg
   local_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/jrb_2.gpkg
   network: /projects/mhpi/tbindas/ddr/data/network.zarr
-  transition_matrix: /projects/mhpi/data/hydrofabric/v2.2/jrb_transition_matrix.csv
+  transition_matrix: /projects/mhpi/data/hydrofabric/v2.2/conus_transition_matrices.zarr
   statistics: /projects/mhpi/tbindas/ddr/data/statistics
   streamflow:  /projects/mhpi/data/MERIT/streamflow/zarr/${forcings}
   observations: /projects/mhpi/data/observations/gages_9000.zarr

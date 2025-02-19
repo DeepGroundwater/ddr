@@ -8,8 +8,8 @@ from tqdm import tqdm
 
 from ddr.routing.utils import (
     PatternMapper,
-    RiverNetworkMatrix,
     denormalize,
+    get_network_idx,
 )
 
 log = logging.getLogger(__name__)
@@ -135,7 +135,8 @@ class dmc(torch.nn.Module):
         # Initialize mapper
         matrix_dims = self.network.shape[0]
         mapper = PatternMapper(self.fill_op, matrix_dims, device=self.device_num)
-
+        dense_rows, dense_cols = get_network_idx(mapper)
+        
         # Set initial output values
         if len(self._discharge_t) != 0:
             for i, gage_idx in enumerate(gage_indices):
@@ -192,10 +193,11 @@ class dmc(torch.nn.Module):
             c_1_ = c_1 * -1
             c_1_[0] = 1.0
             A_values = mapper.map(c_1_)
-            A_csr = RiverNetworkMatrix.apply(A_values, mapper.crow_indices, mapper.col_indices)
+            A_dense = self.network.clone()
+            A_dense[dense_rows, dense_cols] = A_values
 
             try:
-                x = solve_triangular(A_csr, b, upper=False)
+                x = solve_triangular(A_dense, b, upper=False)
             except torch.cuda.OutOfMemoryError as e:
                 raise torch.cuda.OutOfMemoryError from e
             sol = x.squeeze()

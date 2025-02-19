@@ -47,14 +47,14 @@ def train(cfg, flow, routing_model, nn):
             routing_model.mini_batch = i
             
             streamflow_predictions = flow(cfg=cfg, hydrofabric=hydrofabric)
-            q_prime = streamflow_predictions["streamflow"] @ torch.tensor(hydrofabric.transition_matrix.to_numpy(), dtype=torch.float32, device=cfg.device)
+            q_prime = streamflow_predictions["streamflow"] @ hydrofabric.transition_matrix
             spatial_params = nn(
                 inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device)
             )
             dmc_kwargs = {
                 "hydrofabric": hydrofabric,
                 "spatial_parameters": spatial_params,
-                "streamflow": q_prime,
+                "streamflow": torch.tensor(q_prime, device=cfg.device, dtype=torch.float32)
             }
             dmc_output = routing_model(**dmc_kwargs)
 
@@ -68,24 +68,24 @@ def train(cfg, flow, routing_model, nn):
             np_nan_mask = nan_mask.streamflow.values
 
             filtered_ds = hydrofabric.observations.where(~nan_mask, drop=True)
-            filtered_observations = torch.tensor(filtered_ds.streamflow.values, device=cfg.device)[
+            filtered_observations = torch.tensor(filtered_ds.streamflow.values, device=cfg.device, dtype=torch.float32)[
                 :, 1:-1
             ]  # Cutting off days to match with realigned timesteps
 
             filtered_predictions = daily_runoff[~np_nan_mask]
 
             loss = mse_loss(
-                input=filtered_predictions.transpose(0, 1)[cfg.warmup:].unsqueeze(2),
-                target=filtered_observations.transpose(0, 1)[cfg.warmup:].unsqueeze(2),
+                input=filtered_predictions.transpose(0, 1)[cfg.train.warmup:].unsqueeze(2),
+                target=filtered_observations.transpose(0, 1)[cfg.train.warmup:].unsqueeze(2),
             )
 
-            log.info("Running gradient-averaged backpropagation")
+            log.info("Running backpropagation")
 
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
             
-            print(f"Loss: {loss.item}")
+            print(f"Loss: {loss.item()}")
         
         if epoch in cfg.train.learning_rate.keys():
             log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")

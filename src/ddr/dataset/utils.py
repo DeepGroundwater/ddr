@@ -51,3 +51,12 @@ def downsample(data: torch.Tensor, rho: int) -> torch.Tensor:
     """
     downsampled_data = F.interpolate(data.unsqueeze(1), size=(rho,), mode="area").squeeze(1)
     return downsampled_data
+
+
+def fill_nans(attr):
+    """Fills the nan values in a tensor using the mean
+    """
+    row_means = torch.nanmean(attr)
+    nan_mask = torch.isnan(attr)
+    attr[nan_mask] = row_means
+    return attr

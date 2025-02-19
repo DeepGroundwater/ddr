@@ -268,6 +268,19 @@ def nsdim(datvec):
             return ns
     return None
 
+def get_network_idx(mapper: PatternMapper) -> tuple[torch.Tensor, torch.Tensor]:
+    rows = []
+    cols = []
+    crow_indices_list = mapper.crow_indices.tolist()
+    col_indices_list = mapper.col_indices.tolist()
+    for i in range(len(crow_indices_list) - 1):
+        start, end = crow_indices_list[i], crow_indices_list[i + 1]
+        these_cols = col_indices_list[start:end]
+        these_rows = [i] * len(these_cols)
+        rows.extend(these_rows)
+        cols.extend(these_cols) 
+    return torch.tensor(rows), torch.tensor(cols)
+
 
 def denormalize(value: torch.Tensor, bounds: list[float]) -> torch.Tensor:
     """Denormalizing neural network outputs to be within the Physical Bounds

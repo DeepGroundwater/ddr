@@ -35,8 +35,9 @@ train:
   range_bound_upper_bounds:
   - 0.15
   - 1.0
-  rho: 365
+  rho: 30
   shuffle: true
+  warmup: 3
 params:
   attributes:
   - mean.impervious
@@ -60,6 +61,7 @@ params:
       - 3.0
   defaults:
     p: 21
+  tau: 3
 
 np_seed: 1
 seed: 0

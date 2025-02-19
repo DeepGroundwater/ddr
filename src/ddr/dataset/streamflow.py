@@ -14,14 +14,14 @@ class StreamflowReader(torch.nn.Module):
         super().__init__()
         self.cfg = cfg
 
-    def forward(self, **kwargs) -> Dict[str, torch.Tensor]:
+    def forward(self, **kwargs) -> Dict[str, np.ndarray]:
         hydrofabric = kwargs["hydrofabric"]
         xr_streamflow_data = xr.open_zarr(
             Path(self.cfg.data_sources.streamflow) / "73",
             chunks="auto",
         )
         
-        comid_indices = np.where(np.isin(xr_streamflow_data.COMID.values, hydrofabric.transition_matrix.index.values))[0]
+        comid_indices = np.where(np.isin(xr_streamflow_data.COMID.values, hydrofabric.merit_basins))[0]
         try:
             lazy_flow_data = xr_streamflow_data.isel(
                 time=hydrofabric.dates.numerical_time_range, COMID=comid_indices
@@ -36,8 +36,8 @@ class StreamflowReader(torch.nn.Module):
             method="nearest",
         )
         streamflow_data = lazy_flow_data_interpolated.compute().values.astype(np.float32)
-        streamflow_predictions = torch.tensor(
-            streamflow_data,
-            dtype=torch.float32
-        )
-        return {"streamflow": streamflow_predictions}
+        # streamflow_predictions = torch.tensor(
+        #     streamflow_data,
+        #     dtype=torch.float32
+        # )
+        return {"streamflow": streamflow_data}

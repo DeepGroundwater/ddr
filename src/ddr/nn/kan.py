@@ -20,6 +20,7 @@ class kan(torch.nn.Module):
         grid: int,
         k: int,
         seed: int,
+        device: str = "cpu"
     ):
         super().__init__()
         self.input_size = len(input_var_names)
@@ -27,7 +28,7 @@ class kan(torch.nn.Module):
         self.output_size = output_size
         self.learnable_parameters = learnable_parameters
 
-        self.input = torch.nn.Linear(self.input_size, self.hidden_size)
+        self.input = torch.nn.Linear(self.input_size, self.hidden_size, device=device)
         self.layers = torch.nn.ModuleList()
         for _ in range(num_hidden_layers):
             self.layers.append(
@@ -36,9 +37,10 @@ class kan(torch.nn.Module):
                     k=k,
                     grid=grid,
                     seed=seed,
+                    device=device,
                 )
             )
-            self.output = torch.nn.Linear(self.hidden_size, self.output_size, bias=False)
+            self.output = torch.nn.Linear(self.hidden_size, self.output_size, bias=False, device=device)
             torch.nn.init.kaiming_normal_(self.input.weight)
             torch.nn.init.kaiming_normal_(self.output.weight)
             torch.nn.init.zeros_(self.input.bias)

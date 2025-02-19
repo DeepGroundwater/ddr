@@ -1,10 +1,12 @@
 import logging
 import random
 import time
+from pathlib import Path
 
 import hydra
 import numpy as np
 import torch
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from torch.nn.functional import mse_loss
@@ -16,6 +18,8 @@ from ddr.dataset.utils import downsample
 from ddr.dataset.streamflow import StreamflowReader as streamflow
 from ddr.dataset.train_dataset import train_dataset
 from ddr.analysis.metrics import Metrics
+from ddr.analysis.plots import plot_time_series
+from ddr.analysis.utils import save_state
 
 log = logging.getLogger(__name__)
 
@@ -40,9 +44,33 @@ def train(cfg, flow, routing_model, nn):
         drop_last=True,
     )
     
-    optimizer = torch.optim.Adam(params=nn.parameters(), lr=cfg.train.learning_rate[str(0)])
+    if cfg.train.spatial_checkpoint:
+        file_path = Path(cfg.train.spatial_checkpoint)
+        log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
+        state = torch.load(file_path)
+        state_dict = state["model_state_dict"]
+        for key in state_dict.keys():
+            state_dict[key] = state_dict[key].to(cfg.device)
+        nn.load_state_dict(state["model_state_dict"])
+        torch.set_rng_state(state["rng_state"])
+        start_epoch = state["epoch"]
+        # start_mini_batch = 0 if state["mini_batch"] == 0 else state["mini_batch"] + 1  # Start from the next mini-batch
+        if torch.cuda.is_available() and "cuda_rng_state" in state:
+            torch.cuda.set_rng_state(state["cuda_rng_state"])
+        if start_epoch in cfg.train.learning_rate.keys():
+            lr = cfg.train.learning_rate[start_epoch]
+        else:
+            key_list = list(cfg.train.learning_rate.keys())
+            lr = cfg.train.learning_rate[key_list[-1]]
+    else:
+        log.info("Creating new spatial model")
+        start_epoch = 1
+        # start_mini_batch = 0
+        lr = cfg.train.learning_rate[str(0)]
     
-    for epoch in range(0, cfg.train.epochs + 1):
+    optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
+    
+    for epoch in range(start_epoch, cfg.train.epochs + 1):
         routing_model.epoch = epoch
         for i, hydrofabric in enumerate(dataloader, start=0):
             routing_model.mini_batch = i
@@ -88,10 +116,39 @@ def train(cfg, flow, routing_model, nn):
             
             np_pred = filtered_predictions.detach().cpu().numpy()
             np_target = filtered_observations.detach().cpu().numpy()
+            plotted_dates = dataset.dates.batch_daily_time_range[
+                1:-1
+            ]
             metrics = Metrics(pred=np_pred, target=np_target)
+            pred_nse = metrics.nse
+            pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
+            median_nse = torch.tensor(pred_nse_filtered).median()
+            
+            # TODO: scale out when we have more gauges
+            # random_index = np.random.randint(low=0, high=filtered_observations.shape[0], size=(1,))[0]
+            random_gage = -1
+            plot_time_series(
+                filtered_predictions[-1].detach().cpu().numpy(),
+                filtered_observations[-1].cpu().numpy(),
+                plotted_dates,
+                dataset.obs_reader.gage_dict["STAID"][random_gage],
+                dataset.obs_reader.gage_dict["STANAME"][random_gage],
+                metrics={"nse": pred_nse[-1]},
+                path=cfg.params.save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
+                warmup=cfg.train.warmup,
+            )
+            
+            save_state(
+                epoch=epoch,
+                mini_batch=i,
+                mlp=nn,
+                optimizer=optimizer,
+                name=cfg.name,
+                saved_model_path=cfg.params.save_path / "saved_models",
+            )
             
             print(f"Loss: {loss.item()}")
-            print(f"Median NSE: {np.median(metrics.nse)}")
+            print(f"Median NSE: {median_nse}")
         
         if epoch in cfg.train.learning_rate.keys():
             log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")
@@ -107,6 +164,9 @@ def train(cfg, flow, routing_model, nn):
 )
 def main(cfg: DictConfig) -> None:
     _set_seed(cfg=cfg)
+    cfg.params.save_path = Path(HydraConfig.get().run.dir)
+    (cfg.params.save_path / "plots").mkdir(exist_ok=True)
+    (cfg.params.save_path / "saved_models").mkdir(exist_ok=True)
     try:
         start_time = time.perf_counter()
         nn = kan(
@@ -117,7 +177,8 @@ def main(cfg: DictConfig) -> None:
             num_hidden_layers=cfg.kan.num_hidden_layers,
             grid=cfg.kan.grid,
             k=cfg.kan.k,
-            seed=cfg.seed
+            seed=cfg.seed, 
+            device=cfg.device
         )
         routing_model = dmc(
             cfg=cfg,

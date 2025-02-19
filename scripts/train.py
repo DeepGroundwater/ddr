@@ -15,6 +15,7 @@ from ddr.routing.dmc import dmc
 from ddr.dataset.utils import downsample
 from ddr.dataset.streamflow import StreamflowReader as streamflow
 from ddr.dataset.train_dataset import train_dataset
+from ddr.analysis.metrics import Metrics
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +86,12 @@ def train(cfg, flow, routing_model, nn):
             optimizer.step()
             optimizer.zero_grad()
             
+            np_pred = filtered_predictions.detach().cpu().numpy()
+            np_target = filtered_observations.detach().cpu().numpy()
+            metrics = Metrics(pred=np_pred, target=np_target)
+            
             print(f"Loss: {loss.item()}")
+            print(f"Median NSE: {np.median(metrics.nse)}")
         
         if epoch in cfg.train.learning_rate.keys():
             log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")

@@ -39,7 +39,6 @@ dependencies = [
     "pykan==0.2.8",
     "scikit-learn==1.6.1",
     "matplotlib==3.10.0",
-    "binsparse @ git+https://github.com/ivirshup/binsparse-python.git@main",
 ]
 
 [project.optional-dependencies]

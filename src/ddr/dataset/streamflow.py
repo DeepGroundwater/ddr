@@ -17,7 +17,7 @@ class StreamflowReader(torch.nn.Module):
     def forward(self, **kwargs) -> Dict[str, np.ndarray]:
         hydrofabric = kwargs["hydrofabric"]
         xr_streamflow_data = xr.open_zarr(
-            Path(self.cfg.data_sources.streamflow) / "73",
+            Path(self.cfg.data_sources.streamflow),
             chunks="auto",
         )
         

@@ -149,6 +149,7 @@ def train(cfg, flow, routing_model, nn):
             
             print(f"Loss: {loss.item()}")
             print(f"Median NSE: {median_nse}")
+            print(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
         
         if epoch in cfg.train.learning_rate.keys():
             log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")

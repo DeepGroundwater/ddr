@@ -12,7 +12,7 @@ data_sources:
   network: /projects/mhpi/tbindas/ddr/data/network.zarr
   transition_matrix: /projects/mhpi/data/hydrofabric/v2.2/conus_transition_matrices.zarr
   statistics: /projects/mhpi/tbindas/ddr/data/statistics
-  streamflow:  /projects/mhpi/data/MERIT/streamflow/zarr/${forcings}
+  streamflow:  /projects/mhpi/data/MERIT/streamflow/zarr/${forcings}/73
   observations: /projects/mhpi/data/observations/gages_9000.zarr
   training_basins: /projects/mhpi/tbindas/ddr/data/gages.csv
 

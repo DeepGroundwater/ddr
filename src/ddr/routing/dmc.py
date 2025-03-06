@@ -10,9 +10,12 @@ from ddr.routing.utils import (
     PatternMapper,
     denormalize,
     get_network_idx,
+    # RiverNetworkMatrix,
+    triangular_sparse_solve
 )
 
 log = logging.getLogger(__name__)
+
 
 def _log_base_q(x, q):
     return torch.log(x) / torch.log(torch.tensor(q, dtype=x.dtype))
@@ -187,21 +190,32 @@ class dmc(torch.nn.Module):
             i_t = torch.matmul(self.network, self._discharge_t)
             q_l = q_prime_clamp
 
-            b_array = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_l)
-            b = b_array.unsqueeze(-1)
+            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_l)
+            # b = b_array.unsqueeze(-1)
             c_1 = (self.t - (2.0 * k * x_storage)) / denom
             c_1_ = c_1 * -1
             c_1_[0] = 1.0
             A_values = mapper.map(c_1_)
-            A_dense = self.network.clone()
-            A_dense[dense_rows, dense_cols] = A_values
-
             try:
-                x = solve_triangular(A_dense, b, upper=False)
+                if self.cfg.device == "cpu":
+                    # A_dense = self.network.clone()
+                    # A_dense[dense_rows, dense_cols] = A_values
+                    # x = solve_triangular(A_dense, b, upper=False)
+                    # solution = x.squeeze()
+                # else:
+                    solution = triangular_sparse_solve(
+                        A_values, 
+                        mapper.crow_indices, 
+                        mapper.col_indices, 
+                        b,
+                        True,   # lower=True 
+                        False   # unit_diagonal=False
+                    )
+                
             except torch.cuda.OutOfMemoryError as e:
                 raise torch.cuda.OutOfMemoryError from e
-            sol = x.squeeze()
-            q_t1 = torch.clamp(sol, min=self.discharge_lb)
+            
+            q_t1 = torch.clamp(solution, min=self.discharge_lb)
             
             for i, gage_idx in enumerate(gage_indices):
                 output[i, timestep] = torch.sum(q_t1[gage_idx])

@@ -215,11 +215,7 @@ def torch_to_cupy(tensor):
     
     This is much faster than tensor.cpu().numpy() for CUDA tensors.
     """
-    
-    # Get the CUDA pointer
     pointer = tensor.data_ptr()
-    
-    # Get the shape and dtype of the tensor
     size = tensor.shape
     dtype = tensor.dtype
     
@@ -233,12 +229,9 @@ def torch_to_cupy(tensor):
     if dtype not in dtype_map:
         # Fall back to numpy conversion for unsupported dtypes
         return cp.array(tensor.detach().cpu().numpy())
-    
-    # Create a CuPy array that references the same memory
     cupy_dtype = dtype_map[dtype]
     
-    # Create a CuPy array from the pointer
-    # This is the critical part - we're creating a CuPy array that points
+    # NOTE Create a CuPy array from the pointer which points
     # to the same GPU memory as the PyTorch tensor without any copying
     cupy_array = cp.ndarray(
         shape=size,
@@ -265,13 +258,11 @@ def cupy_to_torch(cupy_array, device=None, dtype=torch.float32):
         return torch.from_numpy(cp.asnumpy(cupy_array)).to(device)
     
     # Get CuPy array pointer
-    ptr = cupy_array.data.ptr
+    ptr = cupy_array.data.ptr    
     
-    # Create a PyTorch tensor that references the same memory
-    torch_dtype = dtype_map[cupy_array.dtype.type]
-    
-    # Create a PyTorch tensor from the CuPy array pointer
+    # NOTE Create a PyTorch tensor from the CuPy array pointer
     # This avoids any memory copying between GPU and CPU
+    torch_dtype = dtype_map[cupy_array.dtype.type]
     torch_tensor = torch.empty(
         cupy_array.shape,
         dtype=dtype,
@@ -294,14 +285,10 @@ class TriangularSparseSolver(torch.autograd.Function):
     @staticmethod
     def forward(ctx, A_values, crow_indices, col_indices, b, lower, unit_diagonal, device):
         """Solve the sparse triangular linear system with optimized GPU transfers."""
-        # Check for singleton dimensions in b
-        if b.dim() > 1:
-            b = b.squeeze(-1)  # Remove singleton dimension if present
         
         n = len(crow_indices) - 1
         
         if device == "cpu":
-            # CPU path - use SciPy
             crow_np = crow_indices.cpu().numpy().astype(np.int32)
             col_np = col_indices.cpu().numpy().astype(np.int32)
             data_np = A_values.cpu().numpy().astype(np.float64)
@@ -320,25 +307,18 @@ class TriangularSparseSolver(torch.autograd.Function):
         else:
             
             try:
-                # Use memory-efficient conversion to CuPy
-                # If tensors are already on GPU, this avoids CPU transfers
                 cuda_device = cp.cuda.Device(device)
                 with cuda_device:
-                    # Try direct memory sharing for CUDA tensors
                     data_cp = torch_to_cupy(A_values)
                     indices_cp = torch_to_cupy(col_indices)
                     indptr_cp = torch_to_cupy(crow_indices)
                     b_cp = torch_to_cupy(b)
-                    
-                    # Create CuPy CSR matrix
                     A_cp = cp_csr_matrix((data_cp, indices_cp, indptr_cp), shape=(n, n))
                     
-                    # Solve on GPU
                     x_cp = cp_spsolve_triangular(
                         A_cp, b_cp, lower=lower, unit_diagonal=unit_diagonal
                     )
                     
-                    # Efficient transfer back to PyTorch (staying on GPU if output should be on GPU)
                     pytorch_device = A_values.device if A_values.is_cuda else b.device
                     x = cupy_to_torch(x_cp, device=pytorch_device)
             
@@ -375,7 +355,6 @@ class TriangularSparseSolver(torch.autograd.Function):
         crow_indices_cpu = crow_indices.cpu()
         col_indices_cpu = col_indices.cpu()
         
-        # Use vectorized operations where possible
         for i in range(n):
             start, end = crow_indices_cpu[i].item(), crow_indices_cpu[i+1].item()
             row_count = end - start
@@ -405,15 +384,11 @@ class TriangularSparseSolver(torch.autograd.Function):
         
         # Optimize gradient computation for A_values if needed
         if A_values.requires_grad:
-            # Vectorize the gradient computation
-            # This replaces the nested loops with direct indexing
             if len(rows) > 0:  # Make sure we have non-zero elements
-                # Convert lists to tensors for vectorized operations
                 row_indices = torch.tensor(rows, device=A_values.device)
                 col_indices_vector = torch.tensor(cols, device=A_values.device)
                 
                 # Vectorized gradient computation: -gradb[rows] * x[cols]
-                # This is much faster than looping for large matrices
                 gradA_values = -gradb[row_indices] * x[col_indices_vector]
             else:
                 gradA_values = torch.zeros_like(A_values)

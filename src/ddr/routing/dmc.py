@@ -191,7 +191,6 @@ class dmc(torch.nn.Module):
             q_l = q_prime_clamp
 
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_l)
-            # b = b_array.unsqueeze(-1)
             c_1 = (self.t - (2.0 * k * x_storage)) / denom
             c_1_ = c_1 * -1
             c_1_[0] = 1.0
@@ -206,10 +205,11 @@ class dmc(torch.nn.Module):
                     False,  # unit_diagonal=False
                     self.cfg.device  # device
                 )
+                # b_arr = b.unsqueeze(-1)
                 # A_dense = self.network.clone()
                 # A_dense[dense_rows, dense_cols] = A_values
-                # x = solve_triangular(A_dense, b, upper=False)
-                # solution = x.squeeze()                
+                # x = solve_triangular(A_dense, b_arr, upper=False)
+                # solution_b = x.squeeze()                
             except torch.cuda.OutOfMemoryError as e:
                 raise torch.cuda.OutOfMemoryError from e
             

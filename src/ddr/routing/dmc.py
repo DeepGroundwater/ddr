@@ -198,11 +198,6 @@ class dmc(torch.nn.Module):
             A_values = mapper.map(c_1_)
             try:
                 if self.cfg.device == "cpu":
-                    # A_dense = self.network.clone()
-                    # A_dense[dense_rows, dense_cols] = A_values
-                    # x = solve_triangular(A_dense, b, upper=False)
-                    # solution = x.squeeze()
-                # else:
                     solution = triangular_sparse_solve(
                         A_values, 
                         mapper.crow_indices, 
@@ -211,6 +206,11 @@ class dmc(torch.nn.Module):
                         True,   # lower=True 
                         False   # unit_diagonal=False
                     )
+                else:
+                    A_dense = self.network.clone()
+                    A_dense[dense_rows, dense_cols] = A_values
+                    x = solve_triangular(A_dense, b, upper=False)
+                    solution = x.squeeze()
                 
             except torch.cuda.OutOfMemoryError as e:
                 raise torch.cuda.OutOfMemoryError from e

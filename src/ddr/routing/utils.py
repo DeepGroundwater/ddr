@@ -8,6 +8,14 @@ from scipy.sparse.linalg import spsolve_triangular
 
 log = logging.getLogger(__name__)
 
+# Try to import cupy - if not available, we'll handle gracefully during runtime
+try:
+    import cupy as cp
+    from cupyx.scipy.sparse import csr_matrix as cp_csr_matrix
+    from cupyx.scipy.sparse.linalg import spsolve_triangular as cp_spsolve_triangular
+except ImportError:
+    log.warning("CuPy not available. GPU solver functionality will be disabled.")
+
 # Disable prototype warnings and such
 warnings.filterwarnings(action="ignore", category=UserWarning)
 
@@ -208,7 +216,7 @@ class TriangularSparseSolver(torch.autograd.Function):
     """
     
     @staticmethod
-    def forward(ctx, A_values, crow_indices, col_indices, b, lower, unit_diagonal):
+    def forward(ctx, A_values, crow_indices, col_indices, b, lower, unit_diagonal, device):
         """Solve the sparse triangular linear system.
         
         Parameters
@@ -233,31 +241,50 @@ class TriangularSparseSolver(torch.autograd.Function):
         torch.Tensor
             Solution to the system Ax = b.
         """
-       
         # convert to Scipy csr
         crow_np = crow_indices.cpu().numpy().astype(np.int32)
         col_np = col_indices.cpu().numpy().astype(np.int32)
         data_np = A_values.cpu().numpy().astype(np.float64)
         b_np = b.cpu().numpy().astype(np.float64)
-        
+            
         n = len(crow_np) - 1
         
-        A_scipy = sp.csr_matrix((data_np, col_np, crow_np), shape=(n, n))
-        
-        try:
-            x_np = spsolve_triangular(
-                A_scipy, b_np, lower=lower, unit_diagonal=unit_diagonal
-            )
+        if device == "cpu":
+            A_scipy = sp.csr_matrix((data_np, col_np, crow_np), shape=(n, n))
+            try:
+                x_np = spsolve_triangular(
+                    A_scipy, b_np, lower=lower, unit_diagonal=unit_diagonal
+                )
+                    
+            except Exception as e:
+                log.error(f"Triangular sparse solve failed: {e}")
+                raise ValueError(f"SciPy triangular sparse solver failed: {e}")
+        else:
+            device = cp.cuda.Device(device)  # Device 1
+            with device:
+                data_cp = cp.array(data_np)
+                indices_cp = cp.array(col_np)
+                indptr_cp = cp.array(crow_np)
+                b_cp = cp.array(b_np)
                 
-        except Exception as e:
-            log.error(f"Triangular sparse solve failed: {e}")
-            raise ValueError(f"SciPy triangular sparse solver failed: {e}")
-        
+                # Create CuPy CSR matrix
+                A_cp = cp_csr_matrix((data_cp, indices_cp, indptr_cp), shape=(n, n))
+                
+                # Solve on GPU
+                x_cp = cp_spsolve_triangular(
+                    A_cp, b_cp, lower=lower, unit_diagonal=unit_diagonal
+                )
+                
+                # Transfer solution back to CPU
+                x_np = cp.asnumpy(x_cp)
+                log.debug("GPU solver completed successfully")
+            
         # Convert solution back to PyTorch tensor and save gradients/states
         x = torch.tensor(x_np, dtype=b.dtype, device=b.device)
         ctx.save_for_backward(A_values, crow_indices, col_indices, x, b)
         ctx.lower = lower
         ctx.unit_diagonal = unit_diagonal
+        ctx.device = device
         
         return x
     
@@ -280,6 +307,7 @@ class TriangularSparseSolver(torch.autograd.Function):
         A_values, crow_indices, col_indices, x, b = ctx.saved_tensors
         lower = ctx.lower
         unit_diagonal = ctx.unit_diagonal
+        device = ctx.device
             
         # NOTE For backward pass with triangular matrices, we need to be careful
         # Since A is lower triangular, A^T is upper triangular
@@ -309,7 +337,7 @@ class TriangularSparseSolver(torch.autograd.Function):
         
         # Solve the transposed system to get gradb
         gradb = TriangularSparseSolver.apply(
-            A_T_values, A_T_crow, A_T_col, grad_output, transposed_lower, unit_diagonal   
+            A_T_values, A_T_crow, A_T_col, grad_output, transposed_lower, unit_diagonal, device   
         )
         
         # NOTE: For gradA, we need to compute -gradb * x^T
@@ -324,9 +352,9 @@ class TriangularSparseSolver(torch.autograd.Function):
                     # Compute gradient for this location: -gradb[i] * x[j]
                     gradA_values[j_idx] = -gradb[i] * x[j]
                         
-            return gradA_values, None, None, gradb, None, None
+            return gradA_values, None, None, gradb, None, None, None
         else:
-            return None, None, None, gradb, None, None
+            return None, None, None, gradb, None, None, None
 
 
 triangular_sparse_solve = TriangularSparseSolver.apply

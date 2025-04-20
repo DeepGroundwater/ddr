@@ -42,12 +42,12 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pytest",
-    "pytest-cov",
+    "pytest>=7.4.2",
+    "pytest-cov>=6.0.0",
 ]
 jupyter = [
-    "ipykernel",
-    "jupyterlab",
+    "ipykernel>=6.24.0",
+    "jupyterlab>=4.0.0",
 ]
 cpu = [
   "torch==2.6.0",

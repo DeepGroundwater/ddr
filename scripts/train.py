@@ -23,6 +23,7 @@ from ddr.analysis.utils import save_state
 
 log = logging.getLogger(__name__)
 
+
 def _set_seed(cfg: DictConfig) -> None:
     torch.manual_seed(cfg.seed)
     if torch.cuda.is_available():
@@ -31,6 +32,7 @@ def _set_seed(cfg: DictConfig) -> None:
         torch.backends.cudnn.benchmark = False
     np.random.seed(cfg.np_seed)
     random.seed(cfg.seed)
+    
     
 def train(cfg, flow, routing_model, nn):
     
@@ -83,7 +85,7 @@ def train(cfg, flow, routing_model, nn):
             dmc_kwargs = {
                 "hydrofabric": hydrofabric,
                 "spatial_parameters": spatial_params,
-                "streamflow": torch.tensor(q_prime, device=cfg.device, dtype=torch.float32)
+                "streamflow": torch.tensor(q_prime, device=cfg.device, dtype=torch.float32),
             }
             dmc_output = routing_model(**dmc_kwargs)
 
@@ -179,7 +181,7 @@ def main(cfg: DictConfig) -> None:
             grid=cfg.kan.grid,
             k=cfg.kan.k,
             seed=cfg.seed, 
-            device=cfg.device
+            device=cfg.device,
         )
         routing_model = dmc(
             cfg=cfg,
@@ -190,7 +192,7 @@ def main(cfg: DictConfig) -> None:
             cfg=cfg,
             flow=flow,
             routing_model=routing_model,
-            nn=nn
+            nn=nn,
         )
         
     except KeyboardInterrupt:

@@ -28,7 +28,6 @@
         "end_time": "2015-12-30 23:00:00",
         "output_interval": 3600
     },
-    "output_root": "./output_dir/",
     "catchments": {
         "cat-27": {
           "formulations": [
@@ -101,6 +100,7 @@
         }
 
     },
+    "output_root": "./ngen_output/",
     "routing": {
       "engine": "ddr",
       "connection_path": "./extern/ddr/ddr/src",

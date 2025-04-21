@@ -1,0 +1,31 @@
+### Single-catchment configuration ###
+
+# Hydrolocation
+catchment_id: 'cat-87646'
+nexus_id: 'nex-87404'
+basin_staid: 1563500
+comid: 73005292
+catchment_name: Juniata River at Mapleton Depot, PA
+
+# Static catchment attributes
+Length_m: 2851.789469
+So: 0.152813
+TopWidth: 4.899956
+ChSlp: 1.151794
+MusX: 0.2
+mean.impervious: 0.007657
+mean.elevation: 44461.950151
+mean.smcmax_soil_layers_stag=1: 0.458849
+
+# Model
+model_config: ./data/ddr/config/ddr.yaml
+stepwise: False  # True: stepwise inference, False: Single forward simulation on all data in one go
+initial_state: zero  # zero: set initial states of the model to zero
+dtype: np.float32
+device: cpu
+verbose: False
+
+# Simulation window
+time_step: 86400 seconds
+start_time: 2000/01/01
+end_time: 2005/12/31

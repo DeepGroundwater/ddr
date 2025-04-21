@@ -40,7 +40,7 @@ def bmi_except(fstring):
 print("\nBEGIN BMI UNIT TEST\n*******************\n");
 
 # Define config path
-cfg_file = os.path.join(str(Path(__file__).parent.parent.parent), 'bmi_config_files/bmi_config_cat-88306_5yr.yaml')
+cfg_file = os.path.join(str(Path(__file__).parent.parent.parent), 'bmi_config_files/bmi_gage-01563500.yaml')
 
 if os.path.exists(cfg_file):
     print("Configuration file found: " + str(cfg_file))

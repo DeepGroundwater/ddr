@@ -1,0 +1,94 @@
+defaults:
+  - _self_
+  - hydra: settings
+
+version: 0.1.1 
+forcings: merit_conus_v6.18_snow
+name: ${version}-ddr_jrb-${forcings}
+
+data_sources:
+  # conus_hydrofabric: /mnt/c/Users/LeoLo/Desktop/routing_data/conus_nextgen.gpkg
+  # local_hydrofabric: /mnt/c/Users/LeoLo/Desktop/routing_data/jrb_2.gpkg
+  # network: /mnt/c/Users/LeoLo/Desktop/routing_data/network.zarr
+  # transition_matrix: /mnt/c/Users/LeoLo/Desktop/routing_data/conus_transition_matrices.zarr
+  # statistics: /mnt/c/Users/LeoLo/Desktop/routing_data/statistics
+  # streamflow:  /mnt/c/Users/LeoLo/Desktop/routing_data/streamflow_m73
+  # observations: /mnt/c/Users/LeoLo/Desktop/routing_data/gages_9000.zarr
+  # training_basins: /mnt/c/Users/LeoLo/Desktop/routing_data/gages.csv
+
+  conus_hydrofabric: C:/Users/LeoLo/Desktop/routing_data/conus_nextgen.gpkg  # For norm stats
+  local_hydrofabric: C:/Users/LeoLo/Desktop/routing_data/jrb_2.gpkg  # Target region hf
+  network: C:/Users/LeoLo/Desktop/routing_data/network.zarr  # Pre-derived river network adjacency
+  transition_matrix: C:/Users/LeoLo/Desktop/routing_data/conus_transition_matrices.zarr  # For flow routing
+  statistics: C:/Users/LeoLo/Desktop/routing_data/statistics
+  streamflow:  C:/Users/LeoLo/Desktop/routing_data/streamflow_m73  # Input to be routed
+  observations: C:/Users/LeoLo/Desktop/routing_data/gages_9000.zarr  # Observed, routed
+  training_basins: C:/Users/LeoLo/Desktop/routing_data/gages.csv  # Basin identifier for region to route
+
+train:
+  batch_size: 1
+  start_time: 1981/10/01
+  end_time: 1995/09/30
+  checkpoint: null
+  spatial_checkpoint: null
+  leakance_checkpoint: null
+  dropout_threshold: null
+  epochs: 2
+  learning_rate:
+    '0': 0.005
+    '3': 0.001
+  minimum_zones: 3
+  range_bound_lower_bounds:
+  - 0.001
+  - 0.001
+  range_bound_upper_bounds:
+  - 0.15
+  - 1.0
+  rho: 365
+  shuffle: true
+  warmup: 3
+
+params:
+  attributes:
+  - mean.impervious
+  - mean.elevation
+  - mean.smcmax_soil_layers_stag=1
+  attribute_minimums:
+    discharge: 0.0001
+    slope: 0.0001
+    velocity: 0.01
+    depth: 0.01
+    bottom_width: 0.01
+  attributes_region:
+  - '73'
+  parameter_ranges:
+    range:
+      'n':
+      - 0.01
+      - 0.35
+      q_spatial:
+      - 0.0
+      - 3.0
+  defaults:
+    p: 21
+  tau: 3
+  save_path: ./
+
+np_seed: 1
+seed: 0
+device: 0
+
+kan:
+  hidden_size: 11
+  input_var_names:
+  - mean.impervious
+  - mean.elevation
+  - mean.smcmax_soil_layers_stag=1
+  num_hidden_layers: 1
+  output_size: 3
+  learnable_parameters:
+  - n
+  - q_spatial
+  - p_spatial
+  grid: 3
+  k: 3

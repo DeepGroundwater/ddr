@@ -33,7 +33,7 @@ train:
   spatial_checkpoint: null
   leakance_checkpoint: null
   dropout_threshold: null
-  epochs: 2
+  epochs: 1
   learning_rate:
     '0': 0.005
     '3': 0.001

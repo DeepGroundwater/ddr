@@ -159,11 +159,71 @@ def train(cfg, flow, routing_model, nn):
                 param_group["lr"] = cfg.train.learning_rate[epoch]
 
 
+def inference(cfg, flow, routing_model, nn):
+    dataset = train_dataset(cfg=cfg)
+    
+    dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=cfg.train.batch_size,
+        num_workers=0,
+        collate_fn=dataset.collate_fn,
+        drop_last=True,
+    )
+    
+    routing_model.eval()
+    nn.eval()
+
+    all_predictions = []
+    all_observations = []
+    all_dates = []
+
+    with torch.no_grad():
+        for hydrofabric in dataloader:
+            streamflow_predictions = flow(cfg=cfg, hydrofabric=hydrofabric)
+            q_prime = streamflow_predictions["streamflow"] @ hydrofabric.transition_matrix
+            
+            spatial_params = nn(
+                inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device)
+            )
+            dmc_kwargs = {
+                "hydrofabric": hydrofabric,
+                "spatial_parameters": spatial_params,
+                "streamflow": torch.tensor(q_prime, device=cfg.device, dtype=torch.float32),
+            }
+            dmc_output = routing_model(**dmc_kwargs)
+
+            num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
+            daily_runoff = downsample(
+                dmc_output["runoff"][:, 13 : (-11 + cfg.params.tau)],
+                rho=num_days,
+            )
+
+            nan_mask = hydrofabric.observations.isnull().any(dim="time")
+            np_nan_mask = nan_mask.streamflow.values
+            filtered_ds = hydrofabric.observations.where(~nan_mask, drop=True)
+            filtered_observations = torch.tensor(
+                filtered_ds.streamflow.values,
+                device=cfg.device,
+                dtype=torch.float32,
+            )[:, 1:-1]
+
+            filtered_predictions = daily_runoff[~np_nan_mask]
+            
+            all_predictions.append(filtered_predictions.cpu().numpy())
+            all_observations.append(filtered_observations.cpu().numpy())
+            all_dates.append(dataset.dates.batch_daily_time_range[1:-1])
+
+    return {
+        "predictions": all_predictions,
+        "observations": all_observations,
+        "dates": all_dates,
+    }
+
 
 @hydra.main(
     version_base="1.3",
     config_path="../config",
-    config_name="training_config",
+    config_name="train_config",
 )
 def main(cfg: DictConfig) -> None:
     _set_seed(cfg=cfg)
@@ -194,7 +254,16 @@ def main(cfg: DictConfig) -> None:
             routing_model=routing_model,
             nn=nn,
         )
+
+        log.info("Running inference after training")
+        results = inference(cfg=cfg, flow=flow, routing_model=routing_model, nn=nn)
         
+        # Example: save predictions to disk
+        np.save(cfg.params.save_path / "predictions.npy", results["predictions"])
+        np.save(cfg.params.save_path / "observations.npy", results["observations"])
+        np.save(cfg.params.save_path / "dates.npy", results["dates"])
+        np.save(cfg.params.save_path / "routing_model_state_dict.npy", routing_model.state_dict())
+
     except KeyboardInterrupt:
         print("Keyboard interrupt received")
     

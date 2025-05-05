@@ -59,7 +59,7 @@ _var_name_internal_map = {
     # ----------- Dynamic inputs -----------
     'flow_sim': 'land_surface_water__runoff_volume_flux',
     # ----------- Static inputs -----------
-    # 'uparea': 'uparea',
+    'uparea': 'basin__area',
 }
 
 _var_name_external_map = {v: k for k, v in _var_name_internal_map.items()}
@@ -92,8 +92,8 @@ def bmi_array(arr: list[float]) -> NDArray:
 
 class dMCRoutingBMI(Bmi):
     """
-    dMC BMI: NextGen-compatible, differentiable Muskingum-Cunge routing model
-    (Bindas et al., 2024/2025).
+    dMC BMI: NextGen-compatible, differentiable Muskingum-Cunge (dMC) routing
+    model (Bindas et al., 2024/2025).
 
     Note: This BMI is only intended for forward inference. To train,
         see `scripts/train.py`.
@@ -124,8 +124,6 @@ class dMCRoutingBMI(Bmi):
             Enables debug print statements if True.
         """
         super().__init__()
-        t_start = time.time()
-
         self._name = self._att_map['model_name']
         self._model = None
         self._initialized = False
@@ -142,6 +140,8 @@ class dMCRoutingBMI(Bmi):
         self.config_bmi = None
         self.config_model = None
 
+        # Timing BMI computations
+        t_start = time.time()
         self.bmi_process_time = 0
 
         self.device = None
@@ -149,8 +149,22 @@ class dMCRoutingBMI(Bmi):
         self.routing_model = None
         self.flow = None
 
+        # Read BMI and model configuration files.
         if config_path is not None:
-            self._load_config(config_path)
+            if not Path(config_path).is_file():
+                raise FileNotFoundError(f"Configuration file not found: {config_path}")
+            with open(config_path) as f:
+                self.config_bmi = yaml.safe_load(f)
+            self.stepwise = self.config_bmi.get('stepwise', True)
+            
+            try:
+                model_config_path = os.path.join(
+                    script_dir, '..', '..', self.config_bmi.get('model_config')
+                )
+                with open(model_config_path) as f:
+                    self.config_model = yaml.safe_load(f)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load model configuration: {e}") from e
 
         # Initialize variables.
         self._dynamic_var = self._set_vars(_dynamic_input_vars, bmi_array([]))
@@ -162,28 +176,49 @@ class dMCRoutingBMI(Bmi):
         if self.verbose:
             log.info(f"BMI init took {time.time() - t_start} s")
 
-    @staticmethod
-    def _set_vars(
-        vars: list[tuple[str, str]],
-        var_value: NDArray,
-    ) -> dict[str, dict[str, Union[NDArray, str]]]:
-        """Set the values of the given variables."""
-        var_dict = {}
-        for item in vars:
-            var_dict[item[0]] = {'value': var_value.copy(), 'units': item[1]}
-        return var_dict
-    
     def initialize(self, config_path: Optional[str] = None) -> None:
-        """Initialize the BMI model and set up training components."""
+        """(Control function) Initialize the BMI model.
+
+        Parameters
+        ----------
+        config_path
+            Path to the BMI configuration file.
+        """
         t_start = time.time()
+
+        # Read BMI configuration file if provided.
         if config_path is not None:
-            self._load_config(config_path)
+            if not Path(config_path).is_file():
+                raise FileNotFoundError(f"Configuration file not found: {config_path}")
+            with open(config_path) as f:
+                self.config_bmi = yaml.safe_load(f)
+            self.stepwise = self.config_bmi.get('stepwise', True)
 
         if self.config_bmi is None:
-            raise ValueError("No configuration file given.")
+            raise ValueError("No configuration file given. A config path" \
+                             "must be passed at time of bmi init() or" \
+                             "initialize() call.")
+
+        # Load model configuration.
+        if self.config_model is None:
+            try:
+                model_config_path = os.path.join(
+                    script_dir, '..', '..', self.config_bmi.get('config_model')
+                )
+                with open(model_config_path) as f:
+                    self.config_model = yaml.safe_load(f)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load model configuration: {e}") from e
+        
+        # self.config_model = utils.initialize_config(self.config_model)
+        self.config_model['model_path'] = os.path.join(
+            script_dir, '..', '..', self.config_model.get('trained_model')
+        )
+        self.device = torch.device(self.config_model.get('device', 'cpu'))
+        self.internal_dtype = self.config_model['dtype']
+        self.external_dtype = eval(self.config_bmi['dtype'])
 
         # Initialize device and models
-        self.device = torch.device(self.config_model.get('device', 'cpu'))
         self.nn = kan(
             input_var_names=self.config_model.get('kan.input_var_names'),
             learnable_parameters=self.config_model.get('kan.learnable_parameters'),
@@ -203,37 +238,97 @@ class dMCRoutingBMI(Bmi):
             self._load_checkpoint()
 
         self._initialized = True
+
+        # Load static variables from BMI conf
+        for name in self._static_var.keys():
+            ext_name = map_to_internal(name)
+            if ext_name in self.config_bmi.keys():
+                self._static_var[name]['value'] = bmi_array(self.config_bmi[ext_name])
+            else:
+                log.warning(f"Static variable '{name}' not in BMI config. Skipping.")
+
+        # Set simulation parameters.
+        # self.current_time = self.config_bmi.get('start_time', 0.0)
+        # self._time_step_size = self.config_bmi.get('time_step_size', 86400)  # Default to 1 day in seconds.
+        # self._end_time = self.config_bmi.get('end_time', np.finfo('d').max)\
+
+        # # Load a trained model.
+        # try:
+        #     self._model = self._load_trained_model(self.config_model).to(self.device)
+        #     self._initialized = True
+        # except Exception as e:
+        #     raise RuntimeError(f"Failed to load trained model: {e}") from e
+        
+        # Forward simulation on all data in one go.
+        # if not self.stepwise:
+        #     predictions = self._do_forward()
+        #     self._format_outputs(predictions)  # Process and store predictions.
+
+        # Track BMI runtime.
         self.bmi_process_time += time.time() - t_start
         if self.verbose:
-            log.info(f"BMI Initialize took {time.time() - t_start:.4f} s")
+            log.info(f"BMI Initialize took {time.time() - t_start:.4f} s | Total runtime: {self.bmi_process_time:.4f} s")
 
     def update(self) -> None:
-        """Advance model state by one time step."""
+        """(Control function) Advance model state by one time step."""
         if not self._initialized:
             raise RuntimeError("Model not initialized.")
+        
         t_start = time.time()
-
-        # Perform one training epoch
-        self._train_one_epoch()
-
+        
+        # # Forward model on individual timesteps if not initialized with forward_init.
+        # if self.stepwise:
+        #     predictions = self._do_forward()
+        #     self._format_outputs(predictions)
+        
         # Increment model time
         self._timestep += 1
+
+        # Track BMI runtime.
         self.bmi_process_time += time.time() - t_start
         if self.verbose:
-            log.info(f"BMI Update took {time.time() - t_start:.4f} s")
+            log.info(f"BMI Update took {time.time() - t_start:.4f} s | Total runtime: {self.bmi_process_time:.4f} s")
 
     def update_until(self, end_time: float) -> None:
-        """Update model until a particular time."""
+        """(Control function) Update model until a particular time.
+
+        Note: Models should be trained standalone with dPLHydro_PMI first before
+        forward predictions with this BMI.
+
+        Parameters
+        ----------
+        end_time : float
+            Time to run model until.
+        """
         if not self._initialized:
             raise RuntimeError("Model not initialized.")
+        
         t_start = time.time()
 
-        while self.get_current_time() < end_time:
-            self.update()
+        if end_time < self.get_current_time():
+            log.warning(
+                f"No update performed: end_time ({end_time}) <= current time ({self.get_current_time()})."
+            )
+            return None
 
+        n_steps, remainder = divmod(
+            end_time - self.get_current_time(),
+            self.get_time_step(),
+        )
+
+        if remainder != 0:
+            log.warning(
+                f"End time is not multiple of time step size. Updating until: {end_time - remainder}"
+            )
+
+        # for _ in range(int(n_steps)):
+        #     self.update()
+        # self.update_frac(n_steps - int(n_steps))  # Fractional step updates.
+
+        # Track BMI runtime.
         self.bmi_process_time += time.time() - t_start
         if self.verbose:
-            log.info(f"BMI Update Until took {time.time() - t_start:.4f} s")
+            log.info(f"BMI Update Until took {time.time() - t_start:.4f} s | Total runtime: {self.bmi_process_time:.4f} s")
 
     def finalize(self) -> None:
         """(Control function) Finalize model."""
@@ -254,8 +349,27 @@ class dMCRoutingBMI(Bmi):
 #==============================================================================#
 #==============================================================================#
 
+    @staticmethod
+    def _set_vars(
+        vars: list[tuple[str, str]],
+        var_value: NDArray,
+    ) -> dict[str, dict[str, Union[NDArray, str]]]:
+        """Set values for the given variables."""
+        var_dict = {}
+        for item in vars:
+            var_dict[item[0]] = {'value': var_value.copy(), 'units': item[1]}
+        return var_dict
 
-
+    @staticmethod
+    def _load_trained_model(config: dict):
+        """Load a pre-trained model based on the configuration."""
+        model_path = config.get('model_path')
+        if not model_path:
+            raise ValueError("No model path specified in configuration.")
+        if not Path(model_path).exists():
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        return ModelHandler(config, verbose=True)
+    
     def _do_forward(self):
         """Forward model and save outputs to return on update call."""
         data_dict = self._format_inputs()
@@ -295,16 +409,6 @@ class dMCRoutingBMI(Bmi):
         # # Scale and check output
         # self.scale_output()
 
-    @staticmethod
-    def _load_trained_model(config: dict):
-        """Load a pre-trained model based on the configuration."""
-        model_path = config.get('model_path')
-        if not model_path:
-            raise ValueError("No model path specified in configuration.")
-        if not Path(model_path).exists():
-            raise FileNotFoundError(f"Model file not found: {model_path}")
-        # return ModelHandler(config, verbose=True)
-    
     def _format_outputs(self, outputs):
         """Format model outputs as BMI outputs."""
         for name in self._output_vars.keys():
@@ -578,7 +682,7 @@ class dMCRoutingBMI(Bmi):
 
     def get_value_ptr(self, var_standard_name: str) -> np.ndarray:
         """Reference to values."""
-        return np.zeros(100) #{**self._dynamic_var, **self._static_var, **self._output_vars}[var_standard_name]['value']
+        return {**self._dynamic_var, **self._static_var, **self._output_vars}[var_standard_name]['value']
 
     def get_value(self, var_name: str, dest: NDArray):
         """Return copy of variable values."""
@@ -709,6 +813,35 @@ class dMCRoutingBMI(Bmi):
     def get_grid_z(self, grid, z):
         raise NotImplementedError("get_grid_z")
 
+    def initialize_config(self, config_path: str) -> dict:
+        """
+        Check that config_path is valid path and convert config into a
+        dictionary object.
+        """
+        config_path = Path(config_path).resolve()
+        
+        if not config_path:
+            raise RuntimeError("No BMI configuration path provided.")
+        elif not config_path.is_file():
+            raise RuntimeError(f"BMI configuration not found at path {config_path}.")
+        else:
+            with config_path.open('r') as f:
+                self.config = yaml.safe_load(f)
+
+    # def scale_output(self) -> None:
+    #     """
+    #     Scale and return more meaningful output from wrapped model.
+    #     """
+    #     models = self.config['hydro_models'][0]
+
+    #     # TODO: still have to finish finding and undoing scaling applied before
+    #     # model run. (See some checks used in bmi_lstm.py.)
+
+    #     # Strip unnecessary time and variable dims. This gives 1D array of flow
+    #     # at each basin.
+    #     # TODO: setup properly for multiple models later.
+    #     self.streamflow_cms = self.preds[models]['flow_sim'].squeeze()
+    
     def _load_config(self, config_path: str):
         """Load BMI and model configuration files."""
         if not Path(config_path).is_file():

@@ -1,6 +1,6 @@
 """
-Forward BMI on USGS AORC data for the Juniata River Basin using the NextGen
-hydrofabric.
+Forward routing BMI with the NextGen hydrofabric (v2.2) for the Juniata River
+Basin.
 """
 import sys
 import numpy as np
@@ -12,26 +12,26 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(script_dir, '..'))
 
 
-### Configuration Settings (Single-catchment Run) ###
-BASIN_ID = 'cat-88306'
-BMI_CFG_PATH = f'ngen_resources/data/config/bmi_{BASIN_ID}_aorc_daily.yaml'
-FORC_PATH = f'data/aorc/juniata_river_basin/forcings_5yr_{BASIN_ID}.npy'
-ATTR_PATH = f'data/aorc/juniata_river_basin/attributes_5yr_{BASIN_ID}.npy'
-# OBS_PATH = f'../../data/aorc/juniata_river_basin/obs_5yr_{basin_id}.npy'
+### Configuration Settings (Single-gauge Run) ###
+BMI_CFG_PATH = './ngen_resources/data/ddr/config/bmi_gage-01563500.yaml'
+
+HYDROFABRIC = '/ngen_resources/data/ddr/spatial/jrb_hydrofabric_v2.2.gpkg'
+NETWORK = '/ngen_resources/data/ddr/spatial/network.nc'
+TRANSITION_MAT = '/ngen_resources/data/ddr/spatial/conus_transition_matrices.nc'
+STATISTICS = '/ngen_resources/data/ddr/spatial/attribute_statistics_hydrofabric_v2.2.json'
+STREAMFLOW = r'C:/Users/LeoLo/Desktop/routing_data/streamflow_m73'
+OBS = r'C:/Users/LeoLo/Desktop/routing_data/gages_9000.zarr'
+GAGES = '/ngen_resources/data/ddr/spatial/gages.csv'
 ### ------------------------------------ ###
 
 
-# pkg_root = Path(__file__).parent.parent.parent
-# forc = np.load(os.path.join(pkg_root, Path(FORC_PATH)))
-# attr = np.load(os.path.join(pkg_root, Path(ATTR_PATH)))
-# bmi_cfg_path_full = os.path.join(pkg_root, Path(BMI_CFG_PATH))
-# # obs = np.load(os.path.join(pkg_root, Path(OBS_PATH)))
+pkg_root = Path(__file__).parent.parent
+bmi_cfg_path_full = os.path.join(pkg_root, Path(BMI_CFG_PATH))
 
-# # Create dHBV 2.0 BMI instance
-# model = Bmi(config_path=bmi_cfg_path_full)
+# Create dMC BMI instance
+model = Bmi(config_path=bmi_cfg_path_full)
 
-# streamflow_pred = np.zeros(forc.shape[0])
-# nan_idx = []
+nan_idx = []
 
 # # 1) Compile forcing data within BMI to do batch run.
 # for i in range(0, forc.shape[0]):
@@ -52,8 +52,8 @@ ATTR_PATH = f'data/aorc/juniata_river_basin/attributes_5yr_{BASIN_ID}.npy'
 #     model.set_value('land_surface_water__potential_evaporation_volume_flux', pet)
 
 
-# ### BMI initialization ###
-# model.initialize()
+### BMI initialization ###
+model.initialize()
 
 # # 2) DO pseudo model forward and return pre-predicted values at each timestep
 # for i in range(0, forc.shape[0]):

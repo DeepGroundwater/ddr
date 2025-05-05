@@ -127,7 +127,9 @@ class dmc(torch.nn.Module):
         )
 
         # Initialize discharge
-        self._discharge_t = q_prime[0].to(self.device_num)
+        self.discharge = torch.zeros_like(q_prime).to(self.device_num)  #[time, catchment]
+        self.discharge[0, :] = q_prime[0].clone()
+        self._discharge_t = q_prime[0]
 
         # Setup output tensors
         output = torch.zeros(
@@ -219,8 +221,10 @@ class dmc(torch.nn.Module):
                 output[i, timestep] = torch.sum(q_t1[gage_idx])
 
             self._discharge_t = q_t1
+            self.discharge[timestep, :] = q_t1.clone()
 
         output_dict = {
+            "discharge": self.discharge,
             "runoff": output,
         }
 

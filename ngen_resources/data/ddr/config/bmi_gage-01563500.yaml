@@ -18,7 +18,7 @@ mean.elevation: 44461.950151
 mean.smcmax_soil_layers_stag=1: 0.458849
 
 # Model
-model_config: ./data/ddr/config/ddr.yaml
+model_config: ./ngen_resources/data/ddr/config/ddr.yaml #./data/ddr/config/ddr.yaml
 stepwise: False  # True: stepwise inference, False: Single forward simulation on all data in one go
 initial_state: zero  # zero: set initial states of the model to zero
 dtype: np.float32

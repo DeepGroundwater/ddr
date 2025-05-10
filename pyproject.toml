@@ -38,6 +38,7 @@ dependencies = [
     "pykan==0.2.8",
     "scikit-learn==1.6.1",
     "matplotlib==3.10.0",
+    "pre-commit==4.2.0",
 ]
 
 [project.optional-dependencies]

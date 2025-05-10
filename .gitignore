@@ -178,6 +178,7 @@ data/
 
 # .vscode
 .vscode
+.DS_Store
 
 # Hydra outputs
 runs/

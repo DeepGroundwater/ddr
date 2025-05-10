@@ -7,29 +7,21 @@ forcings: merit_conus_v6.18_snow
 name: ${version}-ddr_jrb-${forcings}
 
 data_sources:
-  # conus_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/conus_nextgen.gpkg
-  # local_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/jrb_2.gpkg
-  # network: /projects/mhpi/tbindas/ddr/data/network.zarr
-  # transition_matrix: /projects/mhpi/data/hydrofabric/v2.2/conus_transition_matrices.zarr
-  # statistics: /projects/mhpi/tbindas/ddr/data/statistics
-  # streamflow:  /projects/mhpi/data/MERIT/streamflow/zarr/${forcings}/73
-  # observations: /projects/mhpi/data/observations/gages_9000.zarr
-  # testing_basins: /projects/mhpi/tbindas/ddr/data/gages.csv
+  conus_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/conus_nextgen.gpkg
+  local_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/jrb_2.gpkg
+  network: /projects/mhpi/tbindas/ddr/data/network.zarr
+  transition_matrix: /projects/mhpi/data/hydrofabric/v2.2/conus_transition_matrices.zarr
+  statistics: /projects/mhpi/tbindas/ddr/data/statistics
+  streamflow:  /projects/mhpi/data/MERIT/streamflow/zarr/${forcings}/73
+  observations: /projects/mhpi/data/observations/gages_9000.zarr
+  testing_basins: /projects/mhpi/tbindas/ddr/data/gages.csv
 
-  conus_hydrofabric: C:/Users/LeoLo/Desktop/routing_data/conus_nextgen.gpkg  # For norm stats
-  local_hydrofabric: C:/Users/LeoLo/Desktop/routing_data/jrb_2.gpkg  # Target region hf
-  network: C:/Users/LeoLo/Desktop/routing_data/network.zarr  # Pre-derived river network adjacency
-  transition_matrix: C:/Users/LeoLo/Desktop/routing_data/conus_transition_matrices.zarr  # For flow routing
-  statistics: C:/Users/LeoLo/Desktop/routing_data/statistics
-  streamflow:  C:/Users/LeoLo/Desktop/routing_data/streamflow_m73  # Input to be routed
-  observations: C:/Users/LeoLo/Desktop/routing_data/gages_9000.zarr  # Observed, routed
-  training_basins: C:/Users/LeoLo/Desktop/routing_data/gages.csv  # Basin identifier for region to route
-  
 eval:
   batch_size: 1
   start_time: 1981/10/01
   end_time: 1995/09/30
-  spatial_checkpoint: C:/Users/LeoLo/Desktop/noaa_owp/ddr/_0.1.1-ddr_jrb-merit_conus_v6.18_snow_epoch_4_mb_0.pt
+  checkpoint: null
+  spatial_checkpoint: null
   leakance_checkpoint: null
   dropout_threshold: null
   epoch: 4

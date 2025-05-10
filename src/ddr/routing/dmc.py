@@ -162,7 +162,7 @@ class dmc(torch.nn.Module):
         desc = "Running dMC Routing"
         for timestep in tqdm(
             range(1, len(q_prime)),
-            desc=f"\r{desc} for"
+            desc=f"\r{desc} for "
             f"Epoch: {self.epoch} | "
             f"Mini Batch: {self.mini_batch} | ",
             ncols=140,

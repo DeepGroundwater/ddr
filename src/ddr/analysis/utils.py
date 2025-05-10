@@ -2,6 +2,8 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+import numpy as np
+
 
 def save_state(
     epoch: int,
@@ -71,3 +73,27 @@ def save_state(
         f"_{name}_epoch_{state['epoch']}"
         f"_mb_{state['mini_batch']}.pt",
     )
+
+def log_eval_metrics(log, nse, rmse, kge):
+    """
+    Logs evaluation metrics in a formatted and readable way.
+
+    Parameters
+    ----------
+    log : Logger
+        The logger object.
+    nse : np.ndarray
+        NumPy array of Nash-Sutcliffe Efficiency values.
+    rmse : np.ndarray
+        NumPy array of Root Mean Squared Error values.
+    kge : np.ndarray
+        NumPy array of Kling-Gupta Efficiency values.
+    """
+    log.info("Evaluation Results:")
+    log.info("----------------------------------------")  # Separator line
+    log.info(f"{'Metric':<10} | {'Mean':>12} | {'Median':>12}")  # Header row
+    log.info("----------------------------------------")
+    log.info(f"{'NSE':<10} | {np.nanmean(nse):12.4f} | {np.nanmedian(nse[~np.isinf(nse)]):12.4f}")
+    log.info(f"{'RMSE':<10} | {np.nanmean(rmse):12.4f} | {np.nanmedian(rmse):12.4f}")
+    log.info(f"{'KGE':<10} | {np.nanmean(kge):12.4f} | {np.nanmedian(kge):12.4f}")
+    log.info("----------------------------------------")

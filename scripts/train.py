@@ -8,18 +8,18 @@ import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
-from torch.utils.data import DataLoader
 from torch.nn.functional import mse_loss
+from torch.utils.data import DataLoader
 
 from ddr._version import __version__
-from ddr.nn.kan import kan
-from ddr.routing.dmc import dmc
-from ddr.dataset.utils import downsample
-from ddr.dataset.streamflow import StreamflowReader as streamflow
-from ddr.dataset.train_dataset import train_dataset
 from ddr.analysis.metrics import Metrics
 from ddr.analysis.plots import plot_time_series
 from ddr.analysis.utils import save_state
+from ddr.dataset.streamflow import StreamflowReader as streamflow
+from ddr.dataset.train_dataset import train_dataset
+from ddr.dataset.utils import downsample
+from ddr.nn.kan import kan
+from ddr.routing.dmc import dmc
 
 log = logging.getLogger(__name__)
 
@@ -47,14 +47,14 @@ def train(cfg, flow, routing_model, nn):
     if cfg.train.spatial_checkpoint:
         file_path = Path(cfg.train.spatial_checkpoint)
         log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
-        state = torch.load(file_path)
+        state = torch.load(file_path, map_location=cfg.device)
         state_dict = state["model_state_dict"]
-        for key in state_dict.keys():
-            state_dict[key] = state_dict[key].to(cfg.device)
+
         nn.load_state_dict(state["model_state_dict"])
         torch.set_rng_state(state["rng_state"])
         start_epoch = state["epoch"]
         # start_mini_batch = 0 if state["mini_batch"] == 0 else state["mini_batch"] + 1  # Start from the next mini-batch
+
         if torch.cuda.is_available() and "cuda_rng_state" in state:
             torch.cuda.set_rng_state(state["cuda_rng_state"])
         if start_epoch in cfg.train.learning_rate.keys():
@@ -116,9 +116,8 @@ def train(cfg, flow, routing_model, nn):
             
             np_pred = filtered_predictions.detach().cpu().numpy()
             np_target = filtered_observations.detach().cpu().numpy()
-            plotted_dates = dataset.dates.batch_daily_time_range[
-                1:-1
-            ]
+            plotted_dates = dataset.dates.batch_daily_time_range[1:-1]
+            
             metrics = Metrics(pred=np_pred, target=np_target)
             pred_nse = metrics.nse
             pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
@@ -202,7 +201,7 @@ def main(cfg: DictConfig) -> None:
         total_time = time.perf_counter() - start_time
         log.info(
             f"Time Elapsed: {(total_time / 60):.6f} minutes"
-        ) 
+        )
         
 if __name__ == "__main__":
     print(f"Training DDR with version: {__version__}")

@@ -2,7 +2,7 @@ defaults:
   - _self_
   - hydra: settings
 
-version: 0.1.1 
+version: 0.1.1
 forcings: merit_conus_v6.18_snow
 name: ${version}-ddr_jrb-${forcings}
 
@@ -21,8 +21,6 @@ train:
   start_time: 1981/10/01
   end_time: 1995/09/30
   checkpoint: null
-  spatial_checkpoint: null
-  leakance_checkpoint: null
   dropout_threshold: null
   epochs: 100
   learning_rate:
@@ -83,4 +81,3 @@ kan:
   - p_spatial
   grid: 3
   k: 3
-

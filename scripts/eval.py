@@ -6,22 +6,20 @@ from pathlib import Path
 import hydra
 import numpy as np
 import torch
-from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig
-from torch.nn.functional import mse_loss
-from torch.utils.data import DataLoader
-
 from ddr._version import __version__
 from ddr.analysis.metrics import Metrics
-from ddr.analysis.plots import plot_time_series
-from ddr.analysis.utils import log_eval_metrics, save_state
+from ddr.analysis.utils import log_eval_metrics
 from ddr.dataset.eval_dataset import eval_dataset
 from ddr.dataset.streamflow import StreamflowReader as streamflow
 from ddr.dataset.utils import downsample
 from ddr.nn.kan import kan
 from ddr.routing.dmc import dmc
+from hydra.core.hydra_config import HydraConfig
+from omegaconf import DictConfig
+from torch.utils.data import DataLoader
 
 log = logging.getLogger(__name__)
+
 
 def _set_seed(cfg: DictConfig) -> None:
     torch.manual_seed(cfg.seed)
@@ -31,6 +29,7 @@ def _set_seed(cfg: DictConfig) -> None:
         torch.backends.cudnn.benchmark = False
     np.random.seed(cfg.np_seed)
     random.seed(cfg.seed)
+
 
 def evaluate(cfg, flow, routing_model, nn):
     """Do model evaluation and get performance metrics."""
@@ -72,13 +71,11 @@ def evaluate(cfg, flow, routing_model, nn):
 
             streamflow_predictions = flow(cfg=cfg, hydrofabric=hydrofabric)
             q_prime = streamflow_predictions["streamflow"] @ hydrofabric.transition_matrix
-            spatial_params = nn(
-                inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device)
-            )
+            spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
             dmc_kwargs = {
                 "hydrofabric": hydrofabric,
                 "spatial_parameters": spatial_params,
-                "streamflow": torch.tensor(q_prime, device=cfg.device, dtype=torch.float32)
+                "streamflow": torch.tensor(q_prime, device=cfg.device, dtype=torch.float32),
             }
             dmc_output = routing_model(**dmc_kwargs)
 
@@ -92,9 +89,9 @@ def evaluate(cfg, flow, routing_model, nn):
             np_nan_mask = nan_mask.streamflow.values
 
             filtered_ds = hydrofabric.observations.where(~nan_mask, drop=True)
-            filtered_observations = torch.tensor(filtered_ds.streamflow.values, device=cfg.device, dtype=torch.float32)[
-                :, 1:-1
-            ]  # Cutting off days to match with realigned timesteps
+            filtered_observations = torch.tensor(
+                filtered_ds.streamflow.values, device=cfg.device, dtype=torch.float32
+            )[:, 1:-1]  # Cutting off days to match with realigned timesteps
 
             filtered_predictions = daily_runoff[~np_nan_mask]
 
@@ -126,6 +123,7 @@ def evaluate(cfg, flow, routing_model, nn):
     config_name="evaluation_config",  # Create a separate evaluation config
 )
 def main(cfg: DictConfig) -> None:
+    """Main function."""
     _set_seed(cfg=cfg)
     cfg.params.save_path = Path(HydraConfig.get().run.dir)
     (cfg.params.save_path / "plots").mkdir(exist_ok=True)
@@ -141,30 +139,21 @@ def main(cfg: DictConfig) -> None:
             grid=cfg.kan.grid,
             k=cfg.kan.k,
             seed=cfg.seed,
-            device=cfg.device
+            device=cfg.device,
         )
-        routing_model = dmc(
-            cfg=cfg,
-            device=cfg.device
-        )
+        routing_model = dmc(cfg=cfg, device=cfg.device)
         flow = streamflow(cfg)
-        evaluate(
-            cfg=cfg,
-            flow=flow,
-            routing_model=routing_model,
-            nn=nn
-        )
-        
+        evaluate(cfg=cfg, flow=flow, routing_model=routing_model, nn=nn)
+
     except KeyboardInterrupt:
         print("Keyboard interrupt received")
 
     finally:
         print("Cleaning up...")
-    
+
         total_time = time.perf_counter() - start_time
-        log.info(
-            f"Time Elapsed: {(total_time / 60):.6f} minutes"
-        ) 
+        log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
+
 
 if __name__ == "__main__":
     print(f"Evaluating DDR with version: {__version__}")

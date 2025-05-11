@@ -14,9 +14,9 @@ Before creating a new bug report, please confirm one does not already exist for 
 
 ### Actual Behavior
 
-<!-- Provide a clear and concise description of the problem or bug that you encountered. 
+<!-- Provide a clear and concise description of the problem or bug that you encountered.
 
-Is this a known issue? 
+Is this a known issue?
 -->
 
 ### Expected Behavior
@@ -26,9 +26,9 @@ Is this a known issue?
 
 ## Steps to Reproduce
 
-<!-- Detail steps to recreate the issue as best you can. If we can replicate it on our end we can more readily address the core issue. 
+<!-- Detail steps to recreate the issue as best you can. If we can replicate it on our end we can more readily address the core issue.
 
-1. 
+1.
 2.
 ...
 -->

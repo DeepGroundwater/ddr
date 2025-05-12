@@ -1,0 +1,2 @@
+STAID,STANAME,HUC02,DRAIN_SQKM,LAT_GAGE,LNG_GAGE,COMID,edge_intersection,zone_edge_id,zone_edge_uparea,zone_edge_vs_gage_area_difference,drainage_area_percent_error,a_merit_a_usgs_ratio
+1563500,"Juniata River at Mapleton Depot, PA",2,5261.855,40.392299,-77.935,73005292,73005292_0,89905,5264.805374,2.950374046,0.00056071,

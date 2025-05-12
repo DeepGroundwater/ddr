@@ -1,0 +1,49 @@
+{
+    "global": {
+      "formulations":
+      [
+        {
+          "name": "bmi_python",
+          "params": {
+              "python_type": "ddr.dMCRoutingBMI",
+              "model_type_name": "dMCRoutingBMI",
+              "init_config": "./data/ddr/config/bmi_gage-01563500.yaml",
+              "allow_exceed_end_time": true,
+              "main_output_variable": "land_surface_water__runoff_volume_flux",
+              "fixed_time_step": false,
+              "uses_forcing_file": false,
+              "variables_names_map" : {
+                "streamflow_cms": "land_surface_water__runoff_volume_flux"
+          }
+        }
+      }
+      ],
+        "forcing": {
+          "path": "./data/forcing/streamflow_jrb_40yr.nc",
+          "provider": "NetCDF"
+        }
+    },
+    "time": {
+        "start_time": "2000-01-01 00:00:00",
+        "end_time": "2005-12-30 23:00:00",
+        "output_interval": 86400
+    },
+    "catchments": {
+        "cat-87646":
+        {
+          "formulations": [
+            { "name": "bmi_python",
+              "params": {
+                "pytorch_model_path": "./data/ddr/model/_0.1.1-ddr_jrb-merit_conus_v6.18_snow_epoch_4_mb_0.pt",
+                "useGPU": false
+            }
+          }
+        ],
+            "forcing": {
+              "path": "./data/forcing/streamflow_jrb_40yr.nc",
+              "provider": "NetCDF"
+            }
+        }
+    },
+    "output_root": "./ngen_output/"
+}

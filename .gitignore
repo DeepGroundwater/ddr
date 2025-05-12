@@ -175,6 +175,7 @@ src/ddr/_version.py
 
 # Large data files
 data/
+!ngen_resources/data/
 
 # .vscode
 .vscode
@@ -182,3 +183,4 @@ data/
 
 # Hydra outputs
 runs/
+output/

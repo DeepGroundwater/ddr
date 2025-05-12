@@ -4,10 +4,13 @@ An implementation of differentiable river routing methods for the NextGen Framew
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
+<img src="docs/images/ddr_logo.png" alt="srb" width="25%"/>
+
+
 > [!WARNING]
 > This repo is a work in progress and will be updating frequently. Be sure to be using the most recent release version
 
-#### Domain of interest: 
+#### Domain of interest:
 The Juniata River Basin
 
 <img src="docs/images/srb.png" alt="srb" width="50%"/>

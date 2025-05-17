@@ -45,8 +45,8 @@ def train(cfg, flow, routing_model, nn):
         drop_last=True,
     )
 
-    if cfg.train.spatial_checkpoint:
-        file_path = Path(cfg.train.spatial_checkpoint)
+    if cfg.train.checkpoint:
+        file_path = Path(cfg.train.checkpoint)
         log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
         state = torch.load(file_path, map_location=cfg.device)
         state_dict = state["model_state_dict"]
@@ -77,7 +77,7 @@ def train(cfg, flow, routing_model, nn):
             routing_model.mini_batch = i
 
             streamflow_predictions = flow(cfg=cfg, hydrofabric=hydrofabric)
-            q_prime = streamflow_predictions["streamflow"] @ hydrofabric.transition_matrix
+            q_prime = streamflow_predictions["streamflow"]
             spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
             dmc_kwargs = {
                 "hydrofabric": hydrofabric,
@@ -115,7 +115,7 @@ def train(cfg, flow, routing_model, nn):
 
             np_pred = filtered_predictions.detach().cpu().numpy()
             np_target = filtered_observations.detach().cpu().numpy()
-            plotted_dates = dataset.dates.batch_daily_time_range[1:-1]
+            plotted_dates = dataset.dates.batch_daily_time_range[1:-1]  # type: ignore
 
             metrics = Metrics(pred=np_pred, target=np_target)
             pred_nse = metrics.nse
@@ -166,8 +166,8 @@ def main(cfg: DictConfig) -> None:
     cfg.params.save_path = Path(HydraConfig.get().run.dir)
     (cfg.params.save_path / "plots").mkdir(exist_ok=True)
     (cfg.params.save_path / "saved_models").mkdir(exist_ok=True)
+    start_time = time.perf_counter()
     try:
-        start_time = time.perf_counter()
         nn = kan(
             input_var_names=cfg.kan.input_var_names,
             learnable_parameters=cfg.kan.learnable_parameters,

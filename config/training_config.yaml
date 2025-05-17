@@ -2,19 +2,18 @@ defaults:
   - _self_
   - hydra: settings
 
-version: 0.1.1
+version: 0.3.0
 forcings: merit_conus_v6.18_snow
-name: ${version}-ddr_jrb-${forcings}
+name: ${version}-ddr-${forcings}
 
 data_sources:
-  conus_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/conus_nextgen.gpkg
-  local_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/jrb_2.gpkg
-  network: /projects/mhpi/tbindas/ddr/data/network.zarr
-  transition_matrix: /projects/mhpi/data/hydrofabric/v2.2/conus_transition_matrices.zarr
-  statistics: /projects/mhpi/tbindas/ddr/data/statistics
-  streamflow:  /projects/mhpi/data/MERIT/streamflow/zarr/${forcings}/73
-  observations: /projects/mhpi/data/observations/gages_9000.zarr
-  training_basins: /projects/mhpi/tbindas/ddr/data/gages.csv
+  conus_hydrofabric: /Users/taddbindas/projects/ddr/data/conus_nextgen.gpkg
+  local_hydrofabric: /Users/taddbindas/projects/ddr/data/jrb_2.gpkg
+  network: /Users/taddbindas/projects/ddr/data/network.zarr
+  statistics: /Users/taddbindas/projects/ddr/data/statistics
+  streamflow:  s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
+  observations: /Users/taddbindas/projects/ddr/data/gages_9000.zarr
+  training_basins: /Users/taddbindas/projects/ddr/data/gages.csv
 
 train:
   batch_size: 1
@@ -65,7 +64,8 @@ params:
 
 np_seed: 1
 seed: 0
-device: 0
+device: mps
+s3_region: us-east-2
 
 kan:
   hidden_size: 11

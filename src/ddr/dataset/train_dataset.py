@@ -47,7 +47,6 @@ class train_dataset(TorchDataset):
             self.adjacency_matrix.todense(), dtype=torch.float32, device=cfg.device
         )
 
-        # TODO get mike johnson et al. to fix the subset bug: https://github.com/owp-spatial/hfsubsetR/issues/9
         wb_ordered_index = [f"wb-{_id}" for _id in self.order]
         cat_ordered_index = [f"cat-{_id}" for _id in self.order]
         self.divides_sorted = self.divides.reindex(cat_ordered_index)
@@ -117,15 +116,15 @@ class train_dataset(TorchDataset):
             observations=self.observations,
         )
 
-        tm, tm_root_coo = read_coo(Path(self.cfg.data_sources.transition_matrix), "73")
-        csc_tm = tm.tocsc()
-        merit_basins_order = tm_root_coo["merit_basins_order"][:]
-        comid_order = tm_root_coo["comid_order"][:]
-        col_idx = np.where(np.isin(comid_order, self.order))[0]
-        _transition_matrix = csc_tm[:, col_idx]
-        mask = np.sum(_transition_matrix, axis=1).A1 > 0
-        transition_matrix = _transition_matrix[mask]
-        merit_basins = merit_basins_order[mask]
+        # tm, tm_root_coo = read_coo(Path(self.cfg.data_sources.transition_matrix), "73")
+        # csc_tm = tm.tocsc()
+        # merit_basins_order = tm_root_coo["merit_basins_order"][:]
+        # comid_order = tm_root_coo["comid_order"][:]
+        # col_idx = np.where(np.isin(comid_order, self.order))[0]
+        # _transition_matrix = csc_tm[:, col_idx]
+        # mask = np.sum(_transition_matrix, axis=1).A1 > 0
+        # transition_matrix = _transition_matrix[mask]
+        # merit_basins = merit_basins_order[mask]
 
         return Hydrofabric(
             spatial_attributes=spatial_attributes,
@@ -138,6 +137,7 @@ class train_dataset(TorchDataset):
             adjacency_matrix=self.network_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
             observations=hydrofabric_observations,
-            transition_matrix=transition_matrix,
-            merit_basins=merit_basins,
+            divide_ids=self.divides_sorted.index.values,
+            # transition_matrix=transition_matrix,
+            # merit_basins=merit_basins,
         )

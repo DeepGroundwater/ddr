@@ -28,7 +28,7 @@ class Hydrofabric:
     normalized_spatial_attributes: torch.Tensor | None = field(default=None)
     observations: xr.Dataset | None = field(default=None)
     transition_matrix: csc_matrix | None = field(default=None)
-    merit_basins: np.ndarray | None = field(default=None)
+    divide_ids: np.ndarray | None = field(default=None)
 
 
 def create_hydrofabric_observations(

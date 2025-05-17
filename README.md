@@ -12,11 +12,13 @@ An implementation of differentiable river routing methods for the NextGen Framew
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 #### Domain of interest:
+
 The Juniata River Basin
 
 <img src="docs/images/srb.png" alt="srb" width="50%"/>
 
 #### Previous Work and Citations
+
 - [dHBV2.0](https://github.com/mhpi/dHBV2.0)
 ```bibtex
 

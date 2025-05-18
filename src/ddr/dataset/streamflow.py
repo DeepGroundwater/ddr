@@ -49,8 +49,8 @@ class StreamflowReader(torch.nn.Module):
         divide_indices = np.where(np.isin(xr_streamflow_data.divide_id.values, hydrofabric.divide_ids))[0]
         try:
             lazy_flow_data = xr_streamflow_data.isel(
-                time=hydrofabric.dates.numerical_time_range, divide_ids=divide_indices
-            ).streamflow
+                time=hydrofabric.dates.numerical_time_range, divide_id=divide_indices
+            )["Qr"]
         except IndexError as e:
             msg = "index out of bounds. This means you're trying to find a basin that there is no data for."
             log.exception(msg=msg)

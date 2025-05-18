@@ -78,6 +78,7 @@ def train(cfg, flow, routing_model, nn):
 
             streamflow_predictions = flow(cfg=cfg, hydrofabric=hydrofabric)
             q_prime = streamflow_predictions["streamflow"]
+            print(q_prime.shape)
             spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
             dmc_kwargs = {
                 "hydrofabric": hydrofabric,

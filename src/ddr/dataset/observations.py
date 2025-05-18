@@ -36,38 +36,19 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
         FileNotFoundError: If the specified file path is not found.
         KeyError: If the CSV file is missing any of the expected column headers.
     """
-    expected_column_names = [
-        "STAID",
-        "STANAME",
-        "DRAIN_SQKM",
-        "LAT_GAGE",
-        "LNG_GAGE",
-        "COMID",
-        "edge_intersection",
-        "zone_edge_id",
-        "zone_edge_uparea",
-        "zone_edge_vs_gage_area_difference",
-        "drainage_area_percent_error",
-    ]
-
     try:
-        df = pd.read_csv(gage_info_path, delimiter=",")
+        df = pd.read_csv(gage_info_path)
+        df["STAID"] = [str(_id).zfill(8) for _id in df["STAID"].values]
+        if "Unnamed: 0" in df.columns: 
+            df = df.drop(["Unnamed: 0"], axis=1)
+        if "index" in df.columns: 
+            df = df.drop(["index"], axis=1)
 
-        if not set(expected_column_names).issubset(set(df.columns)):
-            missing_headers = set(expected_column_names) - set(df.columns)
-            if len(missing_headers) == 1 and "STANAME" in missing_headers:
-                df["STANAME"] = df["STAID"]
-            else:
-                raise KeyError(f"The CSV file is missing the following headers: {list(missing_headers)}")
-
-        df["STAID"] = df["STAID"].astype(str)
-
-        out = {
-            field: df[field].tolist() if field == "STANAME" else df[field].values.tolist()
-            for field in expected_column_names
-            if field in df.columns
+        gages_dict = {
+            field: df[field].values.tolist()
+            for field in df.columns
         }
-        return out
+        return gages_dict
     except FileNotFoundError as e:
         raise FileNotFoundError(f"File not found: {gage_info_path}") from e
 

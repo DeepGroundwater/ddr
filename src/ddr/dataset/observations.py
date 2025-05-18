@@ -10,13 +10,12 @@ from ddr.dataset.Dates import Dates
 
 log = logging.getLogger(__name__)
 
+
 def convert_ft3_s_to_m3_s(flow_rates_ft3_s: np.ndarray) -> np.ndarray:
-    """
-    Convert a 2D tensor of flow rates
-    from cubic feet per second (ft³/s) to cubic meters per second (m³/s).
-    """
+    """Convert a 2D tensor of flow rates from cubic feet per second (ft³/s) to cubic meters per second (m³/s)."""
     conversion_factor = 0.0283168
     return flow_rates_ft3_s * conversion_factor
+
 
 def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
     """Reads gage information from a specified file.
@@ -69,9 +68,11 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
         return out
     except FileNotFoundError as e:
         raise FileNotFoundError(f"File not found: {gage_info_path}") from e
-   
-    
-class IcechunkUSGSReader():
+
+
+class IcechunkUSGSReader:
+    """An object to handle reads to the USGS Icechunk Store"""
+
     def __init__(self, **kwargs):
         super().__init__()
         self.cfg = kwargs["cfg"]
@@ -92,13 +93,23 @@ class IcechunkUSGSReader():
         self.gage_dict = read_gage_info(Path(self.cfg.data_sources.gages))
 
     def read_data(self, dates: Dates) -> xr.Dataset:
+        """A function to read data from icechunk given specific dates
+
+        Parameters
+        ----------
+        dates: Dates
+            The Dates object
+
+        Returns
+        -------
+        xr.Dataset
+            The observations from the required gages for the requested timesteps
+        """
+        log.info("Reading Icechunk USGS Observations from s3://mhpi-spatial")
         padded_gage_ids = [str(gage_id).zfill(8) for gage_id in self.gage_dict["STAID"]]
-        ds = xr.open_zarr(
-            self.file_path, 
-            consolidated=False
-        ).sel(
-            gage_id=padded_gage_ids
-        ).isel(
-            time=dates.numerical_time_range
+        ds = (
+            xr.open_zarr(self.file_path, consolidated=False)
+            .sel(gage_id=padded_gage_ids)
+            .isel(time=dates.numerical_time_range)
         )
         return ds

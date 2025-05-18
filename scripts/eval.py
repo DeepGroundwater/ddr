@@ -45,8 +45,8 @@ def evaluate(cfg, flow, routing_model, nn):
         drop_last=False,  # Don't drop the last batch for evaluation
     )
 
-    if cfg.eval.spatial_checkpoint:
-        file_path = Path(cfg.eval.spatial_checkpoint)
+    if cfg.eval.checkpoint:
+        file_path = Path(cfg.eval.checkpoint)
         log.info(f"Loading model from checkpoint for evaluation: {file_path.stem}")
         state = torch.load(file_path, map_location=cfg.device)
         state_dict = state["model_state_dict"]

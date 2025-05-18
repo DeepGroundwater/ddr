@@ -45,8 +45,8 @@ def train(cfg, flow, routing_model, nn):
         drop_last=True,
     )
 
-    if cfg.train.spatial_checkpoint:
-        file_path = Path(cfg.train.spatial_checkpoint)
+    if cfg.train.checkpoint:
+        file_path = Path(cfg.train.checkpoint)
         log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
         state = torch.load(file_path, map_location=cfg.device)
         state_dict = state["model_state_dict"]

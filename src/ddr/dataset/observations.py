@@ -34,7 +34,6 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
     Raises
     ------
         FileNotFoundError: If the specified file path is not found.
-        KeyError: If the CSV file is missing any of the expected column headers.
     """
     try:
         df = pd.read_csv(gage_info_path)

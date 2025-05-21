@@ -22,6 +22,6 @@ jobs:
       - run: uv venv
       - run: source .venv/bin/activate
       - run: uv pip install -r docs/requirements.txt
-      - run: pip install git+https://taddyb:${{ secrets.GHCR_TOKEN }}@github.com/squidfunk/mkdocs-material-insiders.git
+      - run: pip install git+https://github.com/squidfunk/mkdocs-material.git
       - run: mkdocs build
       - run: mkdocs gh-deploy --force

@@ -9,19 +9,25 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: github.event.repository.fork == false
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-python@v4.9.1
+      - uses: actions/checkout@v4
+      - name: Configure Git Credentials
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - uses: actions/setup-python@v5
         with:
-          python-version: 3.12
-      - uses: actions/cache@v4.2.3
+          python-version: 3.x
+      - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV
+      - uses: actions/cache@v4
         with:
-          key: ${{ github.ref }}
+          key: mkdocs-material-${{ env.cache_id }}
           path: .cache
-      - run: pip install uv
-      - run: uv venv
-      - run: source .venv/bin/activate
-      - run: uv pip install -r docs/requirements.txt
-      - run: pip install git+https://github.com/squidfunk/mkdocs-material.git
-      - run: mkdocs build
+          restore-keys: |
+            mkdocs-material-
+      - run: apt-get install pngquant
+      - run: pip install git+https://${GH_TOKEN}@github.com/squidfunk/mkdocs-material-insiders.git
       - run: mkdocs gh-deploy --force
+env:
+  GH_TOKEN: ${{ secrets.GHCR_TOKEN }}

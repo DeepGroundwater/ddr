@@ -16,6 +16,14 @@ The Juniata River Basin
 
 <img src="docs/images/srb.png" alt="srb" width="50%"/>
 
+### How to build docs locally
+The mkdocs-material documentation can be built/verified locally through installing the optional `docs` dependencies and serving through localhost:
+
+```sh
+uv pip install -e ".[docs]"
+mkdocs serve
+```
+
 #### Previous Work and Citations
 - [dHBV2.0](https://github.com/mhpi/dHBV2.0)
 ```bibtex

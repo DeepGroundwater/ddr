@@ -48,6 +48,9 @@ test = [
     "pytest-cov",
 ]
 jupyter = [
+    "mkdocs-material",
+]
+docs = [
     "ipykernel",
     "jupyterlab",
 ]

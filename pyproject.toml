@@ -11,7 +11,7 @@ allow-direct-references = true
 
 [project]
 name = "ddr"
-description = "Differentiable modeling framework"
+description = "Distributed Differentiable Routing for the NextGen Hydrofabric"
 readme = "README.md"
 dynamic = ["version"]
 requires-python = ">=3.11.0"
@@ -24,44 +24,43 @@ maintainers = [
 ]
 
 dependencies = [
-    "numpy==2.2.3",
-    "pandas==2.2.3",
     "geopandas==1.0.1",
-    "pydantic==2.10.6",
-    "xarray==2025.1.2",
-    "scipy==1.15.1",
     "hydra-core==1.3.2",
-    "tqdm==4.67.1",
-    "polars==1.21.0",
-    "zarr==3.0.7",
-    "sympy==1.13.1",
+    "icechunk==0.2.15",
+    "matplotlib==3.10.3",
+    "numpy==2.2.6",
+    "pandas==2.2.3",
+    "pre-commit==4.2.0",
+    "pydantic==2.11.5",
     "pykan==0.2.8",
     "scikit-learn==1.6.1",
-    "matplotlib==3.10.0",
-    "pre-commit==4.2.0",
-    "icechunk==0.2.15",
+    "scipy==1.15.3",
+    "tqdm==4.67.1",
+    "xarray==2025.4.0",
+    "zarr==3.0.8",
 ]
 
 [project.optional-dependencies]
-test = [
-    "pytest",
-    "pytest-cov",
-]
-jupyter = [
-    "mkdocs-material",
+dev = [
+    "pytest==8.3.5",
+    "pytest-cov==6.1.1",
 ]
 docs = [
-    "ipykernel",
-    "jupyterlab",
+  "mkdocs-material==9.6.14",
+  "sympy==1.14.0"
+]
+jupyter = [
+  "ipykernel==6.29.5",
+  "jupyterlab==4.4.3",
 ]
 cpu = [
-  "torch==2.6.0",
-  "torchvision==0.21.0",
+  "torch==2.7.0",
+  "torchvision==0.22.0",
 ]
 cu124 = [
-  "torch==2.6.0",
-  "torchvision==0.21.0",
-  "cupy-cuda12x==13.4.0",
+  "torch==2.7.0",
+  "torchvision==0.22.0",
+  "cupy-cuda12x==13.4.1",
 ]
 
 [tool.uv]

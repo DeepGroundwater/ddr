@@ -8,7 +8,7 @@ from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
 
 from ddr.dataset.Dates import Dates
-from ddr.dataset.observations import ZarrUSGSReader
+from ddr.dataset.observations import IcechunkUSGSReader
 from ddr.dataset.statistics import set_statistics
 from ddr.dataset.utils import Hydrofabric, create_hydrofabric_observations, fill_nans, read_coo
 
@@ -26,7 +26,7 @@ class eval_dataset(TorchDataset):
         self.cfg = cfg
         self.dates = Dates(**self.cfg.eval)
 
-        self.obs_reader = ZarrUSGSReader(cfg=self.cfg)
+        self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
         self.observations = self.obs_reader.read_data(dates=self.dates)
         self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
 

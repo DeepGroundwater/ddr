@@ -20,7 +20,7 @@ def set_statistics(cfg) -> pd.DataFrame:
 
     Returns
     -------
-      pl.DataFrame: A polars DataFrame containing the statistics for normalizing attributes.
+      pd.DataFrame: A DataFrame containing the statistics for normalizing attributes.
     """
     attributes_name = "hydrofabric_v2.2"
     statistics_path = Path(cfg.data_sources.statistics)

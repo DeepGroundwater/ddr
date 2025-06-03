@@ -12,8 +12,9 @@ data_sources:
   network: /projects/mhpi/tbindas/ddr/data/network.zarr
   statistics: /projects/mhpi/tbindas/ddr/data/
   streamflow:  s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
-  observations: /projects/mhpi/data/observations/gages_9000.zarr
+  observations: s3://mhpi-spatial/usgs_streamflow_observations/
   training_basins: /projects/mhpi/tbindas/ddr/data/gages.csv
+  gages: /projects/mhpi/tbindas/ddr/data/gages.csv
 
 train:
   batch_size: 1

@@ -1,23 +1,21 @@
 import logging
 from pathlib import Path
 
+import icechunk
 import numpy as np
 import pandas as pd
 import xarray as xr
-import zarr
-from tqdm import tqdm
 
 from ddr.dataset.Dates import Dates
 
 log = logging.getLogger(__name__)
 
+
 def convert_ft3_s_to_m3_s(flow_rates_ft3_s: np.ndarray) -> np.ndarray:
-    """
-    Convert a 2D tensor of flow rates
-    from cubic feet per second (ft³/s) to cubic meters per second (m³/s).
-    """
+    """Convert a 2D tensor of flow rates from cubic feet per second (ft³/s) to cubic meters per second (m³/s)."""
     conversion_factor = 0.0283168
     return flow_rates_ft3_s * conversion_factor
+
 
 def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
     """Reads gage information from a specified file.
@@ -71,35 +69,47 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
     except FileNotFoundError as e:
         raise FileNotFoundError(f"File not found: {gage_info_path}") from e
 
-class ZarrUSGSReader():
+
+class IcechunkUSGSReader:
+    """An object to handle reads to the USGS Icechunk Store"""
+
     def __init__(self, **kwargs):
         super().__init__()
         self.cfg = kwargs["cfg"]
-        self.gage_dict = read_gage_info(Path(self.cfg.data_sources.training_basins))
+        if "s3" in self.cfg.data_sources.observations:
+            # Getting the bucket and prefix from an s3:// URI
+            bucket = self.cfg.data_sources.observations[5:].split("/")[0]
+            prefix = self.cfg.data_sources.observations[5:].split("/")[1]
+            storage_config = icechunk.s3_storage(
+                bucket=bucket, prefix=prefix, region=self.cfg.s3_region, anonymous=True
+            )
+            repo = icechunk.Repository.open(storage_config)
+            session = repo.readonly_session("main")
+            self.file_path = session.store
+        else:
+            msg = "Requires S3 Icechunk repo. Incorrect Path"
+            log.exception(msg)
+            raise ValueError(msg)
+        self.gage_dict = read_gage_info(Path(self.cfg.data_sources.gages))
 
     def read_data(self, dates: Dates) -> xr.Dataset:
-        padded_gage_idx = [str(gage_idx).zfill(8) for gage_idx in self.gage_dict["STAID"]]
-        y = np.zeros([len(padded_gage_idx), len(dates.daily_time_range)])
-        root = zarr.open_group(Path(self.cfg.data_sources.observations), mode="r")
-        for idx, gage_id in enumerate(
-            tqdm(
-                padded_gage_idx,
-                desc="\rReading Zarr USGS observations",
-                ncols=140,
-                ascii=True,
-            )
-        ):
-            try:
-                data_obs = root[gage_id]
-                y[idx, :] = data_obs[dates.numerical_time_range]
-            except KeyError as e:
-                log.error(f"Cannot find zarr store: {e}")
-        _observations = convert_ft3_s_to_m3_s(y)
-        ds = xr.Dataset(
-            {"streamflow": (["gage_id", "time"], _observations)},
-            coords={
-                "gage_id": padded_gage_idx,
-                "time": dates.daily_time_range,
-            },
+        """A function to read data from icechunk given specific dates
+
+        Parameters
+        ----------
+        dates: Dates
+            The Dates object
+
+        Returns
+        -------
+        xr.Dataset
+            The observations from the required gages for the requested timesteps
+        """
+        log.info("Reading Icechunk USGS Observations from s3://mhpi-spatial")
+        padded_gage_ids = [str(gage_id).zfill(8) for gage_id in self.gage_dict["STAID"]]
+        ds = (
+            xr.open_zarr(self.file_path, consolidated=False)
+            .sel(gage_id=padded_gage_ids)
+            .isel(time=dates.numerical_time_range)
         )
         return ds

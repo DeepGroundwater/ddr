@@ -14,7 +14,7 @@ data_sources:
   statistics: /projects/mhpi/tbindas/ddr/data/statistics
   streamflow:  /projects/mhpi/data/MERIT/streamflow/zarr/${forcings}/73
   observations: /projects/mhpi/data/observations/gages_9000.zarr
-  testing_basins: /projects/mhpi/tbindas/ddr/data/gages.csv
+  gages: /projects/mhpi/tbindas/ddr/data/gages.csv
 
 eval:
   batch_size: 1

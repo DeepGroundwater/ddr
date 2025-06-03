@@ -57,13 +57,6 @@ markdown_extensions:
 
 plugins:
   - search
-  - blog:
-      authors_profiles: true
-      blog_toc: true
-      blog_dir: blog
-      archive_date_format: MM/dd/yyyy
-      archive_url_date_format: MM/dd/yyyy
-      post_url_format: "{slug}"
 
 hooks:
   - hooks/socialmedia.py

@@ -3,7 +3,7 @@ defaults:
   - hydra: settings
 
 version: 0.3.0
-forcings: merit_conus_v6.18_snow
+forcings: hydrofabric_v2.2_dhbv_retrospective
 name: ${version}-ddr-${forcings}
 
 data_sources:
@@ -65,7 +65,7 @@ params:
 
 np_seed: 1
 seed: 0
-device: 0
+device: 7
 s3_region: us-east-2
 
 kan:

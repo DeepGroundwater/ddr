@@ -60,5 +60,7 @@ class StreamflowReader(torch.nn.Module):
             time=hydrofabric.dates.batch_hourly_time_range,
             method="nearest",
         )
-        streamflow_data = lazy_flow_data_interpolated.compute().values.astype(np.float32)
+        streamflow_data = (
+            lazy_flow_data_interpolated.compute().values.astype(np.float32).T
+        )  # Transposing to (num_timesteps, num_features)
         return {"streamflow": streamflow_data}

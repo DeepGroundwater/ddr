@@ -11,7 +11,8 @@ data_sources:
   local_hydrofabric: /projects/mhpi/tbindas/ddr/data/jrb_2.gpkg
   network: /projects/mhpi/tbindas/ddr/data/network.zarr
   statistics: /projects/mhpi/tbindas/ddr/data/
-  streamflow:  s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
+  # streamflow:  s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
+  streamflow: /projects/mhpi/tbindas/ddr/data/dhbv_forcings
   observations: s3://mhpi-spatial/usgs_streamflow_observations/
   training_basins: /projects/mhpi/tbindas/ddr/data/gages.csv
   gages: /projects/mhpi/tbindas/ddr/data/gages.csv

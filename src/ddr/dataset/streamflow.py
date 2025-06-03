@@ -1,6 +1,6 @@
 import logging
 
-import icechunk
+import icechunk as ic
 import numpy as np
 import torch
 import xarray as xr
@@ -15,18 +15,22 @@ class StreamflowReader(torch.nn.Module):
     def __init__(self, cfg: DictConfig):
         super().__init__()
         self.cfg = cfg
-        if "s3" in self.cfg.data_sources.streamflow:
+        if "s3://" in self.cfg.data_sources.streamflow:
             # Getting the bucket and prefix from an s3:// URI
             bucket = self.cfg.data_sources.streamflow[5:].split("/")[0]
             prefix = self.cfg.data_sources.streamflow[5:].split("/")[1]
-            storage_config = icechunk.s3_storage(
+            storage_config = ic.s3_storage(
                 bucket=bucket, prefix=prefix, region=self.cfg.s3_region, anonymous=True
             )
-            repo = icechunk.Repository.open(storage_config)
+            repo = ic.Repository.open(storage_config)
             session = repo.readonly_session("main")
             self.file_path = session.store
         else:
-            self.file_path = self.cfg.data_sources.streamflow
+            # Assuming Local Icechunk Store
+            storage_config = ic.local_filesystem_storage(str(self.cfg.data_sources.streamflow))
+            repo = ic.Repository.open(storage_config)
+            session = repo.readonly_session("main")
+            self.file_path = session.store
 
     def forward(self, **kwargs) -> dict[str, np.ndarray]:
         """The forward function of the module for generating streamflow values

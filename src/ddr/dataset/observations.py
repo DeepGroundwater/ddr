@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-import icechunk
+import icechunk as ic
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -78,18 +78,19 @@ class IcechunkUSGSReader:
         self.cfg = kwargs["cfg"]
         if "s3" in self.cfg.data_sources.observations:
             # Getting the bucket and prefix from an s3:// URI
+            log.info(f"Reading Icechunk USGS Observations from {self.cfg.data_sources.observations}")
             bucket = self.cfg.data_sources.observations[5:].split("/")[0]
             prefix = self.cfg.data_sources.observations[5:].split("/")[1]
-            storage_config = icechunk.s3_storage(
+            storage_config = ic.s3_storage(
                 bucket=bucket, prefix=prefix, region=self.cfg.s3_region, anonymous=True
             )
-            repo = icechunk.Repository.open(storage_config)
-            session = repo.readonly_session("main")
-            self.file_path = session.store
         else:
-            msg = "Requires S3 Icechunk repo. Incorrect Path"
-            log.exception(msg)
-            raise ValueError(msg)
+            # Assuming Local Icechunk Store
+            log.info("Reading Icechunk USGS Observations from local disk")
+            storage_config = ic.local_filesystem_storage(str(self.cfg.data_sources.observations))
+        repo = ic.Repository.open(storage_config)
+        session = repo.readonly_session("main")
+        self.file_path = session.store
         self.gage_dict = read_gage_info(Path(self.cfg.data_sources.gages))
 
     def read_data(self, dates: Dates) -> xr.Dataset:
@@ -105,7 +106,6 @@ class IcechunkUSGSReader:
         xr.Dataset
             The observations from the required gages for the requested timesteps
         """
-        log.info("Reading Icechunk USGS Observations from s3://mhpi-spatial")
         padded_gage_ids = [str(gage_id).zfill(8) for gage_id in self.gage_dict["STAID"]]
         ds = (
             xr.open_zarr(self.file_path, consolidated=False)

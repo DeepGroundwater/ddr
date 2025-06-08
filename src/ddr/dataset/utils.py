@@ -47,7 +47,7 @@ def create_hydrofabric_observations(
     observations : xr.Dataset
         The observations dataset.
     """
-    ds = observations.sel(time=dates.batch_daily_time_range, gage_id=gage_ids)
+    ds = observations.sel(time=dates.batch_daily_time_range, gage_id=gage_ids).compute()
     return ds
 
 

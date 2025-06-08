@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 
+
 def plot_time_series(prediction, observation, time_range, gage_id, name, metrics, path, warmup=3):
     """Plot time series for a single prediction
 
@@ -31,3 +32,4 @@ def plot_time_series(prediction, observation, time_range, gage_id, name, metrics
     plt.ylabel(r"Discharge $m^3/s$")
     plt.legend(title=f"NSE: {nse:.4f}")
     plt.savefig(path)
+    plt.close(fig)

@@ -64,6 +64,6 @@ hooks:
 nav:
   - Home:
     - index.md
-    - How to Contribute: home/contributions.md
+    - References: home/references.md
   - Quick Start:
      - quickstart/index.md

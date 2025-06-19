@@ -9,3 +9,8 @@ How to run adjacency matrix:
 ```python
 python engine/adjacency.py <path to hydrofabric gpkg> <store key> <store path>
 ```
+
+To install these dependencies, please run the following command from the project root
+```sh
+uv sync --extra engine
+```

@@ -11,14 +11,8 @@ def build_tables(file: Path):
     file_dir = file.parent
     warehouse_path = Path("/tmp/warehouse")
     warehouse_path.mkdir(exist_ok=True)
-    catalog_settings = {
-        "type": "sql",
-        "uri": f"sqlite:///{warehouse_path}/pyiceberg_catalog.db",
-        "warehouse": f"file://{warehouse_path}",
-    }
-
     namespace = "hydrofabric"
-    catalog = load_catalog(namespace, **catalog_settings)
+    catalog = load_catalog(namespace)
     try:
         catalog.create_namespace(namespace)
     except NamespaceAlreadyExistsError:

@@ -17,7 +17,13 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import zarr
+import polars as pl
+from polars import LazyFrame
+from pyiceberg.catalog import load_catalog
+from pyiceberg.table import Table
+from pyiceberg.expressions import And, EqualTo, In
 from scipy import sparse
+from tqdm import tqdm
 
 
 def index_matrix(matrix: np.ndarray, fp: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
@@ -55,16 +61,16 @@ _tnx_counter = 0
 
 
 def create_matrix(
-    fp: gpd.GeoDataFrame, network: gpd.GeoDataFrame, ghost=False
+    fp: LazyFrame, network: LazyFrame, ghost=False
 ) -> tuple[np.ndarray, list[str]]:
     """
     Create a lower triangular adjacency matrix from flowpaths and network dataframes.
 
     Parameters
     ----------
-    fp : gpd.GeoDataFrame
+    fp : LazyFrame
         Flowpaths dataframe with 'toid' column indicating downstream nexus IDs.
-    network : gpd.GeoDataFrame
+    network : LazyFrame
         Network dataframe with 'toid' column indicating downstream flowpath IDs.
 
     Returns
@@ -73,29 +79,70 @@ def create_matrix(
         Lower triangular adjacency matrix.
     """
     global _tnx_counter
+
     # Toposort for the win
     sorter = gl.TopologicalSorter()
+    fp_rows = fp.select([pl.col("id"), pl.col("toid")]).collect()
 
-    for id in fp.index:
-        nex = fp.loc[id]["toid"]
-        # if isinstance(nex, float) and np.isnan(nex):
-        #     continue
-        try:
-            ds_wb = network.loc[nex]["toid"]
-        except KeyError:
+    # Pre-collect network data to avoid repeated filtering
+    network_df = network.collect()
+    network_lookup = dict(zip(network_df["id"].to_list(), network_df["toid"].to_list()))
+
+    network_changes = []
+    fp_changes = []
+
+    for row in tqdm(fp_rows.iter_rows(), desc="finding indices"):
+        id_val = row[0]
+        nex = row[1]
+        
+        # Fast lookup instead of filtering each time
+        ds_wb = network_lookup.get(nex)
+        
+        if ds_wb is None:
             print("Terminal nex???", nex)
             ds_wb = np.nan
+        
         if isinstance(ds_wb, float) and np.isnan(ds_wb):
             if ghost:
                 ds_wb = f"ghost-{_tnx_counter}"
-                network.loc[nex, "toid"] = ds_wb
-                network.loc[ds_wb, "toid"] = np.nan
-                fp.loc[ds_wb, "toid"] = np.nan
+                network_changes.extend([
+                    (nex, ds_wb),      # network.loc[nex, "toid"] = ds_wb
+                    (ds_wb, None),     # network.loc[ds_wb, "toid"] = np.nan
+                ])
+                fp_changes.append((ds_wb, None))  # fp.loc[ds_wb, "toid"] = np.nan
                 _tnx_counter += 1
-        if isinstance(ds_wb, gpd.pd.Series):
-            ds_wb = ds_wb.iloc[0]
-        # Add a node to the sorter, ds_wb is the node, id is its predesessor
-        sorter.add(ds_wb, id)
+        
+        # Add a node to the sorter, ds_wb is the node, id_val is its predecessor
+        sorter.add(ds_wb, id_val)
+
+    # Apply all changes efficiently after the loop and overwrite original variables
+    if network_changes:
+        # Create lookup for changes
+        changes_dict = {}
+        for id_to_change, new_toid in network_changes:
+            changes_dict[id_to_change] = new_toid
+        
+        # Apply all network changes in one operation and overwrite
+        network = network_df.with_columns([
+            pl.col("id").map_elements(
+                lambda x: changes_dict.get(x, network_lookup.get(x)),
+                return_dtype=pl.String
+            ).alias("toid")
+        ])
+    else:
+        network = network_df
+
+    if fp_changes:
+        # Apply fp changes and overwrite
+        fp_changes_dict = {id_to_change: new_toid for id_to_change, new_toid in fp_changes}
+        fp = fp.with_columns([
+            pl.col("id").map_elements(
+                lambda x: fp_changes_dict.get(x, x),  # You'll need to adjust this based on your fp structure
+                return_dtype=pl.String
+            ).alias("toid")
+        ]).collect()
+    else:
+        fp = fp.collect()
 
     # There are possibly more than one correct topological sort orders
     # Just grab one and go...
@@ -110,7 +157,7 @@ def create_matrix(
     # Create matrix, "indexed" the same as the re-ordered fp dataframe
     matrix = np.zeros((len(fp), len(fp)))
 
-    for wb in ts_order:
+    for wb in tqdm(ts_order, desc="Creating toposort ordering"):
         nex = fp.loc[wb]["toid"]
         if isinstance(nex, float) and np.isnan(nex):
             continue
@@ -218,8 +265,12 @@ if __name__ == "__main__":
 
     # Useful for some debugging, not needed for algorithm
     # nexi = gpd.read_file(pkg, layer='nexus').set_index('id')
-    fp = gpd.read_file(args.pkg, layer="flowpaths").set_index("id")
-    network = gpd.read_file(args.pkg, layer="network").set_index("id")
+    # fp = gpd.read_file(args.pkg, layer="flowpaths").set_index("id")
+    # network = gpd.read_file(args.pkg, layer="network").set_index("id")
+    namespace = "hydrofabric"
+    catalog = load_catalog(namespace)
+    fp = catalog.load_table("hydrofabric.flowpaths").to_polars()
+    network = catalog.load_table("hydrofabric.network").to_polars()
     matrix, ts_order = create_matrix(fp, network)
     matrix_to_zarr(matrix, ts_order, args.name, args.path)
 

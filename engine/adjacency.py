@@ -4,8 +4,8 @@
 @author Nels Frazier
 @author Tadd Bindas
 
-@date June 12 2025
-@version 1.0
+@date June 19 2025
+@version 1.1
 
 An introduction script for building a lower triangular adjancency matrix
 from a NextGen hydrofabric and writing a sparse zarr group
@@ -28,7 +28,7 @@ from tqdm import tqdm
 
 def index_matrix(matrix: np.ndarray, fp: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Create a 2D dataframe with ros and columns indexed by flowpath IDs
+    Create a 2D dataframe with rows and columns indexed by flowpath IDs
     and values from the lower triangular adjacency matrix.
 
     Parameters
@@ -62,7 +62,7 @@ _tnx_counter = 0
 
 def create_matrix(
     fp: LazyFrame, network: LazyFrame, ghost=False
-) -> tuple[np.ndarray, list[str]]:
+) -> tuple[sparse.coo_matrix, list[str]]:
     """
     Create a lower triangular adjacency matrix from flowpaths and network dataframes.
 
@@ -86,17 +86,17 @@ def create_matrix(
 
     # Pre-collect network data to avoid repeated filtering
     network_df = network.collect()
-    network_lookup = dict(zip(network_df["id"].to_list(), network_df["toid"].to_list()))
+    network_dict = dict(zip(network_df["id"].to_list(), network_df["toid"].to_list()))
 
     network_changes = []
     fp_changes = []
 
-    for row in tqdm(fp_rows.iter_rows(), desc="finding indices"):
+    for row in tqdm(fp_rows.iter_rows(), desc="finding indices", total=len(fp_rows)):
         id_val = row[0]
         nex = row[1]
         
         # Fast lookup instead of filtering each time
-        ds_wb = network_lookup.get(nex)
+        ds_wb = network_dict.get(nex)
         
         if ds_wb is None:
             print("Terminal nex???", nex)
@@ -125,7 +125,7 @@ def create_matrix(
         # Apply all network changes in one operation and overwrite
         network = network_df.with_columns([
             pl.col("id").map_elements(
-                lambda x: changes_dict.get(x, network_lookup.get(x)),
+                lambda x: changes_dict.get(x, network_dict.get(x)),
                 return_dtype=pl.String
             ).alias("toid")
         ])
@@ -151,49 +151,45 @@ def create_matrix(
     else:
         ts_order = list(filter(lambda s: not (isinstance(s, float) and np.isnan(s)), sorter.static_order()))
 
-    # Reindex the flowpaths based on the topo order
-    fp = fp.reindex(ts_order)
+    # Create coo matrix from indices, "indexed" the same as the re-ordered fp dataframe
+    row_idx = []
+    col_idx = []
+    fp_dict = dict(zip(fp['id'].to_list(), fp['toid'].to_list()))
+    network_dict = dict(zip(network['id'].to_list(), network['toid'].to_list()))
+    id_to_pos = {id_val: pos for pos, id_val in enumerate(ts_order)}
 
-    # Create matrix, "indexed" the same as the re-ordered fp dataframe
-    matrix = np.zeros((len(fp), len(fp)))
-
-    for wb in tqdm(ts_order, desc="Creating toposort ordering"):
-        nex = fp.loc[wb]["toid"]
-        if isinstance(nex, float) and np.isnan(nex):
+    for wb in tqdm(ts_order, desc="ordering matrix"):
+        nex = fp_dict.get(wb)
+        if nex is None or (isinstance(nex, float) and np.isnan(nex)):
             continue
-        # Use the network to find wb -> wb topology
-        try:
-            ds_wb = network.loc[nex]["toid"]
-            if isinstance(ds_wb, gpd.pd.Series):
-                ds_wb = ds_wb.iloc[0]
-        except KeyError:
-            print("Terminal nex???", nex)
+        ds_wb = network_dict.get(nex)
+        if ds_wb is None or (isinstance(ds_wb, float) and np.isnan(ds_wb)):
             continue
-        if isinstance(ds_wb, float) and np.isnan(ds_wb):
+        if ds_wb == "wb-0":
             continue
-        idx = fp.index.get_loc(wb)
-        idxx = fp.index.get_loc(ds_wb)
-        fp["matrix_idxx"] = idxx
-        fp["matrix_idx"] = idx
-        # print(wb, " -> ", nex, " -> ", ds_wb)
-        # Set the matrix value
-        matrix[idxx][idx] = 1
-
+            
+        idx = id_to_pos.get(wb)
+        idxx = id_to_pos.get(ds_wb)
+        
+        if idx is None or idxx is None:
+            continue
+            
+        col_idx.append(idx)
+        row_idx.append(idxx)
+    coo = sparse.coo_matrix((np.ones(len(row_idx)), (row_idx, col_idx)), shape=(len(ts_order), len(ts_order)), dtype=np.int8)
     # Ensure, within tolerance, that this is a lower triangular matrix
-    assert np.allclose(matrix, np.tril(matrix))
+    assert np.all(coo.row >= coo.col), "Matrix is not lower triangular"
     _tnx_counter = 0
-    return matrix, ts_order
+    return coo, ts_order
 
 
-def matrix_to_zarr(
-    matrix: np.ndarray, ts_order: list[str], name: str, out_path: Path | str | None = None
-) -> None:
+def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> None:
     """
     Convert a lower triangular adjacency matrix to a sparse COO matrix and save it in a zarr group.
 
     Parameters
     ----------
-    matrix : np.ndarray
+    coo : sparse.coo_matrix
         Lower triangular adjacency matrix.
     ts_order : list[str]
         Topological sort order of flowpaths.
@@ -207,34 +203,28 @@ def matrix_to_zarr(
     None
     """
     # Converting to a sparse COO matrix, and saving the output in many arrays within a zarr v3 group
-    out_path = Path(out_path) if out_path is not None else Path.cwd() / f"{name}_adjacency.zarr"
     store = zarr.storage.LocalStore(root=out_path)
-    if out_path.exists():
-        root = zarr.open_group(store=store)
-    else:
-        root = zarr.create_group(store=store)
+    root = zarr.create_group(store=store)
 
-    coo = sparse.coo_matrix(matrix)
     zarr_order = np.array([int(_id.split("-")[1]) for _id in ts_order], dtype=np.int32)
 
-    gauge_root = root.create_group(name=name)
-    indices_0 = gauge_root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
-    indices_1 = gauge_root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
-    values = gauge_root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
-    order = gauge_root.create_array(name="order", shape=zarr_order.shape, dtype=zarr_order.dtype)
+    indices_0 = root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
+    indices_1 = root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
+    values = root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
+    order = root.create_array(name="order", shape=zarr_order.shape, dtype=zarr_order.dtype)
     indices_0[:] = coo.row
     indices_1[:] = coo.col
     values[:] = coo.data
     order[:] = zarr_order
 
-    gauge_root.attrs["format"] = "COO"
-    gauge_root.attrs["shape"] = list(coo.shape)
-    gauge_root.attrs["data_types"] = {
+    root.attrs["format"] = "COO"
+    root.attrs["shape"] = list(coo.shape)
+    root.attrs["data_types"] = {
         "indices_0": coo.row.dtype.__str__(),
         "indices_1": coo.col.dtype.__str__(),
         "values": coo.data.dtype.__str__(),
     }
-    print(f"{name} written to zarr at {out_path}")
+    print(f"CONUS Hydrofabric adjacency written to zarr at {out_path}")
 
 
 if __name__ == "__main__":
@@ -250,11 +240,6 @@ if __name__ == "__main__":
         help="Path to the hydrofabric geopackage.",
     )
     parser.add_argument(
-        "name",
-        type=str,
-        help="Name of the matrix for saving in zarr group.",
-    )
-    parser.add_argument(
         "path",
         nargs="?",
         type=Path,
@@ -263,16 +248,19 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Useful for some debugging, not needed for algorithm
-    # nexi = gpd.read_file(pkg, layer='nexus').set_index('id')
-    # fp = gpd.read_file(args.pkg, layer="flowpaths").set_index("id")
-    # network = gpd.read_file(args.pkg, layer="network").set_index("id")
+    if args.path is None:
+        out_path = Path.cwd() / f"conus_adjacency.zarr"
+    else:
+        out_path = Path(args.path)
+    if out_path.exists():
+        raise FileExistsError("Cannot create zarr store. One already exists")
+    
     namespace = "hydrofabric"
     catalog = load_catalog(namespace)
     fp = catalog.load_table("hydrofabric.flowpaths").to_polars()
     network = catalog.load_table("hydrofabric.network").to_polars()
-    matrix, ts_order = create_matrix(fp, network)
-    matrix_to_zarr(matrix, ts_order, args.name, args.path)
+    coo, ts_order = create_matrix(fp, network)
+    coo_to_zarr(coo, ts_order, out_path)
 
     # Visual verification
     # np.set_printoptions(threshold=np.inf, linewidth=np.inf)

@@ -42,12 +42,12 @@ dependencies = [
 
 [project.optional-dependencies]
 tests = [
-    "pytest==8.3.5",
+    "pytest==8.4.1",
     "pytest-cov==6.1.1",
     "ruff==0.11.13",
 ]
 engine = [
-  "polars",
+  "polars==1.31.0",
   "pyarrow==20.0.0",
   "pyiceberg[sql-sqlite]==0.9.1",
 ]

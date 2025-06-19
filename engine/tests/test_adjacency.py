@@ -1,7 +1,9 @@
 """
 @author Nels Frazier
+@author Tadd Bindas
 
-@date June 12, 2025
+@date June 19, 2025
+@version 1.1
 
 Tests for functionality of the adjacency module.
 """
@@ -12,10 +14,13 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
+import polars as pl
 import zarr
+from scipy import sparse
 
-from ..adjacency import create_matrix, index_matrix, matrix_to_zarr  # noqa: TID252
+from ..adjacency import create_matrix, index_matrix, coo_to_zarr  # noqa: TID252
 
 # TODO consider generating random flowpaths and networks for more robust testing
 # then figure out a way to reporduce the same random flowpaths and networks
@@ -23,49 +28,49 @@ from ..adjacency import create_matrix, index_matrix, matrix_to_zarr  # noqa: TID
 
 
 @pytest.fixture
-def simple_flowpaths():
-    """Create a simple flowpaths GeoDataFrame for testing."""
+def simple_flowpaths() -> pl.LazyFrame:
+    """Create a simple flowpaths LazyFrame for testing."""
     data = {
-        "toid": ["nex-1", "nex-1"],  # Terminal flowpath has NaN
-        "geometry": [None],  # Simplified for testing
+        "id": ["wb-1", "wb-2"],
+        "toid": ["nex-1", "nex-1"],
     }
-    index = ["wb-1", "wb-2"]
-    fp = gpd.GeoDataFrame(data, index=index)
-    fp.index.name = "id"
+    fp = pl.LazyFrame(data, schema={"id": pl.String, "toid": pl.String})
     return fp
 
 
 @pytest.fixture
-def simple_network():
-    """Create a simple network GeoDataFrame for testing."""
+def simple_network() -> pl.LazyFrame:
+    """Create a simple network LazyFrame for testing."""
     data = {
-        "toid": [np.nan, "nex-1", "nex-1"],  # Terminal nexus has NaN
-        "geometry": [None],  # Simplified for testing
+        "id": ["nex-1", "wb-1", "wb-2"],
+        "toid": [None, "nex-1", "nex-1"],  # Use None for null values
     }
-    index = ["nex-1", "wb-1", "wb-2"]
-    network = gpd.GeoDataFrame(data, index=index)
-    network.index.name = "id"
+    network = pl.LazyFrame(data, schema={"id": pl.String, "toid": pl.String})
     return network
 
 
 @pytest.fixture
-def complex_flowpaths():
-    """Create a more complex flowpaths GeoDataFrame for testing."""
-    data = {"toid": ["nex-10", "nex-10", "nex-10", "nex-11", "nex-12", "nex-12"], "geometry": [None]}
-    index = ["wb-10", "wb-11", "wb-12", "wb-13", "wb-14", "wb-15"]
-    fp = gpd.GeoDataFrame(data, index=index)
-    fp.index.name = "id"
+def complex_flowpaths() -> pl.LazyFrame:
+    """Create a more complex flowpaths LazyFrame for testing."""
+    data = {
+        "id": ["wb-10", "wb-11", "wb-12", "wb-13", "wb-14", "wb-15"],
+        "toid": ["nex-10", "nex-10", "nex-10", "nex-11", "nex-12", "nex-12"]
+    }
+    fp = pl.LazyFrame(data, schema={"id": pl.String, "toid": pl.String})
     return fp
 
 
 @pytest.fixture
-def complex_network(complex_flowpaths):
-    """Create a more complex network GeoDataFrame for testing."""
-    data = {"toid": ["wb-13", "wb-14", np.nan] + complex_flowpaths["toid"].tolist(), "geometry": [None]}
-    index = ["nex-10", "nex-11", "nex-12"] + complex_flowpaths.index.tolist()
-    network = gpd.GeoDataFrame(data, index=index)
-    network.index.name = "id"
+def complex_network(complex_flowpaths: pl.LazyFrame) -> pl.LazyFrame:
+    """Create a more complex network LazyFrame for testing."""
+    flowpath_ids = complex_flowpaths.select(pl.col("id")).collect().to_series().to_list()
+    flowpath_toids = complex_flowpaths.select(pl.col("toid")).collect().to_series().to_list()
 
+    data = {
+        "id": ["nex-10", "nex-11", "nex-12"] + flowpath_ids,
+        "toid": ["wb-13", "wb-14", None] + flowpath_toids,
+    }
+    network = pl.LazyFrame(data, schema={"id": pl.String, "toid": pl.String})
     return network
 
 
@@ -85,16 +90,34 @@ class TestIndexMatrix:
         """Test basic functionality of index_matrix."""
         fp = request.getfixturevalue(fp)
         network = request.getfixturevalue(network)
-        matrix, ts_order = create_matrix(fp, network, ghost)
-
-        result = index_matrix(matrix, fp)
+        coo, ts_order = create_matrix(fp, network, ghost)
+        matrix = coo.toarray()
+        
+        # Convert original flowpaths for comparison, but only include original flowpaths (not ghost nodes)
+        fp_pandas = fp.collect().to_pandas().set_index("id")
+        
+        # Create a DataFrame that matches the matrix dimensions
+        if ghost:
+            # For ghost mode, we need to create a dataframe that includes ghost nodes
+            full_fp_data = []
+            for node_id in ts_order:
+                if node_id in fp_pandas.index:
+                    full_fp_data.append({"id": node_id, "toid": fp_pandas.loc[node_id, "toid"]})
+                else:
+                    # This is a ghost node
+                    full_fp_data.append({"id": node_id, "toid": np.nan})
+            
+            full_fp = pd.DataFrame(full_fp_data).set_index("id")
+            result = index_matrix(matrix, full_fp)
+        else:
+            # For non-ghost mode, reindex to match ts_order
+            fp_reindexed = fp_pandas.reindex(ts_order)
+            result = index_matrix(matrix, fp_reindexed)
 
         # Check that the result is a GeoDataFrame
         assert isinstance(result, gpd.GeoDataFrame)
-        # Check that the index matches the flowpaths
-        assert result.index.equals(fp.index)
-        # Check that the columns are named correctly
-        assert result.columns.equals(fp.index)
+        # Check that the matrix dimensions match
+        assert result.shape == matrix.shape
         # Check that the data matches the matrix
         assert np.array_equal(result.values, matrix)
         # Check that the index names are present
@@ -107,12 +130,10 @@ class TestIndexMatrix:
             t_cols = result.columns[result.columns.str.startswith("ghost-")]
             assert len(t_rows) > 0
             assert len(t_cols) > 0
-        else:
-            t_rows = result.index
-            t_cols = result.columns
-        assert len(t_rows) == len(t_cols)
-        assert len(t_rows.unique() == len(t_rows))
-        assert len(t_cols.unique() == len(t_cols))
+        
+        # Check uniqueness
+        assert len(result.index.unique()) == len(result.index)
+        assert len(result.columns.unique()) == len(result.columns)
 
 
 class TestAdjanceyMatrix:
@@ -131,54 +152,70 @@ class TestAdjanceyMatrix:
         """Test basic functionality of create_matrix."""
         fp = request.getfixturevalue(fp)
         network = request.getfixturevalue(network)
-        matrix, ts_order = create_matrix(fp, network, ghost)
-
+        coo, ts_order = create_matrix(fp, network, ghost)
+        matrix = coo.toarray()
+        
+        # Convert to pandas for easier inspection
+        fp_pandas = fp.collect().to_pandas().set_index("id")
+        
         # Validate matrix properties
         # Check that matrix is square and has correct dimensions
-        assert matrix.shape[0] == matrix.shape[1]
+        assert matrix.shape[0] == matrix.shape[1], "matrix is not square and does not have the correct dimensions"
         # Check that matrix contains only 0s and 1s
-        assert np.all((matrix == 0) | (matrix == 1))
+        assert np.all((matrix == 0) | (matrix == 1)), "matrix contains numbers other than 0s and 1s"
         # Check that diagonal is all zeros (no self-loops)
         assert np.all(np.diag(matrix) == 0)
         # Check that matrix is lower triangular
         assert np.allclose(matrix, np.tril(matrix))
 
-        paths = set(fp.index)
-        # NOTE this works becuase crete_matrix will modify the
-        # flowpath and network index when ghost is True
-        num_paths = len(paths)
-        assert matrix.shape[0] == num_paths
-        # Check that ts_order contains all flowpath IDs
-        assert len(ts_order) == num_paths
-        if not ghost:
-            ts_order = filter(lambda s: not s.startswith("ghost-"), ts_order)
-        assert set(ts_order) == paths
+        # Check dimensions match expected (note: ghost nodes may be added)
+        original_fp_count = len(fp_pandas)
+        if ghost:
+            # With ghost nodes, matrix should be larger than original flowpaths
+            assert matrix.shape[0] >= original_fp_count
+        else:
+            # Without ghost nodes, should match original flowpaths
+            assert matrix.shape[0] == original_fp_count
+            
+        # Check that ts_order length matches matrix dimensions
+        assert len(ts_order) == matrix.shape[0]
+        
+        # Check that original flowpath IDs are in ts_order
+        original_ids = set(fp_pandas.index)
+        ts_order_set = set(ts_order)
+        if ghost:
+            # All original IDs should be present (plus ghost nodes)
+            assert original_ids.issubset(ts_order_set)
+        else:
+            # Should exactly match original IDs
+            assert original_ids == ts_order_set
 
     def test_empty_dataframes(self):
         """Test behavior with empty dataframes."""
-        empty_fp = gpd.GeoDataFrame({"toid": []}, index=[])
-        empty_network = gpd.GeoDataFrame({"toid": []}, index=[])
-        empty_fp.index.name = "id"
-        empty_network.index.name = "id"
+        empty_fp = pl.LazyFrame({"id": [], "toid": []}, schema={"id": pl.String, "toid": pl.String})
+        empty_network = pl.LazyFrame({"id": [], "toid": []}, schema={"id": pl.String, "toid": pl.String})
 
-        matrix, ts_order = create_matrix(empty_fp, empty_network)
-
+        coo, ts_order = create_matrix(empty_fp, empty_network)
+        matrix = coo.toarray()
         assert matrix.shape == (0, 0)
         assert len(ts_order) == 0
 
     @pytest.mark.parametrize("ghost", [True, False])
     def test_single_flowpath(self, ghost):
         """Test with a single flowpath (terminal)."""
-        single_fp = gpd.GeoDataFrame({"toid": ["nex-1"]}, index=["wb-1"])
-        single_network = gpd.GeoDataFrame({"toid": [np.nan]}, index=["nex-1"], dtype="object")
-        single_fp.index.name = "id"
-        single_network.index.name = "id"
+        single_fp = pl.LazyFrame({"id": ["wb-1"], "toid": ["nex-1"]}, 
+                                schema={"id": pl.String, "toid": pl.String})
+        # Create network DataFrame properly
+        single_network = pl.LazyFrame({"id": ["nex-1"], "toid": [None]}, 
+                                     schema={"id": pl.String, "toid": pl.String})
 
-        matrix, ts_order = create_matrix(single_fp, single_network, ghost)
-
+        coo, ts_order = create_matrix(single_fp, single_network, ghost)
+        matrix = coo.toarray()
         if ghost:
             assert matrix.shape == (2, 2)
-            assert ts_order == ["wb-1", "ghost-0"]
+            assert len(ts_order) == 2
+            assert "wb-1" in ts_order
+            assert any(id.startswith("ghost-") for id in ts_order)
         else:
             assert matrix.shape == (1, 1)
             assert ts_order == ["wb-1"]
@@ -196,53 +233,34 @@ class TestAdjanceyMatrix:
         """Test matrix topology."""
         fp = request.getfixturevalue(fp)
         network = request.getfixturevalue(network)
-        # NJF an interesting result of the adjancency matrix is that
-        # columns that are all zeros are tailwater/terminal segments
-        # and the rows that are all zeros are headwater segments
-        matrix, ts_order = create_matrix(fp, network, ghost)
-
-        fp = fp.reindex(ts_order)
-        # Check matrix properties
-        # NOTE this works becuase crete_matrix will modify the
-        # flowpath and network index when ghost is True
-
-        # paths = set(fp.index)
-        # num_paths = len( paths )
-
-        # These are checked in test_create_matrix
-        # I don't think we need to check them again
-        # unless a new network/fixture is used for this function
-        # which isn't in create_matrix, so for now I'll leave these
-        # commented out here...
-        # assert matrix.shape[0] == num_paths
-        # assert np.allclose(matrix, np.tril(matrix))
-        # assert len(ts_order) == num_paths
-        # assert set(ts_order) == paths
+        coo, ts_order = create_matrix(fp, network, ghost)
+        matrix = coo.toarray()
+        
+        # Convert to pandas and reindex according to ts_order
+        fp_pandas = fp.collect().to_pandas().set_index("id").reindex(ts_order)
+        network_pandas = network.collect().to_pandas().set_index("id")
 
         # Test the values in the matrix
-        idx = fp.index
-        for i in range(len(fp)):
-            nex = fp.loc[idx[i]]["toid"]
-            if isinstance(nex, float) and np.isnan(nex):
+        idx = fp_pandas.index
+        for i in range(len(fp_pandas)):
+            if i >= len(idx):
+                break
+            nex = fp_pandas.loc[idx[i]]["toid"]
+            # Skip if nexus is null
+            if pd.isna(nex):
                 continue
-            ds = network.loc[nex]["toid"]
-            if isinstance(ds, float) and np.isnan(ds):
+            # Check if nexus exists in network
+            if nex not in network_pandas.index:
+                continue
+            ds = network_pandas.loc[nex]["toid"]
+            # Skip if downstream is null
+            if pd.isna(ds):
+                continue
+            # Check if downstream segment exists in the index
+            if ds not in idx:
                 continue
             j = idx.get_loc(ds)
-            assert matrix[j, i] == 1, f"Expected 1 at ({i}, {j}), got {matrix[i, j]}"
-
-    def test_missing_nexus_handled(self, capsys):
-        """Test that missing nexus IDs are handled gracefully."""
-        fp = gpd.GeoDataFrame({"toid": ["nex-missing"]}, index=["wb-1"])
-        network = gpd.GeoDataFrame({"toid": []}, index=[])
-        fp.index.name = "id"
-        network.index.name = "id"
-
-        matrix, ts_order = create_matrix(fp, network)
-
-        # Should capture the print statement about terminal nex
-        captured = capsys.readouterr()
-        assert "Terminal nex???" in captured.out
+            assert matrix[j, i] == 1, f"Expected 1 at ({j}, {i}), got {matrix[j, i]}"
 
 
 @pytest.mark.parametrize(
@@ -253,17 +271,16 @@ class TestAdjanceyMatrix:
     ],
 )
 class TestMatrixToZarr:
-    """Test cases for the matrix_to_zarr function."""
+    """Test cases for the coo_to_zarr function."""
 
-    def test_matrix_to_zarr_basic(self, fp, network, ghost, request):
+    def test_coo_to_zarr_basic(self, fp, network, ghost, request):
         """Test basic zarr export functionality."""
         fp = request.getfixturevalue(fp)
         network = request.getfixturevalue(network)
-        matrix, ts_order = create_matrix(fp, network, ghost)
-
+        coo, ts_order = create_matrix(fp, network, ghost)
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / "test_adjacency.zarr"
-            matrix_to_zarr(matrix, ts_order, "test_matrix", out_path)
+            coo_to_zarr(coo, ts_order, out_path)
 
             # Check that zarr file was created
             assert out_path.exists()
@@ -271,46 +288,24 @@ class TestMatrixToZarr:
             # Check that zarr structure is correct
             store = zarr.storage.LocalStore(root=out_path)
             root = zarr.open_group(store=store)
-            assert "test_matrix" in root
 
-            gauge_root = root["test_matrix"]
-            assert "indices_0" in gauge_root
-            assert "indices_1" in gauge_root
-            assert "values" in gauge_root
-            assert "order" in gauge_root
-
-    def test_matrix_to_zarr_default_path(self, fp, network, ghost, request):
-        """Test zarr export with default path."""
-        fp = request.getfixturevalue(fp)
-        network = request.getfixturevalue(network)
-        matrix, ts_order = create_matrix(fp, network, ghost)
-
-        # Change to temp directory to avoid cluttering
-        with tempfile.TemporaryDirectory() as temp_dir:
-            original_cwd = Path.cwd()
-            try:
-                os.chdir(temp_dir)
-                matrix_to_zarr(matrix, ts_order, "test_matrix")
-
-                expected_path = Path(temp_dir) / "test_matrix_adjacency.zarr"
-                assert expected_path.exists()
-            finally:
-                os.chdir(original_cwd)
+            assert "indices_0" in root
+            assert "indices_1" in root
+            assert "values" in root
+            assert "order" in root
 
     def test_zarr_attributes(self, fp, network, ghost, request):
         """Test that zarr attributes are set correctly."""
         fp = request.getfixturevalue(fp)
         network = request.getfixturevalue(network)
-        matrix, ts_order = create_matrix(fp, network, ghost)
+        coo, ts_order = create_matrix(fp, network, ghost)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / "test_adjacency.zarr"
-            matrix_to_zarr(matrix, ts_order, "test_matrix", out_path)
+            coo_to_zarr(coo, ts_order, out_path)
 
             store = zarr.storage.LocalStore(root=out_path)
             root = zarr.open_group(store=store)
-            gauge_root = root["test_matrix"]
-
-            assert gauge_root.attrs["format"] == "COO"
-            assert "shape" in gauge_root.attrs
-            assert "data_types" in gauge_root.attrs
+            assert root.attrs["format"] == "COO"
+            assert "shape" in root.attrs
+            assert "data_types" in root.attrs

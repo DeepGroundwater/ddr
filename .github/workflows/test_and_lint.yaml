@@ -26,11 +26,11 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: Run ruff check (including notebooks)
+      - name: Run ruff check
         run: |
           uv run ruff check . --config pyproject.toml --output-format=github
 
-      - name: Run ruff format check (including notebooks)
+      - name: Run ruff formating check
         run: |
           uv run ruff format . --config pyproject.toml --check
 

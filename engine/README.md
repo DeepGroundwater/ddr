@@ -1,16 +1,21 @@
 # DDR Engine
 
-This folder contains scripts and tools meant to format versions of the hydrofabric and create objects which help our routing. Examples include:
-- Mapping MERIT streamflow predictions to the hydrofabric catchments
-- Creaing adjacency matrices for implicit muskingum cunge routing
-  - Matrices are saved in
+This folder contains scripts and tools meant to format versions of the hydrofabric and preprocess data structures for usage in DDR
 
-How to run adjacency matrix:
-```python
-python engine/adjacency.py <path to hydrofabric gpkg> <store key> <store path>
-```
-
-To install these dependencies, please run the following command from the project root
+## Getting started:
+To install the endpoints needed for the engine repo, you can run the following installation from project root:
 ```sh
 uv sync --extra engine
+```
+
+To use the engine, you will need a copy of the [v2.2 NOAA/USGS Hydrofabric](https://www.lynker-spatial.com/data/hydrofabric/v2.2/conus/)
+
+Next, the hydrofabric will need to be written into pyiceberg format as this is significantly faster than using geopandas
+```sh
+python engine/build_warehouse.py --file conus_nextgen.gpkg
+```
+
+Lastly, the adjacency matrix for CONUS can be created and written to zarr
+```sh
+python engine/adjacency.py <path to hydrofabric gpkg> <store path>
 ```

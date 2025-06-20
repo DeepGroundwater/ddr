@@ -5,13 +5,28 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
-        exclude: "mkdocs.*\\.yml$"  # Exclude mkdocs YAML files
+        exclude: "mkdocs.*\\.yml$"
       - id: debug-statements
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.5  # Use whatever version you're currently using
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--fix]
-        exclude: "hooks/.*\\.py$"  # Exclude the hooks directory from ruff
-      - id: ruff-format
+      - id: ruff-check-all
+        name: Ruff check and fix
+        entry: uv run ruff check --config pyproject.toml --fix
+        language: system
+        types: [python]
+        pass_filenames: true
+
+      - id: ruff-format-all
+        name: Ruff format
+        entry: uv run ruff format --config pyproject.toml
+        language: system
+        types: [python]
+        pass_filenames: true
+
+      - id: ruff-check-final
+        name: Ruff check (Ensure fixes are addressed)
+        entry: uv run ruff check --config pyproject.toml --output-format=github
+        language: system
+        types: [python]
+        pass_filenames: true

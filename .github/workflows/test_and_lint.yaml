@@ -28,12 +28,12 @@ jobs:
 
       - name: Run ruff check
         run: |
-          uv run ruff check --output-format=github engine/
+          uv run ruff --config pyproject.toml check --output-format=github engine/
           # Can expand this to other sources as needed...
 
       - name: Run ruff format check
         run: |
-          uv run ruff format --check engine/
+          uv run ruff --config pyproject.toml format --check engine/
 
   test:
     runs-on: ubuntu-latest

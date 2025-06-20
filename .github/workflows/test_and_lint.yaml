@@ -24,16 +24,16 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: uv sync --extra tests
+        run: uv sync
 
       - name: Run ruff check
         run: |
-          uv run ruff check --output-format=github engine/
+          uv run ruff --config pyproject.toml check --output-format=github
           # Can expand this to other sources as needed...
 
       - name: Run ruff format check
         run: |
-          uv run ruff format --check engine/
+          uv run ruff --config pyproject.toml format --check
 
   test:
     runs-on: ubuntu-latest
@@ -51,8 +51,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --extra tests
+        run: uv sync
 
       - name: Run tests
         run: |
-          uv run pytest engine/tests/
+          uv run pytest

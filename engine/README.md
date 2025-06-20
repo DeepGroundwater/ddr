@@ -5,7 +5,7 @@ This folder contains scripts and tools meant to format versions of the hydrofabr
 ## Getting started:
 To install the endpoints needed for the engine repo, you can run the following installation from project root:
 ```sh
-uv sync --extra engine
+uv sync
 ```
 
 To use the engine, you will need a copy of the [v2.2 NOAA/USGS Hydrofabric](https://www.lynker-spatial.com/data/hydrofabric/v2.2/conus/)

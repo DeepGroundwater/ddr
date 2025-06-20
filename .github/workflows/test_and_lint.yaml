@@ -24,7 +24,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: uv sync --extra tests
+        run: uv sync
 
       - name: Run ruff check
         run: |
@@ -51,8 +51,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --extra tests
+        run: uv sync
 
       - name: Run tests
         run: |
-          uv run pytest engine/tests/
+          uv run pytest

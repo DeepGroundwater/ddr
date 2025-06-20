@@ -41,6 +41,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+docs = [
+  "mkdocs-material==9.6.14",
+  "sympy==1.14.0"
+]
+jupyter = [
+  "ipykernel==6.29.5",
+  "jupyterlab==4.4.3",
+]
+cu124 = [
+  "torch==2.7.1",
+  "cupy-cuda12x==13.4.1",
+]
+
+[dependency-groups]
 tests = [
     "pytest==8.4.1",
     "pytest-cov==6.1.1",
@@ -51,26 +65,13 @@ engine = [
   "pyarrow==20.0.0",
   "pyiceberg[sql-sqlite]==0.9.1",
 ]
-docs = [
-  "mkdocs-material==9.6.14",
-  "sympy==1.14.0"
-]
-jupyter = [
-  "ipykernel==6.29.5",
-  "jupyterlab==4.4.3",
-]
 cpu = [
   "torch==2.7.1",
 ]
-cu124 = [
-  "torch==2.7.1",
-  "cupy-cuda12x==13.4.1",
-]
 
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu", extra = "cpu" },
-]
+[tool.uv]
+default-groups = ["engine", "tests", "cpu"]
+
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

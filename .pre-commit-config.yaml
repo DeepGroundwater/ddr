@@ -8,25 +8,15 @@ repos:
         exclude: "mkdocs.*\\.yml$"
       - id: debug-statements
 
-  - repo: local
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.12.0
     hooks:
-      - id: ruff-check-all
-        name: Ruff check and fix
-        entry: uv run ruff check --config pyproject.toml --fix
-        language: system
-        types: [python]
-        pass_filenames: true
-
-      - id: ruff-format-all
-        name: Ruff format
-        entry: uv run ruff format --config pyproject.toml
-        language: system
-        types: [python]
-        pass_filenames: true
-
-      - id: ruff-check-final
-        name: Ruff check (Ensure fixes are addressed)
-        entry: uv run ruff check --config pyproject.toml --output-format=github
-        language: system
-        types: [python]
-        pass_filenames: true
+      # Run the linter.
+      - id: ruff-check
+        types_or: [python, pyi]
+        args: [--fix, --config, pyproject.toml]
+      # Run the formatter.
+      - id: ruff-format
+        types_or: [python, pyi]
+        args: [--config, pyproject.toml]

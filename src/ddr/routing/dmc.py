@@ -1,9 +1,9 @@
 """Differentiable Muskingum-Cunge"""
+
 import logging
 
 import torch
 from omegaconf import DictConfig
-from torch.linalg import solve_triangular
 from tqdm import tqdm
 
 from ddr.routing.utils import (
@@ -11,7 +11,7 @@ from ddr.routing.utils import (
     denormalize,
     get_network_idx,
     # RiverNetworkMatrix,
-    triangular_sparse_solve
+    triangular_sparse_solve,
 )
 
 log = logging.getLogger(__name__)
@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 def _log_base_q(x, q):
     return torch.log(x) / torch.log(torch.tensor(q, dtype=x.dtype))
+
 
 def _get_trapezoid_velocity(
     q_t,
@@ -32,8 +33,7 @@ def _get_trapezoid_velocity(
     depth_lb: torch.Tensor,
     _btm_width_lb: torch.Tensor,
 ) -> torch.Tensor:
-    """Calculate flow velocity using Manning's equation.
-    """
+    """Calculate flow velocity using Manning's equation."""
     numerator = q_t * _n * (_q_spatial + 1)
     denominator = p_spatial * torch.pow(_s0, 0.5)
     depth = torch.clamp(
@@ -63,6 +63,7 @@ def _get_trapezoid_velocity(
     c = c_ * 5 / 3
     return c
 
+
 class dmc(torch.nn.Module):
     """
     dMC is a differentiable implementation of the Muskingum Cunge River rouing function
@@ -71,21 +72,17 @@ class dmc(torch.nn.Module):
     various parameters and the handling of reservoir routing if needed.
     """
 
-    def __init__(
-        self,
-        cfg: dict[str, any] | DictConfig, 
-        device: str | None = "cpu"
-    ):
+    def __init__(self, cfg: dict[str, any] | DictConfig, device: str | None = "cpu"):
         super().__init__()
         self.cfg = cfg
-        
+
         self.device_num = device
 
         self.t = torch.tensor(
             3600.0,
             device=self.device_num,
         )
-        
+
         # Base routing parameters
         self.n = None
         self.q_spatial = None
@@ -95,11 +92,13 @@ class dmc(torch.nn.Module):
         self.network = None
 
         self.parameter_bounds = self.cfg.params.parameter_ranges.range
-        self.p_spatial =  torch.tensor(self.cfg.params.defaults.p, device=self.device_num)
+        self.p_spatial = torch.tensor(self.cfg.params.defaults.p, device=self.device_num)
         self.velocity_lb = torch.tensor(self.cfg.params.attribute_minimums.velocity, device=self.device_num)
         self.depth_lb = torch.tensor(self.cfg.params.attribute_minimums.depth, device=self.device_num)
         self.discharge_lb = torch.tensor(self.cfg.params.attribute_minimums.discharge, device=self.device_num)
-        self.bottom_width_lb = torch.tensor(self.cfg.params.attribute_minimums.bottom_width, device=self.device_num)
+        self.bottom_width_lb = torch.tensor(
+            self.cfg.params.attribute_minimums.bottom_width, device=self.device_num
+        )
 
     def forward(self, **kwargs) -> dict[str, torch.Tensor]:
         """The forward pass for the dMC model
@@ -139,7 +138,7 @@ class dmc(torch.nn.Module):
         matrix_dims = self.network.shape[0]
         mapper = PatternMapper(self.fill_op, matrix_dims, device=self.device_num)
         dense_rows, dense_cols = get_network_idx(mapper)
-        
+
         # Set initial output values
         if len(self._discharge_t) != 0:
             for i, gage_idx in enumerate(gage_indices):
@@ -162,9 +161,7 @@ class dmc(torch.nn.Module):
         desc = "Running dMC Routing"
         for timestep in tqdm(
             range(1, len(q_prime)),
-            desc=f"\r{desc} for "
-            f"Epoch: {self.epoch} | "
-            f"Mini Batch: {self.mini_batch} | ",
+            desc=f"\r{desc} for Epoch: {self.epoch} | Mini Batch: {self.mini_batch} | ",
             ncols=140,
             ascii=True,
         ):
@@ -197,24 +194,24 @@ class dmc(torch.nn.Module):
             A_values = mapper.map(c_1_)
             try:
                 solution = triangular_sparse_solve(
-                    A_values, 
-                    mapper.crow_indices, 
-                    mapper.col_indices, 
+                    A_values,
+                    mapper.crow_indices,
+                    mapper.col_indices,
                     b,
-                    True,  # lower=True 
+                    True,  # lower=True
                     False,  # unit_diagonal=False
-                    self.cfg.device  # device
+                    self.cfg.device,  # device
                 )
                 # b_arr = b.unsqueeze(-1)
                 # A_dense = self.network.clone()
                 # A_dense[dense_rows, dense_cols] = A_values
                 # x = solve_triangular(A_dense, b_arr, upper=False)
-                # solution_b = x.squeeze()                
+                # solution_b = x.squeeze()
             except torch.cuda.OutOfMemoryError as e:
                 raise torch.cuda.OutOfMemoryError from e
-            
+
             q_t1 = torch.clamp(solution, min=self.discharge_lb)
-            
+
             for i, gage_idx in enumerate(gage_indices):
                 output[i, timestep] = torch.sum(q_t1[gage_idx])
 
@@ -225,7 +222,7 @@ class dmc(torch.nn.Module):
         }
 
         return output_dict
-    
+
     def fill_op(self, data_vector: torch.Tensor):
         """A fill operation function for the sparse matrix
 

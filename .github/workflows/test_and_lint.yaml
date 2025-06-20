@@ -28,12 +28,11 @@ jobs:
 
       - name: Run ruff check
         run: |
-          uv run ruff --config pyproject.toml check --output-format=github engine/
-          # Can expand this to other sources as needed...
+          uv run ruff check . --config pyproject.toml --output-format=github
 
-      - name: Run ruff format check
+      - name: Run ruff formating check
         run: |
-          uv run ruff --config pyproject.toml format --check engine/
+          uv run ruff format . --config pyproject.toml --check
 
   test:
     runs-on: ubuntu-latest

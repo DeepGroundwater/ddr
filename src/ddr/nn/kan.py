@@ -20,7 +20,7 @@ class kan(torch.nn.Module):
         grid: int,
         k: int,
         seed: int,
-        device: str = "cpu"
+        device: str = "cpu",
     ):
         super().__init__()
         self.input_size = len(input_var_names)

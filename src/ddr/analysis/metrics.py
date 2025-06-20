@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -106,7 +106,9 @@ class Metrics(BaseModel):
                     _pred_std = np.std(pred)
                     _target_std = np.std(target)
                     self.kge[i] = self._kge(_pred_mean, _target_mean, _pred_std, _target_std, self.corr[i])
-                    self.kge_12[i] = self._kge_12(_pred_mean, _target_mean, _pred_std, _target_std, self.corr[i])
+                    self.kge_12[i] = self._kge_12(
+                        _pred_mean, _target_mean, _pred_std, _target_std, self.corr[i]
+                    )
                     self.nse[i], self.r2[i] = self._nse_r2(pred, target, _target_mean)
         return super().model_post_init(__context)
 
@@ -172,7 +174,7 @@ class Metrics(BaseModel):
     def _rmse(
         pred: npt.NDArray[np.float32],
         target: npt.NDArray[np.float32],
-        axis: Optional[int] = 1,
+        axis: int | None = 1,
     ) -> npt.NDArray[np.float32]:
         """Calculate root mean square error"""
         return np.sqrt(np.nanmean((pred - target) ** 2, axis=axis))
@@ -181,7 +183,7 @@ class Metrics(BaseModel):
     def _mae(
         pred: npt.NDArray[np.float32],
         target: npt.NDArray[np.float32],
-        axis: Optional[int] = 1,
+        axis: int | None = 1,
     ) -> npt.NDArray[np.float32]:
         """Calculate mean absolute error"""
         return np.nanmean(np.abs(pred - target), axis=axis)
@@ -221,7 +223,9 @@ class Metrics(BaseModel):
         corr: np.float32,
     ) -> npt.NDArray[np.float32]:
         """Calculate KGE"""
-        kge = 1 - np.sqrt((corr - 1) ** 2 + (pred_std / target_std - 1) ** 2 + (pred_mean / target_mean - 1) ** 2)
+        kge = 1 - np.sqrt(
+            (corr - 1) ** 2 + (pred_std / target_std - 1) ** 2 + (pred_mean / target_mean - 1) ** 2
+        )
         return kge
 
     @staticmethod
@@ -245,7 +249,7 @@ class Metrics(BaseModel):
         pred: npt.NDArray[np.float32],
         target: npt.NDArray[np.float32],
         target_mean: np.float32,
-    ) -> Tuple[np.float32, np.float32]:
+    ) -> tuple[np.float32, np.float32]:
         """Calculate NSE/R2"""
         sst = np.sum((target - target_mean) ** 2)
         ssres = np.sum((target - pred) ** 2)

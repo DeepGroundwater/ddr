@@ -4,7 +4,7 @@
   <img src="images/ddr_logo.png" width="40%"/>
 </p>
 
-DDR is a python repository containing a differentiable river routing application (`src/ddr`) as well as modules (`engine/`) for computing/formatting input geospatial fabrics. 
+DDR is a python repository containing a differentiable river routing application (`src/ddr`) as well as modules (`engine/`) for computing/formatting input geospatial fabrics.
 
 ## Installation
 
@@ -14,10 +14,10 @@ DDR is a python repository containing a differentiable river routing application
 uv sync
 ```
 
-From there, please use the provided `scripts/` to train or evaluate a routing module over a domain of interest. 
+From there, please use the provided `scripts/` to train or evaluate a routing module over a domain of interest.
 
 ## Maintainers
-- Tadd Bindas 
+- Tadd Bindas
     - Earth Resources Technology (ERT)
 - Nels Frazier
     - Lynker

@@ -2,7 +2,7 @@
 
 ## Geospatial Data
 
-This file builds off of the Lynker Cloud Native Water Resource Modeling Hydrofabric dataset 
+This file builds off of the Lynker Cloud Native Water Resource Modeling Hydrofabric dataset
 
 This dataset is made available under the Open Database License (ODbL).
 

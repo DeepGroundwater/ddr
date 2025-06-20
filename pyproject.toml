@@ -59,6 +59,7 @@ tests = [
     "pytest==8.4.1",
     "pytest-cov==6.1.1",
     "ruff==0.11.13",
+    "nbstripout==0.8.1",
 ]
 engine = [
   "polars==1.31.0",
@@ -71,7 +72,6 @@ cpu = [
 
 [tool.uv]
 default-groups = ["engine", "tests", "cpu"]
-
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
@@ -91,6 +91,7 @@ target-version = ['py311']
 
 [tool.ruff]
 line-length = 110
+extend-include = ["*.ipynb"]
 lint.select = [
   "F",      # Errors detected by Pyflakes
   "E",      # Error detected by Pycodestyle
@@ -139,11 +140,15 @@ convention = "numpy"
 
 [tool.ruff.lint.per-file-ignores]
 "docs/*" = ["I"]
-"hooks/*" = ["I", "D"]  # Add D here to ignore all docstring errors in hooks/
+"hooks/*" = ["I", "D"]  # Ignore import sorting and all docstring errors in hooks/
 "mkdocs.yaml" = ["I"]
-"mkdocs.yml" = ["I"]    # Add this line
+"mkdocs.yml" = ["I"]
 "tests/*" = ["D"]
 "*/__init__.py" = ["F401"]
+"*.ipynb" = ["E402", "E501", "F401", "F811", "F841", "T201"]  # Common notebook exceptions
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.11"

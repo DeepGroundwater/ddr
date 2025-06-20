@@ -1,9 +1,9 @@
 import logging
 import warnings
 
-import torch
 import numpy as np
 import scipy.sparse as sp
+import torch
 from scipy.sparse.linalg import spsolve_triangular
 
 log = logging.getLogger(__name__)
@@ -178,7 +178,20 @@ def nsdim(datvec):
             return ns
     return None
 
+
 def get_network_idx(mapper: PatternMapper) -> tuple[torch.Tensor, torch.Tensor]:
+    """Gets the index of the csr saved in the PatternMapper
+
+    Parameters
+    ----------
+    mapper: PatternMapper
+        The pattern mapper object
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor]
+        The sparse rows and columns contained in the pattern mapper
+    """
     rows = []
     cols = []
     crow_indices_list = mapper.crow_indices.tolist()
@@ -188,7 +201,7 @@ def get_network_idx(mapper: PatternMapper) -> tuple[torch.Tensor, torch.Tensor]:
         these_cols = col_indices_list[start:end]
         these_rows = [i] * len(these_cols)
         rows.extend(these_rows)
-        cols.extend(these_cols) 
+        cols.extend(these_cols)
     return torch.tensor(rows), torch.tensor(cols)
 
 
@@ -210,15 +223,16 @@ def denormalize(value: torch.Tensor, bounds: list[float]) -> torch.Tensor:
     output = (value * (bounds[1] - bounds[0])) + bounds[0]
     return output
 
+
 def torch_to_cupy(tensor):
     """Efficiently convert PyTorch tensor to CuPy array without going through CPU.
-    
+
     This is much faster than tensor.cpu().numpy() for CUDA tensors.
     """
     pointer = tensor.data_ptr()
     size = tensor.shape
     dtype = tensor.dtype
-    
+
     # Map PyTorch dtype to CuPy dtype
     dtype_map = {
         torch.float32: cp.float32,
@@ -230,7 +244,7 @@ def torch_to_cupy(tensor):
         # Fall back to numpy conversion for unsupported dtypes
         return cp.array(tensor.detach().cpu().numpy())
     cupy_dtype = dtype_map[dtype]
-    
+
     # NOTE Create a CuPy array from the pointer which points
     # to the same GPU memory as the PyTorch tensor without any copying
     cupy_array = cp.ndarray(
@@ -238,13 +252,12 @@ def torch_to_cupy(tensor):
         dtype=cupy_dtype,
         memptr=cp.cuda.MemoryPointer(cp.cuda.UnownedMemory(pointer, 0, None), 0),
     )
-        
+
     return cupy_array
 
 
 def cupy_to_torch(cupy_array, device=None, dtype=torch.float32):
     """Efficiently convert CuPy array to PyTorch tensor without going through CPU."""
-    
     # Determine the PyTorch dtype from CuPy dtype
     dtype_map = {
         cp.float32: torch.float32,
@@ -252,14 +265,13 @@ def cupy_to_torch(cupy_array, device=None, dtype=torch.float32):
         cp.int32: torch.int32,
         cp.int64: torch.int64,
     }
-    
+
     if cupy_array.dtype.type not in dtype_map:
         # Fall back to numpy conversion for unsupported dtypes
         return torch.from_numpy(cp.asnumpy(cupy_array)).to(device)
-    
+
     # Get CuPy array pointer
-    ptr = cupy_array.data.ptr    
-    
+
     # NOTE Create a PyTorch tensor from the CuPy array pointer
     # This avoids any memory copying between GPU and CPU
     torch_dtype = dtype_map[cupy_array.dtype.type]
@@ -269,43 +281,38 @@ def cupy_to_torch(cupy_array, device=None, dtype=torch.float32):
         device=device,
     )
     torch_tensor.data_ptr()
-    
-    result = torch_tensor.copy_(torch.as_tensor(
-        np.zeros(cupy_array.shape).astype(np.float32), device=device))
-    result.copy_(torch.frombuffer(
-        cupy_array.tobytes(), 
-        dtype=torch_dtype).reshape(cupy_array.shape).to(device))
-    
+
+    result = torch_tensor.copy_(torch.as_tensor(np.zeros(cupy_array.shape).astype(np.float32), device=device))
+    result.copy_(
+        torch.frombuffer(cupy_array.tobytes(), dtype=torch_dtype).reshape(cupy_array.shape).to(device)
+    )
+
     return result
 
+
 class TriangularSparseSolver(torch.autograd.Function):
-    """Custom autograd function for solving triangular sparse linear systems.
-    """
-    
+    """Custom autograd function for solving triangular sparse linear systems."""
+
     @staticmethod
     def forward(ctx, A_values, crow_indices, col_indices, b, lower, unit_diagonal, device):
         """Solve the sparse triangular linear system with optimized GPU transfers."""
-        
         n = len(crow_indices) - 1
-        
+
         if device == "cpu":
             crow_np = crow_indices.cpu().numpy().astype(np.int32)
             col_np = col_indices.cpu().numpy().astype(np.int32)
             data_np = A_values.cpu().numpy().astype(np.float64)
             b_np = b.cpu().numpy().astype(np.float64)
-            
+
             A_scipy = sp.csr_matrix((data_np, col_np, crow_np), shape=(n, n))
-            
+
             try:
-                x_np = spsolve_triangular(
-                    A_scipy, b_np, lower=lower, unit_diagonal=unit_diagonal
-                )
+                x_np = spsolve_triangular(A_scipy, b_np, lower=lower, unit_diagonal=unit_diagonal)
                 x = torch.tensor(x_np, dtype=b.dtype, device=b.device)
-            except Exception as e:
+            except ValueError as e:
                 log.error(f"CPU triangular sparse solve failed: {e}")
-                raise ValueError(f"SciPy triangular sparse solver failed: {e}")
+                raise ValueError(f"SciPy triangular sparse solver failed: {e}") from e
         else:
-            
             try:
                 cuda_device = cp.cuda.Device(device)
                 with cuda_device:
@@ -314,26 +321,24 @@ class TriangularSparseSolver(torch.autograd.Function):
                     indptr_cp = torch_to_cupy(crow_indices)
                     b_cp = torch_to_cupy(b)
                     A_cp = cp_csr_matrix((data_cp, indices_cp, indptr_cp), shape=(n, n))
-                    
-                    x_cp = cp_spsolve_triangular(
-                        A_cp, b_cp, lower=lower, unit_diagonal=unit_diagonal
-                    )
-                    
+
+                    x_cp = cp_spsolve_triangular(A_cp, b_cp, lower=lower, unit_diagonal=unit_diagonal)
+
                     pytorch_device = A_values.device if A_values.is_cuda else b.device
                     x = cupy_to_torch(x_cp, device=pytorch_device)
-            
-            except Exception as e:
+
+            except ValueError as e:
                 log.error(f"GPU triangular sparse solve failed: {e}")
-                raise ValueError
-        
+                raise ValueError from e
+
         # Save all necessary context for backward
         ctx.save_for_backward(A_values, crow_indices, col_indices, x, b)
         ctx.lower = lower
         ctx.unit_diagonal = unit_diagonal
         ctx.device = device
-        
+
         return x
-    
+
     @staticmethod
     def backward(ctx, grad_output):
         """Compute gradients with optimized memory transfers."""
@@ -341,62 +346,59 @@ class TriangularSparseSolver(torch.autograd.Function):
         lower = ctx.lower
         unit_diagonal = ctx.unit_diagonal
         device = ctx.device
-        
+
         # NOTE For backward pass with triangular matrices: if A is lower triangular, A^T is upper triangular
         transposed_lower = not lower
-        
+
         # Optimize the transposition process - do it in one go with vectorized operations
         n = len(crow_indices) - 1
-        
+
         # Create CSR to COO conversion using optimized PyTorch operations
         # This is much faster than Python loops for large matrices
         rows = []
         cols = []
         crow_indices_cpu = crow_indices.cpu()
         col_indices_cpu = col_indices.cpu()
-        
+
         for i in range(n):
-            start, end = crow_indices_cpu[i].item(), crow_indices_cpu[i+1].item()
+            start, end = crow_indices_cpu[i].item(), crow_indices_cpu[i + 1].item()
             row_count = end - start
             if row_count > 0:  # Skip empty rows
                 rows.extend([i] * row_count)
                 cols.extend([col_indices_cpu[j].item() for j in range(start, end)])
-        
+
         # Create COO indices for transposed matrix
         transposed_indices = torch.tensor([cols, rows], dtype=torch.int32, device=A_values.device)
-        
+
         # Create transposed COO tensor
         A_T_values = A_values.clone()
-        A_T_coo = torch.sparse_coo_tensor(
-            transposed_indices, A_T_values, size=(n, n), device=A_values.device
-        )
-        
+        A_T_coo = torch.sparse_coo_tensor(transposed_indices, A_T_values, size=(n, n), device=A_values.device)
+
         # Convert to CSR for solving
         A_T_csr = A_T_coo.to_sparse_csr()
         A_T_crow = A_T_csr.crow_indices()
         A_T_col = A_T_csr.col_indices()
         A_T_values = A_T_csr.values()
-        
+
         # Solve the transposed system
         gradb = TriangularSparseSolver.apply(
             A_T_values, A_T_crow, A_T_col, grad_output, transposed_lower, unit_diagonal, device
         )
-        
+
         # Optimize gradient computation for A_values if needed
         if A_values.requires_grad:
             if len(rows) > 0:  # Make sure we have non-zero elements
                 row_indices = torch.tensor(rows, device=A_values.device)
                 col_indices_vector = torch.tensor(cols, device=A_values.device)
-                
+
                 # Vectorized gradient computation: -gradb[rows] * x[cols]
                 gradA_values = -gradb[row_indices] * x[col_indices_vector]
             else:
                 gradA_values = torch.zeros_like(A_values)
-            
+
             return gradA_values, None, None, gradb, None, None, None
         else:
             return None, None, None, gradb, None, None, None
-
 
 
 triangular_sparse_solve = TriangularSparseSolver.apply

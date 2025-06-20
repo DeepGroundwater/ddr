@@ -27,7 +27,7 @@ def plot_time_series(prediction, observation, time_range, gage_id, name, metrics
     plt.plot(time_range[warmup:], observation_to_plot, label="Observation")
     plt.plot(time_range[warmup:], prediction_to_plot, label="Routed Streamflow")
     nse = metrics["nse"]
-    plt.title(f"Train time period Hydrograph - " f"GAGE ID: {gage_id} - Name: {name}")
+    plt.title(f"Train time period Hydrograph - GAGE ID: {gage_id} - Name: {name}")
     plt.xlabel("Time (hours)")
     plt.ylabel(r"Discharge $m^3/s$")
     plt.legend(title=f"NSE: {nse:.4f}")

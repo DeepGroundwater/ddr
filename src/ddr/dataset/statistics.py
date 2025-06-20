@@ -5,8 +5,8 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 
-
 log = logging.getLogger(__name__)
+
 
 def set_statistics(cfg) -> pd.DataFrame:
     """Creating the necessary statistics for normalizing atributes

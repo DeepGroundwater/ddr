@@ -4,8 +4,8 @@
 @author Nels Frazier
 @author Tadd Bindas
 
-@date June 12 2025
-@version 1.0
+@date June 19 2025
+@version 1.1
 
 An introduction script for building a lower triangular adjancency matrix
 from a NextGen hydrofabric and writing a sparse zarr group
@@ -16,13 +16,18 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
+import polars as pl
 import zarr
+from polars import LazyFrame
+from pyiceberg.catalog import load_catalog
 from scipy import sparse
+from tqdm import tqdm
 
 
 def index_matrix(matrix: np.ndarray, fp: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
-    Create a 2D dataframe with ros and columns indexed by flowpath IDs
+    Create a 2D dataframe with rows and columns indexed by flowpath IDs
     and values from the lower triangular adjacency matrix.
 
     Parameters
@@ -54,17 +59,15 @@ def index_matrix(matrix: np.ndarray, fp: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 _tnx_counter = 0
 
 
-def create_matrix(
-    fp: gpd.GeoDataFrame, network: gpd.GeoDataFrame, ghost=False
-) -> tuple[np.ndarray, list[str]]:
+def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[sparse.coo_matrix, list[str]]:
     """
     Create a lower triangular adjacency matrix from flowpaths and network dataframes.
 
     Parameters
     ----------
-    fp : gpd.GeoDataFrame
+    fp : LazyFrame
         Flowpaths dataframe with 'toid' column indicating downstream nexus IDs.
-    network : gpd.GeoDataFrame
+    network : LazyFrame
         Network dataframe with 'toid' column indicating downstream flowpath IDs.
 
     Returns
@@ -73,80 +76,121 @@ def create_matrix(
         Lower triangular adjacency matrix.
     """
     global _tnx_counter
+
     # Toposort for the win
     sorter = gl.TopologicalSorter()
+    fp_df = fp.select([pl.col("id"), pl.col("toid")]).collect()
+    network_df = network.collect()
 
-    for id in fp.index:
-        nex = fp.loc[id]["toid"]
-        # if isinstance(nex, float) and np.isnan(nex):
-        #     continue
-        try:
-            ds_wb = network.loc[nex]["toid"]
-        except KeyError:
+    # Pre-collect network data to avoid repeated filtering
+    network_dict = dict(zip(network_df["id"].to_list(), network_df["toid"].to_list(), strict=True))
+
+    ghost_nodes_to_add = []
+    network_updates = {}
+
+    for row in tqdm(fp_df.iter_rows(named=True), desc="finding indices", total=len(fp_df)):
+        id_val = row["id"]
+        nex = row["toid"]
+
+        # Fast lookup instead of filtering each time
+        ds_wb = network_dict.get(nex)
+
+        if ds_wb is None:
             print("Terminal nex???", nex)
             ds_wb = np.nan
-        if isinstance(ds_wb, float) and np.isnan(ds_wb):
+
+        if pd.isna(ds_wb):
             if ghost:
                 ds_wb = f"ghost-{_tnx_counter}"
-                network.loc[nex, "toid"] = ds_wb
-                network.loc[ds_wb, "toid"] = np.nan
-                fp.loc[ds_wb, "toid"] = np.nan
+                # Track changes to apply later
+                network_updates[nex] = ds_wb  # Point nexus to ghost
+                ghost_nodes_to_add.append(
+                    {
+                        "id": ds_wb,
+                        "toid": None,  # Ghost points to nothing
+                    }
+                )
+                network_dict[nex] = ds_wb
+                network_dict[ds_wb] = None
                 _tnx_counter += 1
-        if isinstance(ds_wb, gpd.pd.Series):
-            ds_wb = ds_wb.iloc[0]
-        # Add a node to the sorter, ds_wb is the node, id is its predesessor
-        sorter.add(ds_wb, id)
 
-    # There are possibly more than one correct topological sort orders
-    # Just grab one and go...
+        # Add a node to the sorter, ds_wb is the node, id_val is its predecessor
+        sorter.add(ds_wb, id_val)
+
+    # Apply network updates efficiently in Polars
+    if network_updates or ghost_nodes_to_add:
+        # Update existing network entries
+        if network_updates:
+            network_df = network_df.with_columns(
+                [
+                    pl.when(pl.col("id").is_in(list(network_updates.keys())))
+                    .then(pl.col("id").map_elements(lambda x: network_updates.get(x), return_dtype=pl.String))
+                    .otherwise(pl.col("toid"))
+                    .alias("toid")
+                ]
+            )
+
+        # Add ghost nodes to network
+        if ghost_nodes_to_add:
+            ghost_network_df = pl.DataFrame(ghost_nodes_to_add, schema={"id": pl.String, "toid": pl.String})
+            network_df = pl.concat([network_df, ghost_network_df])
+
+        # Add ghost nodes to flowpaths
+        if ghost_nodes_to_add:
+            ghost_fp_df = pl.DataFrame(ghost_nodes_to_add, schema={"id": pl.String, "toid": pl.String})
+            fp_df = pl.concat([fp_df, ghost_fp_df])
+
+    # Get topological sort order
     if ghost:
         ts_order = list(sorter.static_order())
     else:
-        ts_order = list(filter(lambda s: not (isinstance(s, float) and np.isnan(s)), sorter.static_order()))
+        ts_order = list(filter(lambda s: not pd.isna(s), sorter.static_order()))
 
-    # Reindex the flowpaths based on the topo order
-    fp = fp.reindex(ts_order)
+    # Create dictionaries for matrix building
+    fp_dict = dict(zip(fp_df["id"].to_list(), fp_df["toid"].to_list(), strict=True))
+    network_dict = dict(zip(network_df["id"].to_list(), network_df["toid"].to_list(), strict=True))
+    id_to_pos = {id_val: pos for pos, id_val in enumerate(ts_order)}
 
-    # Create matrix, "indexed" the same as the re-ordered fp dataframe
-    matrix = np.zeros((len(fp), len(fp)))
+    # Build sparse matrix
+    row_idx = []
+    col_idx = []
 
-    for wb in ts_order:
-        nex = fp.loc[wb]["toid"]
-        if isinstance(nex, float) and np.isnan(nex):
+    for wb in tqdm(ts_order, desc="ordering matrix"):
+        nex = fp_dict.get(wb)
+        if nex is None or pd.isna(nex):
             continue
-        # Use the network to find wb -> wb topology
-        try:
-            ds_wb = network.loc[nex]["toid"]
-            if isinstance(ds_wb, gpd.pd.Series):
-                ds_wb = ds_wb.iloc[0]
-        except KeyError:
-            print("Terminal nex???", nex)
+        ds_wb = network_dict.get(nex)
+        if ds_wb is None or pd.isna(ds_wb):
             continue
-        if isinstance(ds_wb, float) and np.isnan(ds_wb):
+        if ds_wb == "wb-0":  # Skip this special case
             continue
-        idx = fp.index.get_loc(wb)
-        idxx = fp.index.get_loc(ds_wb)
-        fp["matrix_idxx"] = idxx
-        fp["matrix_idx"] = idx
-        # print(wb, " -> ", nex, " -> ", ds_wb)
-        # Set the matrix value
-        matrix[idxx][idx] = 1
 
-    # Ensure, within tolerance, that this is a lower triangular matrix
-    assert np.allclose(matrix, np.tril(matrix))
+        idx = id_to_pos.get(wb)
+        idxx = id_to_pos.get(ds_wb)
+
+        if idx is None or idxx is None:
+            continue
+
+        col_idx.append(idx)
+        row_idx.append(idxx)
+
+    coo = sparse.coo_matrix(
+        (np.ones(len(row_idx)), (row_idx, col_idx)), shape=(len(ts_order), len(ts_order)), dtype=np.int8
+    )
+
+    # Ensure matrix is lower triangular
+    assert np.all(coo.row >= coo.col), "Matrix is not lower triangular"
     _tnx_counter = 0
-    return matrix, ts_order
+    return coo, ts_order
 
 
-def matrix_to_zarr(
-    matrix: np.ndarray, ts_order: list[str], name: str, out_path: Path | str | None = None
-) -> None:
+def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> None:
     """
     Convert a lower triangular adjacency matrix to a sparse COO matrix and save it in a zarr group.
 
     Parameters
     ----------
-    matrix : np.ndarray
+    coo : sparse.coo_matrix
         Lower triangular adjacency matrix.
     ts_order : list[str]
         Topological sort order of flowpaths.
@@ -160,34 +204,28 @@ def matrix_to_zarr(
     None
     """
     # Converting to a sparse COO matrix, and saving the output in many arrays within a zarr v3 group
-    out_path = Path(out_path) if out_path is not None else Path.cwd() / f"{name}_adjacency.zarr"
     store = zarr.storage.LocalStore(root=out_path)
-    if out_path.exists():
-        root = zarr.open_group(store=store)
-    else:
-        root = zarr.create_group(store=store)
+    root = zarr.create_group(store=store)
 
-    coo = sparse.coo_matrix(matrix)
-    zarr_order = np.array([int(_id.split("-")[1]) for _id in ts_order], dtype=np.int32)
+    zarr_order = np.array([int(float(_id.split("-")[1])) for _id in ts_order], dtype=np.int32)
 
-    gauge_root = root.create_group(name=name)
-    indices_0 = gauge_root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
-    indices_1 = gauge_root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
-    values = gauge_root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
-    order = gauge_root.create_array(name="order", shape=zarr_order.shape, dtype=zarr_order.dtype)
+    indices_0 = root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
+    indices_1 = root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
+    values = root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
+    order = root.create_array(name="order", shape=zarr_order.shape, dtype=zarr_order.dtype)
     indices_0[:] = coo.row
     indices_1[:] = coo.col
     values[:] = coo.data
     order[:] = zarr_order
 
-    gauge_root.attrs["format"] = "COO"
-    gauge_root.attrs["shape"] = list(coo.shape)
-    gauge_root.attrs["data_types"] = {
+    root.attrs["format"] = "COO"
+    root.attrs["shape"] = list(coo.shape)
+    root.attrs["data_types"] = {
         "indices_0": coo.row.dtype.__str__(),
         "indices_1": coo.col.dtype.__str__(),
         "values": coo.data.dtype.__str__(),
     }
-    print(f"{name} written to zarr at {out_path}")
+    print(f"CONUS Hydrofabric adjacency written to zarr at {out_path}")
 
 
 if __name__ == "__main__":
@@ -203,11 +241,6 @@ if __name__ == "__main__":
         help="Path to the hydrofabric geopackage.",
     )
     parser.add_argument(
-        "name",
-        type=str,
-        help="Name of the matrix for saving in zarr group.",
-    )
-    parser.add_argument(
         "path",
         nargs="?",
         type=Path,
@@ -216,12 +249,19 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Useful for some debugging, not needed for algorithm
-    # nexi = gpd.read_file(pkg, layer='nexus').set_index('id')
-    fp = gpd.read_file(args.pkg, layer="flowpaths").set_index("id")
-    network = gpd.read_file(args.pkg, layer="network").set_index("id")
-    matrix, ts_order = create_matrix(fp, network)
-    matrix_to_zarr(matrix, ts_order, args.name, args.path)
+    if args.path is None:
+        out_path = Path.cwd() / "conus_adjacency.zarr"
+    else:
+        out_path = Path(args.path)
+    if out_path.exists():
+        raise FileExistsError("Cannot create zarr store. One already exists")
+
+    namespace = "hydrofabric"
+    catalog = load_catalog(namespace)
+    fp = catalog.load_table("hydrofabric.flowpaths").to_polars()
+    network = catalog.load_table("hydrofabric.network").to_polars()
+    coo, ts_order = create_matrix(fp, network)
+    coo_to_zarr(coo, ts_order, out_path)
 
     # Visual verification
     # np.set_printoptions(threshold=np.inf, linewidth=np.inf)

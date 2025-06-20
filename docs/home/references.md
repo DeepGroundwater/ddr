@@ -2,9 +2,9 @@
 
 ## Previous Publications
 
-Below are publications which were directly used to build DDR. 
+Below are publications which were directly used to build DDR.
 
-### Song and Bindas et al. (2024) 
+### Song and Bindas et al. (2024)
 
 **Title:** High-resolution national-scale water modeling is enhanced by multiscale differentiable physics-informed machine learning
 

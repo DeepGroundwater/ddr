@@ -1,17 +1,12 @@
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 
 
 def save_state(
-    epoch: int,
-    mini_batch: int,
-    mlp: nn.Module,
-    optimizer: nn.Module,
-    name: str,
-    saved_model_path: Path
+    epoch: int, mini_batch: int, mlp: nn.Module, optimizer: nn.Module, name: str, saved_model_path: Path
 ) -> None:
     """Save model state
 
@@ -69,10 +64,9 @@ def save_state(
 
     torch.save(
         state,
-        saved_model_path /
-        f"_{name}_epoch_{state['epoch']}"
-        f"_mb_{state['mini_batch']}.pt",
+        saved_model_path / f"_{name}_epoch_{state['epoch']}_mb_{state['mini_batch']}.pt",
     )
+
 
 def log_eval_metrics(log, nse, rmse, kge):
     """

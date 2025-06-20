@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -19,13 +19,13 @@ class Dates(BaseModel):
     origin_start_date: str = "1980/01/01"
     start_time: str
     end_time: str
-    rho: Optional[int] = None
-    batch_daily_time_range: Optional[pd.DatetimeIndex] = pd.DatetimeIndex([], dtype="datetime64[ns]")
-    batch_hourly_time_range: Optional[pd.DatetimeIndex] = pd.DatetimeIndex([], dtype="datetime64[ns]")
-    daily_time_range: Optional[pd.DatetimeIndex] = pd.DatetimeIndex([], dtype="datetime64[ns]")
+    rho: int | None = None
+    batch_daily_time_range: pd.DatetimeIndex | None = pd.DatetimeIndex([], dtype="datetime64[ns]")
+    batch_hourly_time_range: pd.DatetimeIndex | None = pd.DatetimeIndex([], dtype="datetime64[ns]")
+    daily_time_range: pd.DatetimeIndex | None = pd.DatetimeIndex([], dtype="datetime64[ns]")
     daily_indices: np.ndarray = np.empty(0)
-    hourly_time_range: Optional[pd.DatetimeIndex] = pd.DatetimeIndex([], dtype="datetime64[ns]")
-    hourly_indices: Optional[torch.Tensor] = torch.empty(0)
+    hourly_time_range: pd.DatetimeIndex | None = pd.DatetimeIndex([], dtype="datetime64[ns]")
+    hourly_indices: torch.Tensor | None = torch.empty(0)
     numerical_time_range: np.ndarray = np.empty(0)
 
     def __init__(self, **kwargs):
@@ -42,7 +42,9 @@ class Dates(BaseModel):
         rho = dates.rho
         if isinstance(rho, int):
             if rho > len(dates.daily_time_range):
-                log.exception(ValueError("Rho needs to be smaller than the routed period between start and end times"))
+                log.exception(
+                    ValueError("Rho needs to be smaller than the routed period between start and end times")
+                )
                 raise ValueError("Rho needs to be smaller than the routed period between start and end times")
         return dates
 
@@ -78,8 +80,12 @@ class Dates(BaseModel):
             inclusive="left",
         )
         origin_start_date = datetime.strptime(self.origin_start_date, self.daily_format)
-        origin_base_start_time = int((daily_time_range[0].to_pydatetime() - origin_start_date).total_seconds() / 86400)
-        origin_base_end_time = int((daily_time_range[-1].to_pydatetime() - origin_start_date).total_seconds() / 86400)
+        origin_base_start_time = int(
+            (daily_time_range[0].to_pydatetime() - origin_start_date).total_seconds() / 86400
+        )
+        origin_base_end_time = int(
+            (daily_time_range[-1].to_pydatetime() - origin_start_date).total_seconds() / 86400
+        )
 
         # The indices for the dates in your selected routing time range
         self.numerical_time_range = np.arange(origin_base_start_time, origin_base_end_time + 1, 1)

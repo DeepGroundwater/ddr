@@ -6,6 +6,11 @@ from pathlib import Path
 import hydra
 import numpy as np
 import torch
+from hydra.core.hydra_config import HydraConfig
+from omegaconf import DictConfig
+from torch.nn.functional import mse_loss
+from torch.utils.data import DataLoader
+
 from ddr._version import __version__
 from ddr.analysis.metrics import Metrics
 from ddr.analysis.plots import plot_time_series
@@ -15,10 +20,6 @@ from ddr.dataset.train_dataset import train_dataset
 from ddr.dataset.utils import downsample
 from ddr.nn.kan import kan
 from ddr.routing.dmc import dmc
-from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig
-from torch.nn.functional import mse_loss
-from torch.utils.data import DataLoader
 
 log = logging.getLogger(__name__)
 

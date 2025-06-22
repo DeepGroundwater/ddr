@@ -132,7 +132,7 @@ def create_coo(
         try:
             row_idx.append(conus_mapping[flowpaths[0]])
         except KeyError:
-            flowpath_id = f"wb-{int(float(flowpaths[1].split('-')[0]))}"
+            flowpath_id = f"wb-{int(float(flowpaths[0].split('-')[1]))}"
             row_idx.append(conus_mapping[flowpath_id])
         try:
             col_idx.append(conus_mapping[flowpaths[1]])
@@ -210,8 +210,7 @@ def coo_to_zarr_group(
     coo: sparse.coo_matrix,
     ts_order: list[str],
     origin: str,
-    out_path: Path,
-    gauge: Gauge,
+    gauge_root: zarr.Group,
     conus_mapping: dict[str, int],
 ) -> None:
     """
@@ -225,8 +224,8 @@ def coo_to_zarr_group(
         Topological sort order of flowpaths.
     origin: str
         The origin edge of the flow network
-    out_path : Path
-        Path to save the zarr group. If None, defaults to current working directory with name appended.
+    gauge_root: zarr.Group
+        The zarr group for the subset COO matrix
     conus_mapping: dict[str, int]
         The index mapping from watershed boundary to it's position in the array. Ordering is determined through toposort.
 
@@ -235,15 +234,8 @@ def coo_to_zarr_group(
     None
     """
     # Converting to a sparse COO matrix, and saving the output in many arrays within a zarr v3 group
-    store = zarr.storage.LocalStore(root=out_path)
-    if out_path.exists():
-        root = zarr.open_group(store=store)
-    else:
-        root = zarr.create_group(store=store)
-
     zarr_order = np.array([int(float(_id.split("-")[1])) for _id in ts_order], dtype=np.int32)
 
-    gauge_root = root.create_group(gauge.STAID)
     indices_0 = gauge_root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
     indices_1 = gauge_root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
     values = gauge_root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
@@ -328,7 +320,19 @@ if __name__ == "__main__":
     ts_order = np.array([f"wb-{_id}" for _id in ts_order])
     ts_order_dict = {wb_id: idx for idx, wb_id in enumerate(ts_order)}
 
+    # Create local zarr store
+    store = zarr.storage.LocalStore(root=out_path)
+    if out_path.exists():
+        root = zarr.open_group(store=store)
+    else:
+        root = zarr.create_group(store=store)
+
     for gauge in tqdm(gauge_set.gauges, desc="Creating Gauge COO matrices"):
+        try:
+            gauge_root = root.create_group(gauge.STAID)
+        except zarr.errors.ContainsGroupError:
+            print(f"Zarr Group exists for: {gauge.STAID}. Skipping write")
+            continue
         try:
             origin = find_origin(gauge, fp, network)
         except ValueError:
@@ -336,15 +340,10 @@ if __name__ == "__main__":
             continue
         connections = subset(origin, wb_network_dict)
         coo, subset_flowpaths = create_coo(connections, ts_order_dict)
-        try:
-            coo_to_zarr_group(
-                coo=coo,
-                ts_order=subset_flowpaths,
-                origin=origin,
-                out_path=out_path,
-                gauge=gauge,
-                conus_mapping=ts_order_dict,
-            )
-        except zarr.errors.ContainsGroupError:
-            print(f"Zarr Group exists for: {gauge.STAID}. Skipping write")
-            continue
+        coo_to_zarr_group(
+            coo=coo,
+            ts_order=subset_flowpaths,
+            origin=origin,
+            gauge_root=gauge_root,
+            conus_mapping=ts_order_dict,
+        )

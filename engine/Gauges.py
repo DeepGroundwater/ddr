@@ -1,14 +1,31 @@
 import csv
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, PositiveFloat
+from pydantic import AfterValidator, BaseModel, ConfigDict, PositiveFloat
+
+
+def zfill_usgs_id(STAID: str) -> str:
+    """Ensures all USGS gauge strings that are filled to 8 digits
+
+    Parameters
+    ----------
+    STAID: str
+        The USGS Station ID
+
+    Returns
+    -------
+    str
+        The eight-digit USGS Gauge ID
+    """
+    return STAID.zfill(8)
 
 
 class Gauge(BaseModel):
     """A pydantic object for managing properties for a Gauge and validating incoming CSV files"""
 
     model_config = ConfigDict(extra="ignore")
-    STAID: str
+    STAID: Annotated[str, AfterValidator(zfill_usgs_id)]
     DRAIN_SQKM: PositiveFloat
 
 

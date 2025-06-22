@@ -47,7 +47,7 @@ def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.nda
         .squeeze()
     )
     if flowpaths.size > 1:
-        flowpath_id = (
+        return (
             fp.filter(
                 pl.col("id").is_in(flowpaths)  # finds the rows with matching IDs
             )
@@ -62,31 +62,45 @@ def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.nda
             .collect()
             .item()
         )  # Selects the flowpath with the smallest difference
-        flowpaths = np.array(flowpath_id, dtype=np.object_)
-    return flowpaths
+    else:
+        return flowpaths.item()
 
 
-def subset(origin: str, fp: pl.LazyFrame, network: pl.LazyFrame) -> list[str]:
+def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[str]:
     """Subsets the hydrofabric to find all upstream watershed boundaries upstream of the origin fp
 
     Parameters
     ----------
     origin: str
         The starting point from which to find upstream connections from
-    fp: pl.LazyFrame
-        The flowpaths LazyFrame Table
-    network: pl.LazyFrame
-        The network LazyFrame Table
+    wb_network_dict: dict[str, list[str]]
+        a dictionary which maps toid -> list[id] for upstream subsets
 
     Returns
     -------
     list[str]
         The watershed boundaries that make up the subset
     """
-    raise NotImplementedError
+    upstream_segments = set()
+
+    def trace_upstream_recursive(current_id: str) -> None:
+        """Recursively trace upstream from current_id."""
+        if current_id in upstream_segments:
+            return
+        upstream_segments.add(current_id)
+
+        # Find all segments that flow into current_id
+        if current_id in wb_network_dict:
+            for upstream_id in wb_network_dict[current_id]:
+                if upstream_id not in upstream_segments:
+                    trace_upstream_recursive(upstream_id)
+
+    trace_upstream_recursive(origin)
+    upstream_segments.add(origin)
+    return list(upstream_segments)
 
 
-def create_coo(ts_subset_order: list[str], conus_root: zarr.Group) -> sparse.coo:
+def create_coo(ts_subset_order: list[str], conus_root: zarr.Group) -> tuple[sparse.coo, list[str]]:
     """A function to create a coo matrix out of the ts_ordering from the conus_adjacency matrix indices
 
     Parameters
@@ -100,6 +114,8 @@ def create_coo(ts_subset_order: list[str], conus_root: zarr.Group) -> sparse.coo
     -------
     sparse.coo
         The sparse coo matrix from subset indexed from the CONUS adjacency matrix
+    list[str]
+        The topological sorted ordering from the subset
     """
     raise NotImplementedError
 
@@ -203,20 +219,58 @@ if __name__ == "__main__":
     catalog = load_catalog(namespace)
     fp = catalog.load_table("hydrofabric.flowpaths").to_polars()
     network = catalog.load_table("hydrofabric.network").to_polars()
+    print("Creating network dictionary")
+    network_dict = (
+        network.filter(pl.col("toid").is_not_null())
+        .group_by("toid")
+        .agg(pl.col("id").alias("upstream_ids"))
+        .collect()
+    )
+
+    # Create a lookup for nexus -> downstream wb connections
+    nexus_downstream = (
+        network.filter(pl.col("id").str.starts_with("nex-"))
+        .filter(pl.col("toid").str.starts_with("wb-"))
+        .select(["id", "toid"])
+        .rename({"id": "nexus_id", "toid": "downstream_wb"})
+    ).collect()
+
+    # Explode the upstream_ids to get one row per connection
+    connections = network_dict.with_row_index().explode("upstream_ids")
+
+    # Separate wb-to-wb connections (keep as-is)
+    wb_to_wb = (
+        connections.filter(pl.col("upstream_ids").str.starts_with("wb-"))
+        .filter(pl.col("toid").str.starts_with("wb-"))
+        .select(["toid", "upstream_ids"])
+    )
+
+    # Handle nexus connections: wb -> nex -> wb becomes wb -> wb
+    wb_to_nexus = (
+        connections.filter(pl.col("upstream_ids").str.starts_with("wb-"))
+        .filter(pl.col("toid").str.starts_with("nex-"))
+        .join(nexus_downstream, left_on="toid", right_on="nexus_id", how="inner")
+        .select(["downstream_wb", "upstream_ids"])
+        .rename({"downstream_wb": "toid"})
+    )
+
+    # Combine both types of connections
+    wb_connections = pl.concat([wb_to_wb, wb_to_nexus]).unique()
+
+    # Group back to dictionary format
+    wb_network_result = wb_connections.group_by("toid").agg(pl.col("upstream_ids")).unique()
+
+    wb_network_dict = {row["toid"]: row["upstream_ids"] for row in wb_network_result.iter_rows(named=True)}
 
     # Read in conus_adjacency.zarr
     conus_root = zarr.open_group(store=conus_path)
 
     for gauge in gauge_set.gauges:
         try:
-            origin = find_origin(gauge, network)
-            ts_subset_order = subset(origin, fp, network)
-            coo = create_coo(ts_subset_order, conus_root)
+            origin = find_origin(gauge, fp, network)
+            subset_fp = subset(origin, wb_network_dict)
+            coo, ts_subset_order = create_coo(subset_fp, conus_root)
             coo_to_zarr_group(coo, ts_subset_order, out_path)
         except KeyError:
             print(f"Cannot find gauge: {gauge}. Skipping")
             continue
-    # Visual verification
-    # np.set_printoptions(threshold=np.inf, linewidth=np.inf)
-    # print(fp)
-    # print(matrix)

@@ -76,15 +76,14 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
 
     # Toposort for the win
     sorter = gl.TopologicalSorter()
-    fp_df = fp.select([pl.col("id"), pl.col("toid")]).collect()
-    network_df = network.collect()
-
-    # Pre-collect network data to avoid repeated filtering
-    network_dict = dict(zip(network_df["id"].to_list(), network_df["toid"].to_list(), strict=True))
-
-    ghost_nodes_to_add = []
-    network_updates = {}
-
+    fp = fp.with_row_index(name="idx").collect()
+    network = network.collect().unique(subset=["id"])
+    # Create tuples of the index location and the downstream nexus ID
+    _values = zip(fp["idx"], fp["toid"])
+    # define flowpaths as a dictionary of ids to tuples of (index, downstream nexus id)
+    fp = dict(zip(fp["id"], _values, strict=True))
+    # define network as a dictionary of nexus ids to downstream flowpath ids
+    network = dict(zip(network["id"], network["toid"], strict=True))
     for row in tqdm(fp_df.iter_rows(named=True), desc="finding indices", total=len(fp_df)):
         id_val = row["id"]
         nex = row["toid"]

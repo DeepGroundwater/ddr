@@ -86,7 +86,7 @@ def simple_network_pl() -> pl.LazyFrame:
     """Create a simple network LazyFrame for testing."""
     data = {
         "id": ["nex-1", "wb-1", "wb-2"],
-        "toid": [None, "nex-1", "nex-1"],  # Use None for null values
+        "toid": ["wb-2", "nex-1", "nex-1"],  # Use None for null values
         "hl_uri": [None, "gages-01234567", "gages-01234567"],
     }
     network = pl.LazyFrame(
@@ -127,7 +127,7 @@ def complex_network_pl(complex_flowpaths_pl: pl.LazyFrame) -> pl.LazyFrame:
 
     data = {
         "id": ["nex-10", "nex-11", "nex-12"] + flowpath_ids,
-        "toid": ["wb-13", "wb-14", None] + flowpath_toids,
+        "toid": ["wb-13", "wb-14", "wb-16"] + flowpath_toids,
         "hl_uri": [None, None, None, None, None, None, None, "gages-01234567", "gages-01234567"],
     }
     network = pl.LazyFrame(
@@ -151,3 +151,16 @@ def existing_gauge():
 def non_existing_gage():
     """Creates a gauge not in the testing fixtures"""
     return Gauge(STAID="0000", DRAIN_SQKM=123.4)
+
+
+@pytest.fixture
+def simple_river_network_dictionary() -> dict[str, list[str]]:
+    """Creates a gauge dictionary based on the simple river network"""
+    return {"wb-2": ["wb-1", "wb-2"]}
+
+
+@pytest.fixture
+def complex_river_network_dictionary() -> dict[str, list[str]]:
+    """Creates a gauge dictionary based on the complex river network"""
+    # NOTE: Missing: wb-14 and wb-15 connections to nex-12 are lost because nex-12 has toid=None
+    return {"wb-13": ["wb-10", "wb-11", "wb-12"], "wb-14": ["wb-13"], "wb-16": ["wb-14", "wb-15"]}

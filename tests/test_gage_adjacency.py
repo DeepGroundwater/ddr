@@ -18,7 +18,29 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "engine"))
 
 from build_gage_adjacency import (
     find_origin,
+    preprocess_river_network,
 )
+
+
+@pytest.mark.parametrize(
+    "network, expected_dict",
+    [
+        ("simple_network_pl", "simple_river_network_dictionary"),
+        ("complex_network_pl", "complex_river_network_dictionary"),
+    ],
+)
+def test_preprocess_river_networks(network, expected_dict, request):
+    """Tests the creation of a one -> many [toid, [id]] dictionary"""
+    network: pl.LazyFrame = request.getfixturevalue(network)
+    expected_dict: dict[str, list[str]] = request.getfixturevalue(expected_dict)
+    wb_river_dictionary = preprocess_river_network(network)
+
+    # NOTE: ordering of the values inside of the dict[str, list[str]] does not matter
+    assert wb_river_dictionary.keys() == expected_dict.keys()
+    for key in wb_river_dictionary.keys():
+        assert set(wb_river_dictionary[key]) == set(expected_dict[key]), (
+            f"Mismatch for key {key}: {wb_river_dictionary[key]} != {expected_dict[key]}"
+        )
 
 
 @pytest.mark.parametrize(

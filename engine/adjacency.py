@@ -56,9 +56,6 @@ def index_matrix(matrix: np.ndarray, fp: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return matrix_df
 
 
-_tnx_counter = 0
-
-
 def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[sparse.coo_matrix, list[str]]:
     """
     Create a lower triangular adjacency matrix from flowpaths and network dataframes.
@@ -75,7 +72,7 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     np.ndarray
         Lower triangular adjacency matrix.
     """
-    global _tnx_counter
+    _tnx_counter = 0
 
     # Toposort for the win
     sorter = gl.TopologicalSorter()

@@ -111,33 +111,25 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
 
     ts_order = rx.topological_sort(graph)
 
-    # Build sparse matrix
-    row_idx = []
-    col_idx = []
+    # Reindex the flowpaths based on the topo order
+    id_order = [ graph.get_node_data(gidx) for gidx in ts_order ]
+    idx_map = {id: idx for idx, id in enumerate(id_order)}
 
-    for wb in tqdm(ts_order, desc="ordering matrix"):
-        nex = fp_dict.get(wb)
-        if nex is None or pd.isna(nex):
+    col = []
+    row = []
+
+    for node in tqdm(ts_order, "Creating sparse matrix indicies"):
+        if graph.out_degree(node) == 0: # terminal node
             continue
-        ds_wb = network_dict.get(nex)
-        if ds_wb is None or pd.isna(ds_wb):
-            continue
-        if ds_wb == "wb-0":  # Skip this special case
-            continue
+        id = graph.get_node_data(node)
+        # if successors is not size 1, then not dendritic and should be an error...
+        assert len(graph.successors(node)) == 1, f"Node {id} has multiple successors, not dendritic"
+        id_ds = graph.successors(node)[0]
+        col.append( idx_map[id] )
+        row.append( idx_map[id_ds] )
 
-        idx = id_to_pos.get(wb)
-        idxx = id_to_pos.get(ds_wb)
-
-        if idx is None or idxx is None:
-            continue
-
-        col_idx.append(idx)
-        row_idx.append(idxx)
-
-    coo = sparse.coo_matrix(
-        (np.ones(len(row_idx)), (row_idx, col_idx)), shape=(len(ts_order), len(ts_order)), dtype=np.int8
-    )
-
+    matrix = sparse.coo_matrix( (np.ones(len(row), dtype=np.uint8), (row, col)), shape=(len(ts_order), len(ts_order)), dtype=np.uint8)
+    
     # Ensure matrix is lower triangular
     assert np.all(coo.row >= coo.col), "Matrix is not lower triangular"
     _tnx_counter = 0

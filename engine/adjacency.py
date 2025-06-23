@@ -131,10 +131,19 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     matrix = sparse.coo_matrix( (np.ones(len(row), dtype=np.uint8), (row, col)), shape=(len(ts_order), len(ts_order)), dtype=np.uint8)
     
     # Ensure matrix is lower triangular
-    assert np.all(coo.row >= coo.col), "Matrix is not lower triangular"
-    _tnx_counter = 0
-    return coo, ts_order
+    assert np.all(matrix.row >= matrix.col), "Matrix is not lower triangular"
+    # assert sparse.linalg.is_sptriangular(matrix)[0] == True
+    
+    # If we want to get updated flowpath and network dataframes,
+    # we can create them from the topological sort order
+    # fp = pl.DataFrame({"id": [graph.get_node_data(gidx) for gidx in ts_order], "toid": [fp.get(id) for id in ts_order]})
+    # technically, the network dataframe doesn't need to worry about sort order...just recreate
+    # from the possibly updated network dictionary
+    # network = pl.DataFrame( {"id": network.keys(), "toid": network.values()})
+    # With polars frames, these would need to be returned as new objects
+    # from this function.
 
+    return matrix, id_order
 
 def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> None:
     """

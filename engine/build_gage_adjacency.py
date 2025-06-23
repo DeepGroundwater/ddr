@@ -15,10 +15,11 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import zarr
-from Gauges import Gauge, GaugeSet, validate_gages
 from pyiceberg.catalog import load_catalog
 from scipy import sparse
 from tqdm import tqdm
+
+from ddr import Gauge, GaugeSet, validate_gages
 
 
 def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.ndarray:
@@ -28,6 +29,8 @@ def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.nda
     ----------
     gauge: Gauge
         A pydantic object containing gauge information
+    fp: pl.LazyFrame
+        The hydrofabric flowpaths table
     network: pl.LazyFrame
         The hydrofabric network table
 

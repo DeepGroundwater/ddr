@@ -88,68 +88,28 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     # in this graph form -- each waterbody/flowpath is a node and each nexus is a directed edge
     # All flowpaths are nodes, add them upfront...
     gidx = graph.add_nodes_from(fp.keys())
-    for row in tqdm(fp_df.iter_rows(named=True), desc="finding indices", total=len(fp_df)):
-        id_val = row["id"]
-        nex = row["toid"]
-
-        # Fast lookup instead of filtering each time
-        ds_wb = network_dict.get(nex)
-
+    for idx in tqdm(gidx, desc="Building network graph"):
+        id = graph.get_node_data(idx)
+        nex = fp[id][1] # the downstream nexus id
+        terminal = False
+        ds_wb = network.get(nex)
         if ds_wb is None:
-            print("Terminal nex???", nex)
-            ds_wb = np.nan
-
-        if pd.isna(ds_wb):
-            if ghost:
+            # This allows a ghost node to be used by multiple upstream
+            # flowpaths which accumulate at the same location
+            # If we find a terminal we haven't seen before, we create a new ghost node
+            if ghost and not id.startswith("ghost-"):
+                ghost_node = graph.add_node(f"ghost-{_tnx_counter}")
                 ds_wb = f"ghost-{_tnx_counter}"
-                # Track changes to apply later
-                network_updates[nex] = ds_wb  # Point nexus to ghost
-                ghost_nodes_to_add.append(
-                    {
-                        "id": ds_wb,
-                        "toid": None,  # Ghost points to nothing
-                    }
-                )
-                network_dict[nex] = ds_wb
-                network_dict[ds_wb] = None
+                network[nex] = ds_wb
+                network[ds_wb] = None
+                fp[ds_wb] = (ghost_node, None)
                 _tnx_counter += 1
+            else:
+                terminal = True
+        if not terminal:
+            graph.add_edge(idx, fp[ds_wb][0], nex)
 
-        # Add a node to the sorter, ds_wb is the node, id_val is its predecessor
-        sorter.add(ds_wb, id_val)
-
-    # Apply network updates efficiently in Polars
-    if network_updates or ghost_nodes_to_add:
-        # Update existing network entries
-        if network_updates:
-            network_df = network_df.with_columns(
-                [
-                    pl.when(pl.col("id").is_in(list(network_updates.keys())))
-                    .then(pl.col("id").map_elements(lambda x: network_updates.get(x), return_dtype=pl.String))
-                    .otherwise(pl.col("toid"))
-                    .alias("toid")
-                ]
-            )
-
-        # Add ghost nodes to network
-        if ghost_nodes_to_add:
-            ghost_network_df = pl.DataFrame(ghost_nodes_to_add, schema={"id": pl.String, "toid": pl.String})
-            network_df = pl.concat([network_df, ghost_network_df])
-
-        # Add ghost nodes to flowpaths
-        if ghost_nodes_to_add:
-            ghost_fp_df = pl.DataFrame(ghost_nodes_to_add, schema={"id": pl.String, "toid": pl.String})
-            fp_df = pl.concat([fp_df, ghost_fp_df])
-
-    # Get topological sort order
-    if ghost:
-        ts_order = list(sorter.static_order())
-    else:
-        ts_order = list(filter(lambda s: not pd.isna(s), sorter.static_order()))
-
-    # Create dictionaries for matrix building
-    fp_dict = dict(zip(fp_df["id"].to_list(), fp_df["toid"].to_list(), strict=True))
-    network_dict = dict(zip(network_df["id"].to_list(), network_df["toid"].to_list(), strict=True))
-    id_to_pos = {id_val: pos for pos, id_val in enumerate(ts_order)}
+    ts_order = rx.topological_sort(graph)
 
     # Build sparse matrix
     row_idx = []

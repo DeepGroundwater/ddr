@@ -33,6 +33,7 @@ dependencies = [
     "pre-commit==4.2.0",
     "pydantic==2.11.5",
     "pykan==0.2.8",
+    "rustworkx==0.16.0",
     "scikit-learn==1.6.1",
     "scipy==1.15.3",
     "tqdm==4.67.1",

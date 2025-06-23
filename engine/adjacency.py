@@ -11,13 +11,13 @@ An introduction script for building a lower triangular adjancency matrix
 from a NextGen hydrofabric and writing a sparse zarr group
 """
 
-import graphlib as gl
 from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
 import pandas as pd
 import polars as pl
+import rustworkx as rx
 import zarr
 from polars import LazyFrame
 from pyiceberg.catalog import load_catalog
@@ -74,8 +74,6 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     """
     _tnx_counter = 0
 
-    # Toposort for the win
-    sorter = gl.TopologicalSorter()
     fp = fp.with_row_index(name="idx").collect()
     network = network.collect().unique(subset=["id"])
     # Create tuples of the index location and the downstream nexus ID
@@ -84,6 +82,12 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     fp = dict(zip(fp["id"], _values, strict=True))
     # define network as a dictionary of nexus ids to downstream flowpath ids
     network = dict(zip(network["id"], network["toid"], strict=True))
+
+    # pre-allocate the graph with the number of flowpaths
+    graph = rx.PyDiGraph(check_cycle=False, node_count_hint=len(fp), edge_count_hint=len(fp))
+    # in this graph form -- each waterbody/flowpath is a node and each nexus is a directed edge
+    # All flowpaths are nodes, add them upfront...
+    gidx = graph.add_nodes_from(fp.keys())
     for row in tqdm(fp_df.iter_rows(named=True), desc="finding indices", total=len(fp_df)):
         id_val = row["id"]
         nex = row["toid"]

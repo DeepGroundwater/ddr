@@ -16,10 +16,33 @@ from ddr import Gauge
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "engine"))
 
-from build_gage_adjacency import (
-    find_origin,
-    preprocess_river_network,
-)
+from build_gage_adjacency import find_origin, preprocess_river_network, subset
+
+
+def test_simple_subset(
+    simple_flowpaths_pl, simple_network_pl, existing_gauge, simple_river_network_dictionary, request
+):
+    """Tests the creation of a one -> many [toid, [id]] dictionary"""
+    origin = find_origin(existing_gauge, simple_flowpaths_pl, simple_network_pl)
+    assert origin == "wb-2", "Finding the incorrect flowpath for the gauge"
+    connections = subset(origin, simple_river_network_dictionary)
+    assert connections == [], "Found a headwater gauge connection. Connections are incorrect"
+
+
+def test_complex_subset(
+    complex_flowpaths_pl,
+    complex_network_pl,
+    existing_gauge,
+    complex_river_network_dictionary,
+    complex_connections,
+):
+    """Tests the creation of a one -> many [toid, [id]] dictionary"""
+    origin = find_origin(existing_gauge, complex_flowpaths_pl, complex_network_pl)
+    assert origin == "wb-14", "Finding the incorrect flowpath for the gauge"
+    connections = subset(origin, complex_river_network_dictionary)
+    assert set(complex_connections) == set(connections), (
+        f"Connections for the subsets are not correct. Expected: {complex_connections}, Got: {connections}"
+    )
 
 
 @pytest.mark.parametrize(

@@ -86,7 +86,7 @@ def simple_network_pl() -> pl.LazyFrame:
     """Create a simple network LazyFrame for testing."""
     data = {
         "id": ["nex-1", "wb-1", "wb-2"],
-        "toid": ["wb-2", "nex-1", "nex-1"],  # Use None for null values
+        "toid": ["wb-3", "nex-1", "nex-1"],  # Use None for null values
         "hl_uri": [None, "gages-01234567", "gages-01234567"],
     }
     network = pl.LazyFrame(
@@ -156,11 +156,16 @@ def non_existing_gage():
 @pytest.fixture
 def simple_river_network_dictionary() -> dict[str, list[str]]:
     """Creates a gauge dictionary based on the simple river network"""
-    return {"wb-2": ["wb-1", "wb-2"]}
+    return {"wb-3": ["wb-1", "wb-2"]}
 
 
 @pytest.fixture
 def complex_river_network_dictionary() -> dict[str, list[str]]:
     """Creates a gauge dictionary based on the complex river network"""
-    # NOTE: Missing: wb-14 and wb-15 connections to nex-12 are lost because nex-12 has toid=None
     return {"wb-13": ["wb-10", "wb-11", "wb-12"], "wb-14": ["wb-13"], "wb-16": ["wb-14", "wb-15"]}
+
+
+@pytest.fixture
+def complex_connections() -> list[tuple[str]]:
+    """Creates a list of list of strings (Or tuples) where"""
+    return [("wb-14", "wb-13"), ("wb-13", "wb-10"), ("wb-13", "wb-11"), ("wb-13", "wb-12")]

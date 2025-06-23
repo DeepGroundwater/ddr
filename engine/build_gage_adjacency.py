@@ -73,7 +73,7 @@ def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.nda
         raise ValueError from e
 
 
-def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[str, str]:
+def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[tuple[str]]:
     """Subsets the hydrofabric to find all upstream watershed boundaries upstream of the origin fp
 
     Parameters
@@ -85,7 +85,7 @@ def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[str, str]
 
     Returns
     -------
-    list[str, str]
+    list[tuple[str]]
         The watershed boundary connections that make up the subset. Note [0] is the toid and [1] is the from_id
     """
     upstream_segments = set()
@@ -101,7 +101,7 @@ def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[str, str]
         if current_id in wb_network_dict:
             for upstream_id in wb_network_dict[current_id]:
                 connections.append(
-                    [current_id, upstream_id]
+                    (current_id, upstream_id)
                 )  # Row is where the flow is going, col is where the flow is coming from
                 if upstream_id not in upstream_segments:
                     trace_upstream_recursive(upstream_id)
@@ -111,13 +111,13 @@ def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[str, str]
 
 
 def create_coo(
-    connections: list[str, str], conus_mapping: dict[str, int]
+    connections: list[tuple[str]], conus_mapping: dict[str, int]
 ) -> tuple[sparse.coo_matrix, list[str]]:
     """A function to create a coo matrix out of the ts_ordering from the conus_adjacency matrix indices
 
     Parameters
     ----------
-    connections: list[str, str]
+    connections: list[tuple[str]]
         The connections of the watershed boundaries from the gauge subset
     conus_mapping: dict[str, int]
         The mapping of watershed boundaries to their conus index (topo sorted already)

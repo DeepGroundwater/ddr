@@ -69,8 +69,9 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
 
     Returns
     -------
-    np.ndarray
-        Lower triangular adjacency matrix.
+    tuple[sparse.coo_matrix, list[str]]
+        tuple[0]: A scipy sparse matrix in COO format
+        tuple[1]: Topological ordering of Flowpaths
     """
     _tnx_counter = 0
 

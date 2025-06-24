@@ -155,8 +155,6 @@ def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> 
         Lower triangular adjacency matrix.
     ts_order : list[str]
         Topological sort order of flowpaths.
-    name : str
-        Name of the zarr group to create.
     out_path : Path | str | None, optional
         Path to save the zarr group. If None, defaults to current working directory with name appended.
 

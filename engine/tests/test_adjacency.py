@@ -8,7 +8,6 @@
 Tests for functionality of the adjacency module.
 """
 
-import os
 import tempfile
 from pathlib import Path
 
@@ -16,11 +15,10 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
-import polars as pl
 import zarr
-from scipy import sparse
+from polars import LazyFrame, String, col
 
-from ..adjacency import create_matrix, index_matrix, coo_to_zarr  # noqa: TID252
+from ..adjacency import coo_to_zarr, create_matrix, index_matrix  # noqa: TID252
 
 # TODO consider generating random flowpaths and networks for more robust testing
 # then figure out a way to reporduce the same random flowpaths and networks
@@ -54,7 +52,7 @@ def complex_flowpaths() -> pl.LazyFrame:
     """Create a more complex flowpaths LazyFrame for testing."""
     data = {
         "id": ["wb-10", "wb-11", "wb-12", "wb-13", "wb-14", "wb-15"],
-        "toid": ["nex-10", "nex-10", "nex-10", "nex-11", "nex-12", "nex-12"]
+        "toid": ["nex-10", "nex-10", "nex-10", "nex-11", "nex-12", "nex-12"],
     }
     fp = pl.LazyFrame(data, schema={"id": pl.String, "toid": pl.String})
     return fp
@@ -92,7 +90,7 @@ class TestIndexMatrix:
         network = request.getfixturevalue(network)
         coo, ts_order = create_matrix(fp, network, ghost)
         matrix = coo.toarray()
-        
+
         # Convert original flowpaths for comparison, but only include original flowpaths (not ghost nodes)
         fp_pandas = fp.collect().to_pandas().set_index("id")
         
@@ -130,7 +128,7 @@ class TestIndexMatrix:
             t_cols = result.columns[result.columns.str.startswith("ghost-")]
             assert len(t_rows) > 0
             assert len(t_cols) > 0
-        
+
         # Check uniqueness
         assert len(result.index.unique()) == len(result.index)
         assert len(result.columns.unique()) == len(result.columns)
@@ -154,13 +152,15 @@ class TestAdjanceyMatrix:
         network = request.getfixturevalue(network)
         coo, ts_order = create_matrix(fp, network, ghost)
         matrix = coo.toarray()
-        
+
         # Convert to pandas for easier inspection
         fp_pandas = fp.collect().to_pandas().set_index("id")
-        
+
         # Validate matrix properties
         # Check that matrix is square and has correct dimensions
-        assert matrix.shape[0] == matrix.shape[1], "matrix is not square and does not have the correct dimensions"
+        assert matrix.shape[0] == matrix.shape[1], (
+            "matrix is not square and does not have the correct dimensions"
+        )
         # Check that matrix contains only 0s and 1s
         assert np.all((matrix == 0) | (matrix == 1)), "matrix contains numbers other than 0s and 1s"
         # Check that diagonal is all zeros (no self-loops)
@@ -176,10 +176,10 @@ class TestAdjanceyMatrix:
         else:
             # Without ghost nodes, should match original flowpaths
             assert matrix.shape[0] == original_fp_count
-            
+
         # Check that ts_order length matches matrix dimensions
         assert len(ts_order) == matrix.shape[0]
-        
+
         # Check that original flowpath IDs are in ts_order
         original_ids = set(fp_pandas.index)
         ts_order_set = set(ts_order)
@@ -235,7 +235,7 @@ class TestAdjanceyMatrix:
         network = request.getfixturevalue(network)
         coo, ts_order = create_matrix(fp, network, ghost)
         matrix = coo.toarray()
-        
+
         # Convert to pandas and reindex according to ts_order
         fp_pandas = fp.collect().to_pandas().set_index("id").reindex(ts_order)
         network_pandas = network.collect().to_pandas().set_index("id")

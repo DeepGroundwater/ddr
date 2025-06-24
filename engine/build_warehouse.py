@@ -2,12 +2,17 @@ import argparse
 from pathlib import Path
 
 import geopandas as gpd
+import pyarrow.parquet as pq
 from pyiceberg.catalog import load_catalog
 from pyiceberg.exceptions import NamespaceAlreadyExistsError
-import pyarrow.parquet as pq
 
 
 def build_tables(file: Path):
+    """Build iceberg tables from a hydrofabric geopackage
+
+    Args:
+        file (Path): path to the hydrofabric geopackage
+    """
     file_dir = file.parent
     warehouse_path = Path("/tmp/warehouse")
     warehouse_path.mkdir(exist_ok=True)
@@ -48,8 +53,11 @@ def build_tables(file: Path):
             iceberg_table.append(arrow_table)
     print(f"Build successful. Files written into metadata store @ {warehouse_path}")
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="A module to convert a hydrofabric geopackage into a pyiceberg warehouse")
+    parser = argparse.ArgumentParser(
+        description="A module to convert a hydrofabric geopackage into a pyiceberg warehouse"
+    )
     parser.add_argument("--file", required=True, help="The hydrofabric geopackage to build a warehouse from")
 
     args = parser.parse_args()
@@ -60,4 +68,3 @@ if __name__ == "__main__":
         msg = f"File not found: {file}"
         print(msg)
         raise FileNotFoundError(msg)
-    

@@ -15,8 +15,6 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
-import pandas as pd
-import polars as pl
 import rustworkx as rx
 import zarr
 from polars import LazyFrame
@@ -78,7 +76,7 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     fp = fp.with_row_index(name="idx").collect()
     network = network.collect().unique(subset=["id"])
     # Create tuples of the index location and the downstream nexus ID
-    _values = zip(fp["idx"], fp["toid"])
+    _values = zip(fp["idx"], fp["toid"], strict=False)
     # define flowpaths as a dictionary of ids to tuples of (index, downstream nexus id)
     fp = dict(zip(fp["id"], _values, strict=True))
     # define network as a dictionary of nexus ids to downstream flowpath ids
@@ -91,7 +89,7 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     gidx = graph.add_nodes_from(fp.keys())
     for idx in tqdm(gidx, desc="Building network graph"):
         id = graph.get_node_data(idx)
-        nex = fp[id][1] # the downstream nexus id
+        nex = fp[id][1]  # the downstream nexus id
         terminal = False
         ds_wb = network.get(nex)
         if ds_wb is None:
@@ -113,28 +111,30 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     ts_order = rx.topological_sort(graph)
 
     # Reindex the flowpaths based on the topo order
-    id_order = [ graph.get_node_data(gidx) for gidx in ts_order ]
+    id_order = [graph.get_node_data(gidx) for gidx in ts_order]
     idx_map = {id: idx for idx, id in enumerate(id_order)}
 
     col = []
     row = []
 
     for node in tqdm(ts_order, "Creating sparse matrix indicies"):
-        if graph.out_degree(node) == 0: # terminal node
+        if graph.out_degree(node) == 0:  # terminal node
             continue
         id = graph.get_node_data(node)
         # if successors is not size 1, then not dendritic and should be an error...
         assert len(graph.successors(node)) == 1, f"Node {id} has multiple successors, not dendritic"
         id_ds = graph.successors(node)[0]
-        col.append( idx_map[id] )
-        row.append( idx_map[id_ds] )
+        col.append(idx_map[id])
+        row.append(idx_map[id_ds])
 
-    matrix = sparse.coo_matrix( (np.ones(len(row), dtype=np.uint8), (row, col)), shape=(len(ts_order), len(ts_order)), dtype=np.uint8)
-    
+    matrix = sparse.coo_matrix(
+        (np.ones(len(row), dtype=np.uint8), (row, col)), shape=(len(ts_order), len(ts_order)), dtype=np.uint8
+    )
+
     # Ensure matrix is lower triangular
     assert np.all(matrix.row >= matrix.col), "Matrix is not lower triangular"
     # assert sparse.linalg.is_sptriangular(matrix)[0] == True
-    
+
     # If we want to get updated flowpath and network dataframes,
     # we can create them from the topological sort order
     # fp = pl.DataFrame({"id": [graph.get_node_data(gidx) for gidx in ts_order], "toid": [fp.get(id) for id in ts_order]})
@@ -145,6 +145,7 @@ def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[spars
     # from this function.
 
     return matrix, id_order
+
 
 def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> None:
     """

@@ -24,6 +24,7 @@ maintainers = [
 ]
 
 dependencies = [
+    "adbc-driver-sqlite==1.6.0",
     "geopandas==1.0.1",
     "hydra-core==1.3.2",
     "icechunk==0.2.15",

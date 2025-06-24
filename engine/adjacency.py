@@ -15,10 +15,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import rustworkx as rx
 import zarr
 from polars import LazyFrame
-from pyiceberg.catalog import load_catalog
 from scipy import sparse
 from tqdm import tqdm
 
@@ -209,20 +209,31 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.path is None:
-        out_path = Path.cwd() / "conus_adjacency.zarr"
+        out_path = Path.cwd() / "adjacency.zarr"
     else:
         out_path = Path(args.path)
     if out_path.exists():
-        raise FileExistsError("Cannot create zarr store. One already exists")
+        print(f"Cannot create zarr store {args.path}. One already exists")
+        exit(1)
 
-    namespace = "hydrofabric"
-    catalog = load_catalog(namespace)
-    fp = catalog.load_table("hydrofabric.flowpaths").to_polars()
-    network = catalog.load_table("hydrofabric.network").to_polars()
-    coo, ts_order = create_matrix(fp, network)
-    coo_to_zarr(coo, ts_order, out_path)
+    # Read hydrofabric geopackage using sqlite
+    uri = "sqlite://" + str(args.pkg)
+    query = "SELECT id,toid FROM flowpaths"
+    fp = pl.read_database_uri(query=query, uri=uri, engine="adbc")
+    # Using adbc is about 2 seconds faster than using the sqlite3 connection
+    # conn = sqlite3.connect(args.pkg)
+    # fp = pl.read_database(query=query, connection=conn)
 
-    # Visual verification
-    # np.set_printoptions(threshold=np.inf, linewidth=np.inf)
-    # print(fp)
-    # print(matrix)
+    # Make sure wb-0 exists as a flowpath -- this is effectively
+    # the terminal node of all hydrofabric terminals -- use this if not using ghosts
+    # If you want to have each independent network have its own terminal ghost-N
+    # identifier, then you would need to actually drop all wb-0 instances in
+    # the network table toid column and replace them with null values...
+    fp = fp.extend(pl.DataFrame({"id": ["wb-0"], "toid": [None]})).lazy()
+    # build the network table
+    query = "SELECT id,toid FROM network"
+    network = pl.read_database_uri(query=query, uri=uri, engine="adbc").lazy()
+    # network = pl.read_database(query=query, connection=conn).lazy()
+    network = network.filter(pl.col("id").str.starts_with("wb-").not_())
+    matrix, ts_order = create_matrix(fp, network)
+    coo_to_zarr(matrix, ts_order, args.path)

@@ -95,23 +95,12 @@ class TestIndexMatrix:
         # Convert original flowpaths for comparison, but only include original flowpaths (not ghost nodes)
         fp_pandas = fp.collect().to_pandas().set_index("id")
 
-        # Create a DataFrame that matches the matrix dimensions
-        if ghost:
-            # For ghost mode, we need to create a dataframe that includes ghost nodes
-            full_fp_data = []
-            for node_id in ts_order:
-                if node_id in fp_pandas.index:
-                    full_fp_data.append({"id": node_id, "toid": fp_pandas.loc[node_id, "toid"]})
-                else:
-                    # This is a ghost node
-                    full_fp_data.append({"id": node_id, "toid": np.nan})
-
-            full_fp = pd.DataFrame(full_fp_data).set_index("id")
-            result = index_matrix(matrix, full_fp)
-        else:
-            # For non-ghost mode, reindex to match ts_order
-            fp_reindexed = fp_pandas.reindex(ts_order)
-            result = index_matrix(matrix, fp_reindexed)
+        # Ghost nodes will be added to this new frame
+        # if they exist in ts_order, and the will have NaN
+        # for all columns
+        # For non-ghost mode, reindex to match ts_order
+        fp_reindexed = fp_pandas.reindex(ts_order)
+        result = index_matrix(matrix, fp_reindexed)
 
         # Check that the result is a DataFrame
         assert isinstance(result, pd.DataFrame)
@@ -244,20 +233,18 @@ class TestAdjanceyMatrix:
         for i in range(len(fp_pandas)):
             if i >= len(idx):
                 break
-            nex = fp_pandas.loc[idx[i]]["toid"]
+            nex = fp_pandas.iloc[i]["toid"]
             # Skip if nexus is null
             if pd.isna(nex):
                 continue
             # Check if nexus exists in network
-            if nex not in network_pandas.index:
-                continue
+            assert nex in network_pandas.index
             ds = network_pandas.loc[nex]["toid"]
             # Skip if downstream is null
             if pd.isna(ds):
                 continue
             # Check if downstream segment exists in the index
-            if ds not in idx:
-                continue
+            assert ds in idx
             j = idx.get_loc(ds)
             assert matrix[j, i] == 1, f"Expected 1 at ({j}, {i}), got {matrix[j, i]}"
 

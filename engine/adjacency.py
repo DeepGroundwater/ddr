@@ -166,7 +166,7 @@ def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> 
     store = zarr.storage.LocalStore(root=out_path)
     root = zarr.create_group(store=store)
 
-    zarr_order = np.array([int(_id.split("-")[1]) for _id in ts_order], dtype=np.int32)
+    zarr_order = np.array([int(float(_id.split("-")[1])) for _id in ts_order], dtype=np.int32)
 
     indices_0 = root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
     indices_1 = root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)

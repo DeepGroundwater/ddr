@@ -13,8 +13,8 @@ from a NextGen hydrofabric and writing a sparse zarr group
 
 from pathlib import Path
 
-import geopandas as gpd
 import numpy as np
+import pandas as pd
 import rustworkx as rx
 import zarr
 from polars import LazyFrame
@@ -23,7 +23,7 @@ from scipy import sparse
 from tqdm import tqdm
 
 
-def index_matrix(matrix: np.ndarray, fp: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+def index_matrix(matrix: np.ndarray, fp: pd.DataFrame) -> pd.DataFrame:
     """
     Create a 2D dataframe with rows and columns indexed by flowpath IDs
     and values from the lower triangular adjacency matrix.
@@ -32,18 +32,16 @@ def index_matrix(matrix: np.ndarray, fp: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     ----------
     matrix : np.ndarray
         Lower triangular adjacency matrix.
-    fp : gpd.GeoDataFrame
+    fp : pd.DataFrame
         Flowpaths dataframe with 'toid' column indicating downstream nexus IDs.
 
     Returns
     -------
-    gpd.GeoDataFrame
+    pd.DataFrame
         matrix dataframe with flowpath IDs as index and columns
     """
-    # Create a new GeoDataFrame with the same index as the flowpaths
-    matrix_df = gpd.GeoDataFrame(
-        index=fp.index, columns=fp.index, data=np.zeros((len(fp), len(fp)), dtype=int)
-    )
+    # Create a new DataFrame with the same index as the flowpaths
+    matrix_df = pd.DataFrame(index=fp.index, columns=fp.index, data=np.zeros((len(fp), len(fp)), dtype=int))
     matrix_df.rename_axis("to", inplace=True)
     matrix_df.rename_axis("from", axis=1, inplace=True)
     # Fill the dataframe with the values from the matrix

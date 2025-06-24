@@ -11,7 +11,6 @@ Tests for functionality of the adjacency module.
 import tempfile
 from pathlib import Path
 
-import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
@@ -112,8 +111,8 @@ class TestIndexMatrix:
             fp_reindexed = fp_pandas.reindex(ts_order)
             result = index_matrix(matrix, fp_reindexed)
 
-        # Check that the result is a GeoDataFrame
-        assert isinstance(result, gpd.GeoDataFrame)
+        # Check that the result is a DataFrame
+        assert isinstance(result, pd.DataFrame)
         # Check that the matrix dimensions match
         assert result.shape == matrix.shape
         # Check that the data matches the matrix

@@ -23,7 +23,7 @@ def test_simple_subset(
     simple_flowpaths, simple_network, existing_gauge, simple_river_network_dictionary, request
 ):
     """Tests the creation of a one -> many [toid, [id]] dictionary"""
-    origin = find_origin(existing_gauge, simple_flowpaths, simple_network)
+    origin = find_origin(existing_gauge, simple_flowpaths.collect(), simple_network)
     assert origin == "wb-2", "Finding the incorrect flowpath for the gauge"
     connections = subset(origin, simple_river_network_dictionary)
     assert connections == [], "Found a headwater gauge connection. Connections are incorrect"
@@ -37,7 +37,7 @@ def test_complex_subset(
     complex_connections,
 ):
     """Tests the creation of a one -> many [toid, [id]] dictionary"""
-    origin = find_origin(existing_gauge, complex_flowpaths, complex_network)
+    origin = find_origin(existing_gauge, complex_flowpaths.collect(), complex_network)
     assert origin == "wb-14", "Finding the incorrect flowpath for the gauge"
     connections = subset(origin, complex_river_network_dictionary)
     assert set(complex_connections) == set(connections), (
@@ -75,7 +75,7 @@ def test_preprocess_river_networks(network, expected_dict, request):
 )
 def test_find_origin_success(fp, network, gauge, request):
     """Test successful origin finding."""
-    fp: pl.LazyFrame = request.getfixturevalue(fp)
+    fp: pl.DataFrame = request.getfixturevalue(fp).collect()
     network: pl.LazyFrame = request.getfixturevalue(network)
     gauge: Gauge = request.getfixturevalue(gauge)
 
@@ -92,7 +92,7 @@ def test_find_origin_success(fp, network, gauge, request):
 )
 def test_find_origin_raises_value_error(fp, network, gauge, request):
     """Test that find_origin raises ValueError for non-existing gauges."""
-    fp: pl.LazyFrame = request.getfixturevalue(fp)
+    fp: pl.DataFrame = request.getfixturevalue(fp).collect()
     network: pl.LazyFrame = request.getfixturevalue(network)
     gauge: Gauge = request.getfixturevalue(gauge)
 

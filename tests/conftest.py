@@ -2,7 +2,7 @@
 @author Nels Frazier
 @author Tadd Bindas
 
-@date June 23, 2025
+@date June 25, 2025
 
 Pytest fixtures to test adjacency matrix creation
 """
@@ -37,7 +37,7 @@ def simple_network() -> pl.LazyFrame:
     """Create a simple network LazyFrame for testing."""
     data = {
         "id": ["nex-1", "wb-1", "wb-2"],
-        "toid": ["wb-3", "nex-1", "nex-1"],  # Use None for null values
+        "toid": ["ghost-3", "nex-1", "nex-1"],  # Use None for null values
         "hl_uri": [None, "gages-01234567", "gages-01234567"],
     }
     network = pl.LazyFrame(
@@ -78,7 +78,7 @@ def complex_network(complex_flowpaths: pl.LazyFrame) -> pl.LazyFrame:
 
     data = {
         "id": ["nex-10", "nex-11", "nex-12"] + flowpath_ids,
-        "toid": ["wb-13", "wb-14", "wb-16"] + flowpath_toids,
+        "toid": ["wb-13", "wb-14", "ghost-16"] + flowpath_toids,
         "hl_uri": [None, None, None, None, None, None, None, "gages-01234567", "gages-01234567"],
     }
     network = pl.LazyFrame(
@@ -107,13 +107,13 @@ def non_existing_gage():
 @pytest.fixture
 def simple_river_network_dictionary() -> dict[str, list[str]]:
     """Creates a gauge dictionary based on the simple river network"""
-    return {"wb-3": ["wb-1", "wb-2"]}
+    return {"ghost-3": ["wb-1", "wb-2"]}
 
 
 @pytest.fixture
 def complex_river_network_dictionary() -> dict[str, list[str]]:
     """Creates a gauge dictionary based on the complex river network"""
-    return {"wb-13": ["wb-10", "wb-11", "wb-12"], "wb-14": ["wb-13"], "wb-16": ["wb-14", "wb-15"]}
+    return {"wb-13": ["wb-10", "wb-11", "wb-12"], "wb-14": ["wb-13"], "ghost-16": ["wb-14", "wb-15"]}
 
 
 @pytest.fixture

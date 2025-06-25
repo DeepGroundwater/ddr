@@ -41,16 +41,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-tests = [
-    "pytest==8.4.1",
-    "pytest-cov==6.1.1",
-    "ruff==0.11.13",
-]
-engine = [
-  "polars==1.31.0",
-  "pyarrow==20.0.0",
-  "pyiceberg[sql-sqlite]==0.9.1",
-]
 docs = [
   "mkdocs-material==9.6.14",
   "sympy==1.14.0"

@@ -15,10 +15,11 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import zarr
-from Gauges import Gauge, GaugeSet, validate_gages
 from pyiceberg.catalog import load_catalog
 from scipy import sparse
 from tqdm import tqdm
+
+from ddr.dataset.Gauges import Gauge, GaugeSet, validate_gages
 
 
 def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.ndarray:

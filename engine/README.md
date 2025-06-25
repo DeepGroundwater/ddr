@@ -7,10 +7,10 @@ This folder contains scripts and tools meant to format versions of the hydrofabr
 
 How to run adjacency matrix:
 ```python
-python engine/adjacency.py <path to hydrofabric gpkg> <store key> <store path>
+python engine/adjacency.py <path to hydrofabric gpkg> <store path>
 ```
 
 To install these dependencies, please run the following command from the project root
 ```sh
-uv sync --extra engine
+uv sync
 ```

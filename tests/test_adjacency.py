@@ -8,69 +8,26 @@
 Tests for functionality of the adjacency module.
 """
 
+import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 import zarr
-from polars import LazyFrame, String, col
 
-from ..adjacency import coo_to_zarr, create_matrix, index_matrix  # noqa: TID252
+sys.path.insert(0, str(Path(__file__).parents[1] / "engine"))
+
+
+from adjacency import coo_to_zarr, create_matrix, index_matrix
 
 # TODO consider generating random flowpaths and networks for more robust testing
 # then figure out a way to reporduce the same random flowpaths and networks
 # when a failure occurs so it can be debugged easily
 
-_table_schema = {"id": String, "toid": String}
-
-
-@pytest.fixture
-def simple_flowpaths() -> LazyFrame:
-    """Create a simple flowpaths LazyFrame for testing."""
-    data = {
-        "id": ["wb-1", "wb-2"],
-        "toid": ["nex-1", "nex-1"],
-    }
-    fp = LazyFrame(data, schema=_table_schema)
-    return fp
-
-
-@pytest.fixture
-def simple_network() -> LazyFrame:
-    """Create a simple network LazyFrame for testing."""
-    data = {
-        "id": ["nex-1", "wb-1", "wb-2"],
-        "toid": [None, "nex-1", "nex-1"],  # Use None for null values
-    }
-    network = LazyFrame(data, schema=_table_schema)
-    return network
-
-
-@pytest.fixture
-def complex_flowpaths() -> LazyFrame:
-    """Create a more complex flowpaths LazyFrame for testing."""
-    data = {
-        "id": ["wb-10", "wb-11", "wb-12", "wb-13", "wb-14", "wb-15"],
-        "toid": ["nex-10", "nex-10", "nex-10", "nex-11", "nex-12", "nex-12"],
-    }
-    fp = LazyFrame(data, schema=_table_schema)
-    return fp
-
-
-@pytest.fixture
-def complex_network(complex_flowpaths: LazyFrame) -> LazyFrame:
-    """Create a more complex network LazyFrame for testing."""
-    flowpath_ids = complex_flowpaths.select(col("id")).collect().to_series().to_list()
-    flowpath_toids = complex_flowpaths.select(col("toid")).collect().to_series().to_list()
-
-    data = {
-        "id": ["nex-10", "nex-11", "nex-12"] + flowpath_ids,
-        "toid": ["wb-13", "wb-14", None] + flowpath_toids,
-    }
-    network = LazyFrame(data, schema=_table_schema)
-    return network
+_table_schema = {"id": pl.String, "toid": pl.String}
 
 
 class TestIndexMatrix:
@@ -182,8 +139,8 @@ class TestAdjanceyMatrix:
 
     def test_empty_dataframes(self):
         """Test behavior with empty dataframes."""
-        empty_fp = LazyFrame({"id": [], "toid": []}, schema=_table_schema)
-        empty_network = LazyFrame({"id": [], "toid": []}, schema=_table_schema)
+        empty_fp = pl.LazyFrame({"id": [], "toid": []}, schema=_table_schema)
+        empty_network = pl.LazyFrame({"id": [], "toid": []}, schema=_table_schema)
 
         coo, ts_order = create_matrix(empty_fp, empty_network)
         matrix = coo.toarray()
@@ -193,9 +150,9 @@ class TestAdjanceyMatrix:
     @pytest.mark.parametrize("ghost", [True, False])
     def test_single_flowpath(self, ghost):
         """Test with a single flowpath (terminal)."""
-        single_fp = LazyFrame({"id": ["wb-1"], "toid": ["nex-1"]}, schema=_table_schema)
+        single_fp = pl.LazyFrame({"id": ["wb-1"], "toid": ["nex-1"]}, schema=_table_schema)
         # Create network DataFrame properly
-        single_network = LazyFrame({"id": ["nex-1"], "toid": [None]}, schema=_table_schema)
+        single_network = pl.LazyFrame({"id": ["nex-1"], "toid": [None]}, schema=_table_schema)
 
         coo, ts_order = create_matrix(single_fp, single_network, ghost)
         matrix = coo.toarray()

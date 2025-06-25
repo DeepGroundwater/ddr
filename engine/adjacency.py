@@ -19,7 +19,6 @@ import pandas as pd
 import polars as pl
 import rustworkx as rx
 import zarr
-from polars import LazyFrame
 from scipy import sparse
 from tqdm import tqdm
 
@@ -53,15 +52,17 @@ def index_matrix(matrix: np.ndarray, fp: pd.DataFrame) -> pd.DataFrame:
     return matrix_df
 
 
-def create_matrix(fp: LazyFrame, network: LazyFrame, ghost=False) -> tuple[sparse.coo_matrix, list[str]]:
+def create_matrix(
+    fp: pl.LazyFrame, network: pl.LazyFrame, ghost=False
+) -> tuple[sparse.coo_matrix, list[str]]:
     """
     Create a lower triangular adjacency matrix from flowpaths and network dataframes.
 
     Parameters
     ----------
-    fp : LazyFrame
+    fp : pl.LazyFrame
         Flowpaths dataframe with 'toid' column indicating downstream nexus IDs.
-    network : LazyFrame
+    network : pl.LazyFrame
         Network dataframe with 'toid' column indicating downstream flowpath IDs.
 
     Returns

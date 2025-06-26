@@ -22,14 +22,14 @@ from tqdm import tqdm
 from ddr import Gauge, GaugeSet, validate_gages
 
 
-def find_origin(gauge: Gauge, fp: pl.DataFrame, network: pl.LazyFrame) -> np.ndarray:
+def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.ndarray:
     """A function to query the network Lazyframe for a gauge ID
 
     Parameters
     ----------
     gauge: Gauge
         A pydantic object containing gauge information
-    fp: pl.DataFrame
+    fp: pl.LazyFrame
         The hydrofabric flowpaths table
     network: pl.LazyFrame
         The hydrofabric network table
@@ -64,6 +64,7 @@ def find_origin(gauge: Gauge, fp: pl.DataFrame, network: pl.LazyFrame) -> np.nda
                 .sort("diff")
                 .head(1)
                 .select("id")
+                .collect()
                 .item()
             )  # Selects the flowpath with the smallest difference
         else:
@@ -318,7 +319,7 @@ if __name__ == "__main__":
         "toid": pl.String,  # String type for downstream IDs (can be null)
         "tot_drainage_areasqkm": pl.Float64,  # the total drainage area for a flowpath
     }
-    fp = pl.read_database(query=query, connection=conn)
+    fp = pl.read_database(query=query, connection=conn, schema_overrides=flowpaths_schema).lazy()
 
     # build the network table
     query = "SELECT id,toid,hl_uri FROM network"

@@ -12,6 +12,17 @@ import pytest
 
 from ddr import Gauge
 
+_flowpath_table_schema = {
+    "id": pl.String,
+    "toid": pl.String,
+    "tot_drainage_areasqkm": pl.Float64,
+}
+_network_table_schema = {
+    "id": pl.String,
+    "toid": pl.String,
+    "hl_uri": pl.String,
+}
+
 
 @pytest.fixture
 def simple_flowpaths() -> pl.LazyFrame:
@@ -21,14 +32,7 @@ def simple_flowpaths() -> pl.LazyFrame:
         "toid": ["nex-1", "nex-1"],
         "tot_drainage_areasqkm": [60, 120],
     }
-    fp = pl.LazyFrame(
-        data,
-        schema={
-            "id": pl.String,
-            "toid": pl.String,
-            "tot_drainage_areasqkm": pl.Float64,
-        },
-    )
+    fp = pl.LazyFrame(data, schema=_flowpath_table_schema)
     return fp
 
 
@@ -37,17 +41,10 @@ def simple_network() -> pl.LazyFrame:
     """Create a simple network LazyFrame for testing."""
     data = {
         "id": ["nex-1", "wb-1", "wb-2"],
-        "toid": ["ghost-3", "nex-1", "nex-1"],  # Use None for null values
+        "toid": [None, "nex-1", "nex-1"],  # Use None for null values
         "hl_uri": [None, "gages-01234567", "gages-01234567"],
     }
-    network = pl.LazyFrame(
-        data,
-        schema={
-            "id": pl.String,
-            "toid": pl.String,
-            "hl_uri": pl.String,
-        },
-    )
+    network = pl.LazyFrame(data, schema=_network_table_schema)
     return network
 
 
@@ -59,14 +56,7 @@ def complex_flowpaths() -> pl.LazyFrame:
         "toid": ["nex-10", "nex-10", "nex-10", "nex-11", "nex-12", "nex-12"],
         "tot_drainage_areasqkm": [10, 20, 30, 60, 120, 20],
     }
-    fp = pl.LazyFrame(
-        data,
-        schema={
-            "id": pl.String,
-            "toid": pl.String,
-            "tot_drainage_areasqkm": pl.Float64,
-        },
-    )
+    fp = pl.LazyFrame(data, schema=_flowpath_table_schema)
     return fp
 
 
@@ -78,17 +68,10 @@ def complex_network(complex_flowpaths: pl.LazyFrame) -> pl.LazyFrame:
 
     data = {
         "id": ["nex-10", "nex-11", "nex-12"] + flowpath_ids,
-        "toid": ["wb-13", "wb-14", "ghost-16"] + flowpath_toids,
+        "toid": ["wb-13", "wb-14", None] + flowpath_toids,
         "hl_uri": [None, None, None, None, None, None, None, "gages-01234567", "gages-01234567"],
     }
-    network = pl.LazyFrame(
-        data,
-        schema={
-            "id": pl.String,
-            "toid": pl.String,
-            "hl_uri": pl.String,
-        },
-    )
+    network = pl.LazyFrame(data, schema=_network_table_schema)
     return network
 
 
@@ -107,13 +90,13 @@ def non_existing_gage():
 @pytest.fixture
 def simple_river_network_dictionary() -> dict[str, list[str]]:
     """Creates a gauge dictionary based on the simple river network"""
-    return {"ghost-3": ["wb-1", "wb-2"]}
+    return {"wb-0": ["wb-1", "wb-2"]}
 
 
 @pytest.fixture
 def complex_river_network_dictionary() -> dict[str, list[str]]:
     """Creates a gauge dictionary based on the complex river network"""
-    return {"wb-13": ["wb-10", "wb-11", "wb-12"], "wb-14": ["wb-13"], "ghost-16": ["wb-14", "wb-15"]}
+    return {"wb-13": ["wb-10", "wb-11", "wb-12"], "wb-14": ["wb-13"], "wb-0": ["wb-14", "wb-15"]}
 
 
 @pytest.fixture

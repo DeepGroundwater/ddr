@@ -73,7 +73,7 @@ def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.nda
         raise ValueError from e
 
 
-def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[tuple[str]]:
+def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[tuple[str, str]]:
     """Subsets the hydrofabric to find all upstream watershed boundaries upstream of the origin fp
 
     Parameters
@@ -85,7 +85,7 @@ def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[tuple[str
 
     Returns
     -------
-    list[tuple[str]]
+    list[tuple[str, str]]
         The watershed boundary connections that make up the subset. Note [0] is the toid and [1] is the from_id
     """
     upstream_segments = set()
@@ -111,13 +111,13 @@ def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[tuple[str
 
 
 def create_coo(
-    connections: list[tuple[str]], conus_mapping: dict[str, int]
+    connections: list[tuple[str, str]], conus_mapping: dict[str, int]
 ) -> tuple[sparse.coo_matrix, list[str]]:
     """A function to create a coo matrix out of the ts_ordering from the conus_adjacency matrix indices
 
     Parameters
     ----------
-    connections: list[tuple[str]]
+    connections: list[tuple[str, str]]
         The connections of the watershed boundaries from the gauge subset
     conus_mapping: dict[str, int]
         The mapping of watershed boundaries to their conus index (topo sorted already)
@@ -309,7 +309,7 @@ if __name__ == "__main__":
         raise FileNotFoundError("Can't find the Gauge Information file")
 
     # Read hydrofabric geopackage using sqlite
-    uri = "sqlite://" + str(args.pkg)
+    # uri = "sqlite://" + str(args.pkg)
     query = "SELECT id,toid,tot_drainage_areasqkm FROM flowpaths"
     # fp = pl.read_database_uri(query=query, uri=uri, engine="adbc")
     # Using adbc is about 2 seconds faster than using the sqlite3 connection

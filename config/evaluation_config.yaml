@@ -7,19 +7,20 @@ forcings: merit_conus_v6.18_snow
 name: ${version}-ddr_jrb-${forcings}
 
 data_sources:
-  conus_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/conus_nextgen.gpkg
-  local_hydrofabric: /projects/mhpi/data/hydrofabric/v2.2/jrb_2.gpkg
-  network: /projects/mhpi/tbindas/ddr/data/network.zarr
-  transition_matrix: /projects/mhpi/data/hydrofabric/v2.2/conus_transition_matrices.zarr
-  statistics: /projects/mhpi/tbindas/ddr/data/statistics
-  streamflow:  /projects/mhpi/data/MERIT/streamflow/zarr/${forcings}/73
-  observations: /projects/mhpi/data/observations/gages_9000.zarr
-  gages: /projects/mhpi/tbindas/ddr/data/gages.csv
+  conus_hydrofabric: /Users/taddbindas/projects/hydrofabric/v2.2/conus_nextgen.gpkg
+  conus_adjacency: /Users/taddbindas/projects/forks/ddr/data/conus_adjacency.zarr
+  gages_adjacency: /Users/taddbindas/projects/forks/ddr/data/gages_adjacency.zarr
+  statistics: /Users/taddbindas/projects/forks/ddr/data
+  # streamflow:  s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
+  streamflow: /Users/taddbindas/data/dhbv_hf/retrospective
+  observations: s3://mhpi-spatial/usgs_streamflow_observations/
+  # observations: /projects/mhpi/data/icechunk/usgs_daily_observations
+  gages: /Users/taddbindas//projects/forks/datasets/mhpi/dHBV2.0UH/training_gauges.csv
 
 eval:
   batch_size: 1
-  start_time: 1981/10/01
-  end_time: 1995/09/30
+  start_time: 1995/10/01
+  end_time: 2010/09/30
   checkpoint: null
   dropout_threshold: null
   epoch: 4
@@ -63,6 +64,7 @@ params:
 np_seed: 1
 seed: 0
 device: cpu #0
+s3_region: us-east-2
 
 kan:
   hidden_size: 11

@@ -7,16 +7,15 @@ forcings: hydrofabric_v2.2_dhbv_retrospective
 name: ${version}-ddr-${forcings}
 
 data_sources:
-  conus_hydrofabric: /projects/mhpi/tbindas/ddr/data/conus_nextgen.gpkg
-  local_hydrofabric: /projects/mhpi/tbindas/ddr/data/jrb_2.gpkg
-  network: /projects/mhpi/tbindas/ddr/data/network.zarr
-  statistics: /projects/mhpi/tbindas/ddr/data/
+  conus_hydrofabric: /Users/taddbindas/projects/hydrofabric/v2.2/conus_nextgen.gpkg
+  conus_adjacency: /Users/taddbindas/projects/forks/ddr/data/conus_adjacency.zarr
+  gages_adjacency: /Users/taddbindas/projects/forks/ddr/data/gages_adjacency.zarr
+  statistics: /Users/taddbindas/projects/forks/ddr/data
   # streamflow:  s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
-  streamflow: /projects/mhpi/data/hydrofabric/v2.2/dhbv_retrospective
-  # observations: s3://mhpi-spatial/usgs_streamflow_observations/
-  observations: /projects/mhpi/data/icechunk/usgs_daily_observations
-  training_basins: /projects/mhpi/tbindas/ddr/data/gages.csv
-  gages: /projects/mhpi/tbindas/ddr/data/gages.csv
+  streamflow: /Users/taddbindas/data/dhbv_hf/retrospective
+  observations: s3://mhpi-spatial/usgs_streamflow_observations/
+  # observations: /projects/mhpi/data/icechunk/usgs_daily_observations
+  gages: /Users/taddbindas//projects/forks/datasets/mhpi/dHBV2.0UH/training_gauges.csv
 
 train:
   batch_size: 1

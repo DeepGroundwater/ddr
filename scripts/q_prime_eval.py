@@ -53,7 +53,7 @@ def read_icechunk(cfg: DictConfig, file_path: str) -> xr.Dataset:
     return ds
 
 
-def print_metrics_summary(metrics: Metrics, save_path: Path) -> None:
+def print_metrics_summary(metrics: Metrics, save_path: Path, valid_gauges: np.ndarray) -> None:
     """Print formatted metrics summary and save to file
 
     Parameters
@@ -152,10 +152,8 @@ def print_metrics_summary(metrics: Metrics, save_path: Path) -> None:
     )
     print("=" * 80)
 
-    # Savedetailed metrics to file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Save summary statistics as JSON
     summary_data = {
         "timestamp": timestamp,
         "total_gauges": int(total_gauges),
@@ -173,14 +171,12 @@ def print_metrics_summary(metrics: Metrics, save_path: Path) -> None:
         "valid_gauge_counts": valid_counts,
     }
 
-    # Save JSON summary
     json_path = save_path / f"metrics_summary_{timestamp}.json"
     with open(json_path, "w") as f:
         json.dump(summary_data, f, indent=2)
 
-    # Save detailed CSV with all gauge results
     detailed_data = {
-        "gauge_id": list(range(total_gauges)),  # You might want to use actual gauge IDs
+        "STAID": valid_gauges.tolist(),
         "bias": [float(x) if not np.isnan(x) else None for x in metrics.bias],
         "flv_percent": [float(x) if not np.isnan(x) else None for x in metrics.flv],
         "fhv_percent": [float(x) if not np.isnan(x) else None for x in metrics.fhv],
@@ -246,7 +242,7 @@ def eval(
         qr = streamflow.isel(time=time_indices, divide_id=divide_indices)["Qr"].values.astype(np.float32)
         preds[i] = qr.sum(axis=0)
     metrics = Metrics(pred=preds, target=target)
-    print_metrics_summary(metrics, cfg.params.save_path)
+    print_metrics_summary(metrics, cfg.params.save_path, valid_gauges)
 
 
 @hydra.main(

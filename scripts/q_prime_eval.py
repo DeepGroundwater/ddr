@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from ddr import Metrics
+from ddr._version import __version__
 
 daily_format: str = "%Y/%m/%d"
 log = logging.getLogger(__name__)
@@ -281,4 +283,5 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
+    os.environ["DDR_VERSION"] = __version__
     main()

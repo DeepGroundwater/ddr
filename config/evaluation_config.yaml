@@ -4,7 +4,7 @@ defaults:
 
 version: 0.1.1
 forcings: merit_conus_v6.18_snow
-name: ${version}-ddr_jrb-${forcings}
+name: v${oc.env:DDR_VERSION,dev}-ddr-${forcings}
 
 data_sources:
   conus_hydrofabric: /Users/taddbindas/projects/hydrofabric/v2.2/conus_nextgen.gpkg

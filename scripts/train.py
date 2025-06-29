@@ -1,4 +1,5 @@
 import logging
+import os
 import random
 import time
 from pathlib import Path
@@ -196,4 +197,5 @@ def main(cfg: DictConfig) -> None:
 
 if __name__ == "__main__":
     print(f"Training DDR with version: {__version__}")
+    os.environ["DDR_VERSION"] = __version__
     main()

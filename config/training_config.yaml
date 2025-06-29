@@ -4,7 +4,7 @@ defaults:
 
 version: 0.3.0
 forcings: hydrofabric_v2.2_dhbv_retrospective
-name: ${version}-ddr-${forcings}
+name: v${oc.env:DDR_VERSION,dev}-ddr-${forcings}
 
 data_sources:
   conus_hydrofabric: /Users/taddbindas/projects/hydrofabric/v2.2/conus_nextgen.gpkg

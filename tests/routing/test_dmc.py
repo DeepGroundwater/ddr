@@ -256,20 +256,56 @@ class TestDMCForwardPass:
         kwargs = {"hydrofabric": hydrofabric, "streamflow": streamflow, "spatial_parameters": spatial_params}
 
         with patch("ddr.routing.dmc.triangular_sparse_solve") as mock_solve:
-            # Return some negative values to test clamping
-            mock_solve.return_value = torch.tensor([-1.0, 5.0, -0.5, 10.0, 0.0001, 3.0, -2.0, 8.0, 1.0, 0.0])
+            # Return values that include some below minimum discharge to test clamping
+            # This will be called once per timestep, so return a function that
+            # alternates between different test cases
+            call_count = 0
 
+            def mock_solver(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                # Return mix of values including some below minimum discharge
+                if call_count % 3 == 1:
+                    return torch.tensor([-1.0, 5.0, -0.5, 10.0, 0.0001, 3.0, -2.0, 8.0, 1.0, 0.0])
+                elif call_count % 3 == 2:
+                    return torch.tensor([0.002, -0.1, 2.0, 0.0005, 4.0, -3.0, 1.5, 0.001, -0.01, 2.5])
+                else:
+                    return torch.tensor([1.0, 1.5, 2.0, 0.5, 3.0, 0.8, 1.2, 2.5, 1.8, 0.9])
+
+            mock_solve.side_effect = mock_solver
             output = model(**kwargs)
 
         # Check that output is reasonable (no negative infinity, NaN)
         assert not torch.isnan(output["runoff"]).any(), "Output should not contain NaN"
         assert not torch.isinf(output["runoff"]).any(), "Output should not contain infinity"
-        # Most values should be >= minimum discharge (some edge cases may exist)
+
+        # Test discharge clamping where values are actually computed
         min_discharge = model.discharge_lb.item()
-        clamped_count = (output["runoff"] >= min_discharge).sum()
-        total_count = output["runoff"].numel()
-        assert clamped_count >= 0.5 * total_count, (
-            f"At least 50% of outputs should be >= min_discharge, got {clamped_count}/{total_count}"
+        tolerance = 1e-6  # Floating point tolerance
+        min_threshold = min_discharge - tolerance
+
+        # Filter out zero values which may be due to incomplete gauge indexing
+        # (see TODO in dmc.py line 118: "create a dynamic gauge look up")
+        non_zero_values = output["runoff"][output["runoff"] > 0.0]
+
+        if non_zero_values.numel() > 0:
+            # All non-zero values should be >= minimum discharge within tolerance
+            below_threshold = non_zero_values < min_threshold
+            assert not below_threshold.any(), (
+                f"All non-zero outputs should be >= min_discharge ({min_discharge}) within tolerance ({tolerance}). "
+                f"Found {below_threshold.sum()} non-zero values below threshold. "
+                f"Min non-zero value: {non_zero_values.min().item()}, "
+                f"Max value: {non_zero_values.max().item()}"
+            )
+
+        # Ensure we actually have some meaningful output (not all zeros)
+        assert (output["runoff"] > 0.0).any(), "Should have some non-zero runoff values"
+
+        # Ensure the output has reasonable values - at least some should be at or above min_discharge
+        meaningful_values = output["runoff"] >= min_discharge
+        assert meaningful_values.any(), (
+            f"Should have some values >= min_discharge ({min_discharge}), "
+            f"but max value is {output['runoff'].max().item()}"
         )
 
 

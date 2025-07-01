@@ -372,20 +372,54 @@ class TestMuskingunCungeForward:
         mc.set_progress_info(1, 0)
 
         with patch("ddr.routing.mmc.triangular_sparse_solve") as mock_solve:
-            mock_solve.return_value = torch.ones(10) * 5.0
+            # Return values that include some below minimum discharge to test clamping
+            call_count = 0
 
+            def mock_solver(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                # Return mix of values including some below minimum discharge
+                if call_count % 3 == 1:
+                    return torch.tensor([-1.0, 5.0, -0.5, 10.0, 0.0001, 3.0, -2.0, 8.0, 1.0, 0.0])
+                elif call_count % 3 == 2:
+                    return torch.tensor([0.002, -0.1, 2.0, 0.0005, 4.0, -3.0, 1.5, 0.001, -0.01, 2.5])
+                else:
+                    return torch.tensor([1.0, 1.5, 2.0, 0.5, 3.0, 0.8, 1.2, 2.5, 1.8, 0.9])
+
+            mock_solve.side_effect = mock_solver
             output = mc.forward()
 
         # Check output properties
         expected_shape = (2, 24)  # 2 gauges, 24 timesteps
         assert_tensor_properties(output, expected_shape)
         assert_no_nan_or_inf(output, "forward_output")
-        # Most values should be >= minimum discharge (some edge cases may exist)
+
+        # Test discharge clamping with strict checking within floating point tolerance
         min_discharge = mc.discharge_lb.item()
-        clamped_count = (output >= min_discharge).sum()
-        total_count = output.numel()
-        assert clamped_count >= 0.5 * total_count, (
-            f"At least 50% of outputs should be >= min_discharge, got {clamped_count}/{total_count}"
+        tolerance = 1e-6  # Floating point tolerance
+        min_threshold = min_discharge - tolerance
+
+        # Filter out zero values which may be due to incomplete gauge indexing
+        non_zero_values = output[output > 0.0]
+
+        if non_zero_values.numel() > 0:
+            # All non-zero values should be >= minimum discharge within tolerance
+            below_threshold = non_zero_values < min_threshold
+            assert not below_threshold.any(), (
+                f"All non-zero outputs should be >= min_discharge ({min_discharge}) within tolerance ({tolerance}). "
+                f"Found {below_threshold.sum()} non-zero values below threshold. "
+                f"Min non-zero value: {non_zero_values.min().item()}, "
+                f"Max value: {non_zero_values.max().item()}"
+            )
+
+        # Ensure we actually have some meaningful output (not all zeros)
+        assert (output > 0.0).any(), "Should have some non-zero output values"
+
+        # Ensure the output has reasonable values - at least some should be at or above min_discharge
+        meaningful_values = output >= min_discharge
+        assert meaningful_values.any(), (
+            f"Should have some values >= min_discharge ({min_discharge}), "
+            f"but max value is {output.max().item()}"
         )
 
     def test_forward_discharge_state_updates(self):

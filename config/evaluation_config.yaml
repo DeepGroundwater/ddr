@@ -11,8 +11,8 @@ data_sources:
   conus_adjacency: /Users/taddbindas/projects/forks/ddr/data/conus_adjacency.zarr
   gages_adjacency: /Users/taddbindas/projects/forks/ddr/data/gages_adjacency.zarr
   statistics: /Users/taddbindas/projects/forks/ddr/data
-  # streamflow:  s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
-  streamflow: /Users/taddbindas/data/dhbv_hf/retrospective
+  streamflow:  s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
+  # streamflow: /Users/taddbindas/data/dhbv_hf/retrospective
   observations: s3://mhpi-spatial/usgs_streamflow_observations/
   # observations: /projects/mhpi/data/icechunk/usgs_daily_observations
   gages: /Users/taddbindas//projects/forks/datasets/mhpi/dHBV2.0UH/training_gauges.csv

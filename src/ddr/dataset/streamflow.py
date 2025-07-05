@@ -1,10 +1,10 @@
 import logging
 
-import icechunk as ic
 import numpy as np
 import torch
-import xarray as xr
 from omegaconf import DictConfig
+
+from ddr.dataset.utils import read_ic
 
 log = logging.getLogger(__name__)
 
@@ -15,21 +15,7 @@ class StreamflowReader(torch.nn.Module):
     def __init__(self, cfg: DictConfig):
         super().__init__()
         self.cfg = cfg
-        if "s3://" in self.cfg.data_sources.streamflow:
-            # Getting the bucket and prefix from an s3:// URI
-            log.info(f"Reading icechunk streamflow predictions from {self.cfg.data_sources.streamflow}")
-            bucket = self.cfg.data_sources.streamflow[5:].split("/")[0]
-            prefix = self.cfg.data_sources.streamflow[5:].split("/")[1]
-            storage_config = ic.s3_storage(
-                bucket=bucket, prefix=prefix, region=self.cfg.s3_region, anonymous=True
-            )
-        else:
-            # Assuming Local Icechunk Store
-            log.info("Reading icechunk streamflow predictions from local disk")
-            storage_config = ic.local_filesystem_storage(str(self.cfg.data_sources.streamflow))
-        repo = ic.Repository.open(storage_config)
-        session = repo.readonly_session("main")
-        self.file_path = session.store
+        self.ds = read_ic(self.cfg.data_sources.streamflow, region=self.cfg.s3_region)
 
     def forward(self, **kwargs) -> dict[str, np.ndarray]:
         """The forward function of the module for generating streamflow values
@@ -45,13 +31,9 @@ class StreamflowReader(torch.nn.Module):
             The basin you're searching for is not in the sample
         """
         hydrofabric = kwargs["hydrofabric"]
-        xr_streamflow_data = xr.open_zarr(
-            self.file_path,
-            consolidated=False,
-        )
-        divide_indices = np.where(np.isin(xr_streamflow_data.divide_id.values, hydrofabric.divide_ids))[0]
+        divide_indices = np.where(np.isin(self.ds.divide_id.values, hydrofabric.divide_ids))[0]
         try:
-            lazy_flow_data = xr_streamflow_data.isel(
+            lazy_flow_data = self.ds.isel(
                 time=hydrofabric.dates.numerical_time_range, divide_id=divide_indices
             )["Qr"]
         except IndexError as e:

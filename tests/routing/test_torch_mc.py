@@ -689,8 +689,8 @@ class TestParameterTraining:
         # Forward pass
         output = model(**kwargs)
 
-        test_modules = [hydrofabric, nn, model]
-        modules_names = ["hydrofabric", "nn", "model"]
+        test_modules = [model, nn, hydrofabric]
+        modules_names = ["model", "nn", "hydrofabric"]
         ts = [find_gradient_tensors(obj, skip=skip_attrs) for obj in test_modules]
         init_tensors = [
             t for ts_ in ts for t in ts_

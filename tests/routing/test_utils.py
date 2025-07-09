@@ -6,6 +6,27 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 
+from ddr.nn.kan import kan
+
+
+def create_mock_nn() -> kan:
+    """Create a mock configuration for testing neural network routing models."""
+    return kan(
+        input_var_names=[
+            "mean.impervious",
+            "mean.elevation",
+            "mean.smcmax_soil_layers_stag=1",
+        ],
+        learnable_parameters=["n", "q_spatial", "p_spatial"],
+        hidden_size=11,
+        output_size=3,
+        num_hidden_layers=1,
+        grid=3,
+        k=3,
+        seed=42,
+        device="cpu",
+    )
+
 
 def create_mock_config() -> DictConfig:
     """Create a mock configuration for testing routing models."""

@@ -184,6 +184,19 @@ class TorchMC(torch.nn.Module):
         # Update discharge state for compatibility
         self._discharge_t = self.routing_engine._discharge_t
 
+        if kwargs.get("retain_grads", False):
+            self.n.retain_grad()
+            self.q_spatial.retain_grad()
+            self._discharge_t.retain_grad()  # Retain gradients for the discharge tensor
+            # Retain gradients for the original spatial parameters so they can be tested
+            if "n" in self.routing_engine.spatial_parameters:
+                self.routing_engine.spatial_parameters["n"].retain_grad()
+            if "q_spatial" in self.routing_engine.spatial_parameters:
+                self.routing_engine.spatial_parameters["q_spatial"].retain_grad()
+            if "p_spatial" in self.routing_engine.spatial_parameters:
+                self.routing_engine.spatial_parameters["p_spatial"].retain_grad()
+            output.retain_grad()  # Retain gradients for the output tensor
+
         # Return in expected format
         output_dict = {
             "runoff": output,

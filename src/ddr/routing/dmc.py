@@ -217,6 +217,12 @@ class dmc(torch.nn.Module):
 
             self._discharge_t = q_t1
 
+        if kwargs.get("retain_grads", False):
+            self.n.retain_grad()
+            self.q_spatial.retain_grad()
+            self._discharge_t.retain_grad()  # Retain gradients for the discharge tensor
+            output.retain_grad()  # Retain gradients for the output tensor
+
         output_dict = {
             "runoff": output,
         }

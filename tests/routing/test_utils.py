@@ -74,6 +74,21 @@ def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> Any:
             self.side_slope = torch.clamp(self.side_slope, min=0.5)
             self.x = torch.clamp(self.x, min=0.1, max=0.4)
 
+            # mock spatial attributes
+            attrs = [
+                "mean.impervious",
+                "mean.elevation",
+                "mean.smcmax_soil_layers_stag=1",
+            ]
+            self.spatial_attributes = torch.tensor(
+                np.array([np.random.rand(num_reaches) for _ in attrs]),
+                device=device,
+                dtype=torch.float32,
+            )
+            self.means = self.spatial_attributes.mean(dim=1, keepdim=True)
+            self.stds = self.spatial_attributes.std(dim=1, keepdim=True)
+            self.normalized_spatial_attributes = self.spatial_attributes.sub(self.means).div(self.stds).T
+
     return MockHydrofabric()
 
 

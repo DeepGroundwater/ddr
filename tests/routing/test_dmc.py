@@ -6,11 +6,17 @@ import pytest
 import torch
 
 from ddr.routing.dmc import _get_trapezoid_velocity, _log_base_q, dmc
+from tests.routing.gradient_utils import (
+    find_and_retain_grad,
+    find_gradient_tensors,
+    get_tensor_names,
+)
 from tests.routing.test_utils import (
     assert_no_nan_or_inf,
     assert_tensor_properties,
     create_mock_config,
     create_mock_hydrofabric,
+    create_mock_nn,
     create_mock_spatial_parameters,
     create_mock_streamflow,
     create_test_scenarios,
@@ -525,3 +531,134 @@ class TestDMCStateManagement:
         # Network should be assigned from hydrofabric
         assert model.network is not None
         assert torch.equal(model.network, hydrofabric.adjacency_matrix)
+
+
+class TestParameterTraining:
+    """Test Training of parameters in dmc."""
+
+    @pytest.mark.parametrize("scenario", create_test_scenarios())
+    def test_parameter_training(self, scenario):
+        """Test that parameters can be trained."""
+
+        if scenario["num_reaches"] <= 1:
+            pytest.skip("Skipping parameter training test for single reach scenarios")
+
+        cfg = create_mock_config()
+        model = dmc(cfg, device="cpu")
+        # Create mock hydrofabric and streamflow
+        hydrofabric = create_mock_hydrofabric(num_reaches=scenario["num_reaches"])
+        streamflow = create_mock_streamflow(
+            num_timesteps=scenario["num_timesteps"], num_reaches=scenario["num_reaches"]
+        )
+        nn = create_mock_nn()
+        spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
+
+        model.epoch = 1
+        model.mini_batch = 0
+
+        kwargs = {"hydrofabric": hydrofabric, "streamflow": streamflow, "spatial_parameters": spatial_params}
+
+        # Skip deep omegaconf attributes
+        # these *shouldn't* have any tensors...
+        skip_attrs = ["_content", "_metadata", "_parent"]
+        # This ONLY works for tensors which are not dynamically
+        # created/recreated during the forward pass.
+        find_and_retain_grad(nn, required=True, skip=skip_attrs)
+        find_and_retain_grad(model, required=True, skip=skip_attrs)
+        find_and_retain_grad(hydrofabric, required=True, skip=skip_attrs)
+        # To test the dynamic tensors we care about (model.n, model.q_spatial, and model._discharge_t),
+        # we can pass an additional kwarg to dmc
+        kwargs["retain_grads"] = True  # This is a custom kwarg to trigger gradient checks
+
+        # Mock optimizer
+        optimizer = torch.optim.Adam(params=nn.parameters(), lr=0.01)
+
+        # Forward pass
+        output = model(**kwargs)
+
+        test_modules = [hydrofabric, nn, model]
+        modules_names = ["hydrofabric", "nn", "model"]
+
+        ts = [find_gradient_tensors(obj, skip=skip_attrs) for obj in test_modules]
+        init_tensors = [
+            t for ts_ in ts for t in ts_
+        ]  # flatten the list of lists, copy the requires attribute
+
+        optimizer.zero_grad(False)  # Zero gradients before backward pass
+        # Compute a simple loss
+        loss = output["runoff"].sum()
+        loss.retain_grad()
+        # Backward pass
+        loss.backward()
+        optimizer.step()
+
+        assert loss.grad is not None, "Loss should have gradients after backward pass"
+        assert not torch.isnan(loss.grad).any(), "Loss gradients should not contain NaN"
+        assert not torch.isinf(loss.grad).any(), "Loss gradients should not contain infinity"
+
+        ts = [find_gradient_tensors(obj, skip=skip_attrs) for obj in test_modules]
+        end_tensors = [t for ts_ in ts for t in ts_]  # flatten the list of lists, copy the requires attribute
+        ns = [
+            get_tensor_names(obj, name=name, skip=skip_attrs)
+            for obj, name in zip(test_modules, modules_names, strict=False)
+        ]
+        names = [n for ns_ in ns for n in ns_]  # flatten the list of lists, copy the names
+        assert len(init_tensors) == len(end_tensors), (
+            "Initial and final tensor lists should be the same length"
+        )
+        assert len(names) == len(init_tensors), "Names list should match the length of tensor lists"
+
+        # Skip internal KAN tensors that are not directly connected to the loss
+        # There's probably a more elegant way to do this, but this works for now
+        # These tensors have require_grad=True, but no gradients are computed during `backward()`
+        # TODO convince myself that these really shouldn't have gradient values based on the loss
+        # computation chain...
+        skip_patterns = [
+            "acts_scale_spline",
+            "edge_actscale",
+        ]
+
+        # Also skip spatial parameters that are not used by the routing engine
+        # The routing engine only uses parameters that are in cfg.params.parameter_ranges.range
+        unused_spatial_params = []
+        for param_name in ["n", "q_spatial", "p_spatial"]:
+            if param_name not in cfg.params.parameter_ranges.range:
+                unused_spatial_params.append(f"spatial_parameters['{param_name}']")
+
+        # do this in a loop so we can see which tensors changed more explicitly
+        for name, init, end in zip(names, init_tensors, end_tensors, strict=False):
+            assert init.requires_grad == end.requires_grad, (
+                f"Tensor {name} requires_grad status should not change during training. Initial: {init}, Final: {end}"
+            )
+            if end.requires_grad:
+                if any(pattern in name for pattern in skip_patterns):
+                    continue
+                # Skip unused spatial parameters
+                if any(unused_param in name for unused_param in unused_spatial_params):
+                    continue
+                assert end.grad is not None, f"Tensor {name} should have gradients after backward pass"
+                assert not torch.isnan(end.grad).any(), f"Tensor {name} gradients should not contain NaN"
+                assert not torch.isinf(end.grad).any(), f"Tensor {name} gradients should not contain infinity"
+        # These are redundant assertions *if* you believe these are captured by the
+        # find_gradient_tensors() function, but they are useful to have here, just in case...
+        # Check runoff tensor explicitly...
+        assert output["runoff"].grad is not None, "Runoff output should have gradients after backward pass"
+        assert not torch.isnan(output["runoff"].grad).any(), "Runoff gradients should not contain NaN"
+        assert not torch.isinf(output["runoff"].grad).any(), "Runoff gradients should not contain infinity"
+        # Check the parameter neural network output weights explictly...
+        assert nn.output.weight.grad is not None, (
+            "Neural network output weights should have gradients after backward pass"
+        )
+        assert not torch.isnan(nn.output.weight.grad).any(), (
+            "Neural network output weights gradients should not contain NaN"
+        )
+        assert not torch.isinf(nn.output.weight.grad).any(), (
+            "Neural network output weights gradients should not contain infinity"
+        )
+
+        # print("Tensors in dmc:")
+        # print_grad_info(model, name="dmc", required=True, skip=skip_attrs)
+        # print("Tensors in kan:")
+        # print_grad_info(nn, name="kan", required=True, skip=skip_attrs)
+        # print("Tensors in hydrofabric:")
+        # print_grad_info(hydrofabric, name="hydrofabric", required=True, skip=skip_attrs)

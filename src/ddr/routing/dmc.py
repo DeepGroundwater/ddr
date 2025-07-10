@@ -7,14 +7,6 @@ import torch
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-warnings.warn(
-    "ddr.routing.dmc is deprecated and will be removed in a future version. "
-    "Use ddr.routing.torch_mc.TorchMC instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
-
-
 from ddr.routing.utils import (
     PatternMapper,
     denormalize,
@@ -24,6 +16,13 @@ from ddr.routing.utils import (
 )
 
 log = logging.getLogger(__name__)
+
+warnings.warn(
+    "ddr.routing.dmc is deprecated and will be removed in a future version. "
+    "Use ddr.routing.torch_mc.TorchMC instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def _log_base_q(x, q):

@@ -5,6 +5,7 @@
 @version 0.1
 
 A set of utility functions to find tensors in an object that may have gradients.
+An object can be a dataclass, torch.nn.ModuleList, list, tuple, etc.
 This is useful for debugging and ensuring that tensors retain gradients.
 
 """

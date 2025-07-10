@@ -41,7 +41,7 @@ def create_mock_config() -> DictConfig:
                 "bottom_width": 0.1,
                 "slope": 0.0001,
             },
-            "tau": 24,
+            "tau": 7,
         },
         "device": "cpu",
     }

@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from ddr.routing.dmc import dmc as original_dmc
-from ddr.routing.mmc import MuskingunCunge
+from ddr.routing.mmc import MuskingumCunge
 from ddr.routing.torch_mc import TorchMC
 from tests.routing.test_utils import (
     assert_no_nan_or_inf,
@@ -29,7 +29,7 @@ class TestRefactoredVsOriginalValidation:
         # Create models
         original_model = original_dmc(cfg, device="cpu")
         refactored_model = TorchMC(cfg, device="cpu")
-        core_model = MuskingunCunge(cfg, device="cpu")
+        core_model = MuskingumCunge(cfg, device="cpu")
 
         # Create test data
         hydrofabric = create_mock_hydrofabric(num_reaches=10)
@@ -229,14 +229,14 @@ class TestRefactoredVsOriginalValidation:
         assert torch.allclose(orig_final_discharge, refact_final_discharge, atol=1e-6)
 
 
-class TestCoreMuskingunCungeValidation:
-    """Test core MuskingunCunge class against original behavior."""
+class TestCoreMuskingumCungeValidation:
+    """Test core MuskingumCunge class against original behavior."""
 
     @pytest.fixture
     def setup_core_test(self):
         """Setup core model test."""
         cfg = create_mock_config()
-        core_model = MuskingunCunge(cfg, device="cpu")
+        core_model = MuskingumCunge(cfg, device="cpu")
 
         hydrofabric = create_mock_hydrofabric(num_reaches=8)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=8)
@@ -398,10 +398,10 @@ class TestBackwardCompatibilityValidation:
         assert torch_mc_alias is TorchMC
 
         # Test that new classes can be imported directly
-        from ddr.routing.mmc import MuskingunCunge as MC
+        from ddr.routing.mmc import MuskingumCunge as MC
         from ddr.routing.torch_mc import TorchMC as TMC
 
-        assert MC is MuskingunCunge
+        assert MC is MuskingumCunge
         assert TMC is TorchMC
 
     def test_device_management_compatibility(self):

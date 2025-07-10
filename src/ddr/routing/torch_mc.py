@@ -10,7 +10,7 @@ from typing import Any
 import torch
 from omegaconf import DictConfig
 
-from ddr.routing.mmc import MuskingunCunge
+from ddr.routing.mmc import MuskingumCunge
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 class TorchMC(torch.nn.Module):
     """PyTorch nn.Module for differentiable Muskingum-Cunge routing.
 
-    This class wraps the core MuskingunCunge implementation in a PyTorch module,
+    This class wraps the core MuskingumCunge implementation in a PyTorch module,
     providing forward and backward functionality for training neural networks.
     The module is designed to be GPU/CPU compatible and serves as a pluggable
     replacement for the original dmc implementation.
@@ -39,7 +39,7 @@ class TorchMC(torch.nn.Module):
         self.device_num = device if device is not None else "cpu"
 
         # Initialize the core routing engine
-        self.routing_engine = MuskingunCunge(cfg, self.device_num)
+        self.routing_engine = MuskingumCunge(cfg, self.device_num)
 
         # Store configuration parameters as module attributes for compatibility
         self.t = self.routing_engine.t
@@ -83,7 +83,7 @@ class TorchMC(torch.nn.Module):
             self.device_num = str(device)
 
         # Create new routing engine with updated device
-        self.routing_engine = MuskingunCunge(self.cfg, self.device_num)
+        self.routing_engine = MuskingumCunge(self.cfg, self.device_num)
 
         # Update tensor attributes
         self.t = self.routing_engine.t
@@ -145,7 +145,7 @@ class TorchMC(torch.nn.Module):
         """Forward pass for the Muskingum-Cunge routing model.
 
         This method performs the complete routing calculation using the core
-        MuskingunCunge implementation, maintaining compatibility with the
+        MuskingumCunge implementation, maintaining compatibility with the
         original dmc interface.
 
         Parameters
@@ -317,7 +317,7 @@ class TorchMC(torch.nn.Module):
         self.mini_batch = mini_batch
 
         # Recreate routing engine
-        self.routing_engine = MuskingunCunge(self.cfg, self.device_num)
+        self.routing_engine = MuskingumCunge(self.cfg, self.device_num)
         self.routing_engine.set_progress_info(self.epoch, self.mini_batch)
 
 

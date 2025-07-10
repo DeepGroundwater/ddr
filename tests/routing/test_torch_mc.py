@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 import torch
 
-from ddr.routing.mmc import MuskingunCunge
+from ddr.routing.mmc import MuskingumCunge
 from ddr.routing.torch_mc import TorchMC, dmc
 from tests.routing.gradient_utils import (
     find_and_retain_grad,
@@ -34,7 +34,7 @@ class TestTorchMCInitialization:
 
         assert model.device_num == "cpu"
         assert model.cfg == cfg
-        assert isinstance(model.routing_engine, MuskingunCunge)
+        assert isinstance(model.routing_engine, MuskingumCunge)
 
         # Test that PyTorch module properties are set
         assert isinstance(model, torch.nn.Module)
@@ -75,7 +75,7 @@ class TestTorchMCInitialization:
         cfg = create_mock_config()
         model = TorchMC(cfg, device="cpu")
 
-        assert isinstance(model.routing_engine, MuskingunCunge)
+        assert isinstance(model.routing_engine, MuskingumCunge)
         assert model.routing_engine.device == "cpu"
         assert model.routing_engine.cfg == cfg
 

@@ -99,7 +99,7 @@ def _get_trapezoid_velocity(
     return c
 
 
-class MuskingunCunge:
+class MuskingumCunge:
     """Core Muskingum-Cunge routing implementation.
 
     This class implements the mathematical core of the Muskingum-Cunge routing

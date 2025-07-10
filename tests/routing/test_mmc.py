@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from ddr.routing.mmc import MuskingunCunge
+from ddr.routing.mmc import MuskingumCunge
 from tests.routing.test_utils import (
     assert_no_nan_or_inf,
     assert_tensor_properties,
@@ -17,13 +17,13 @@ from tests.routing.test_utils import (
 )
 
 
-class TestMuskingunCungeInitialization:
-    """Test MuskingunCunge class initialization."""
+class TestMuskingumCungeInitialization:
+    """Test MuskingumCunge class initialization."""
 
     def test_init_cpu(self):
         """Test initialization with CPU device."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         assert mc.device == "cpu"
         assert mc.cfg == cfg
@@ -47,14 +47,14 @@ class TestMuskingunCungeInitialization:
     def test_init_default_device(self):
         """Test initialization with default device."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg)
+        mc = MuskingumCunge(cfg)
 
         assert mc.device == "cpu"
 
     def test_parameter_bounds_setup(self):
         """Test that parameter bounds are correctly set up."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         assert mc.parameter_bounds == cfg.params.parameter_ranges.range
         assert mc.p_spatial.item() == cfg.params.defaults.p
@@ -64,13 +64,13 @@ class TestMuskingunCungeInitialization:
         assert torch.allclose(mc.bottom_width_lb, torch.tensor(cfg.params.attribute_minimums.bottom_width))
 
 
-class TestMuskingunCungeProgressTracking:
+class TestMuskingumCungeProgressTracking:
     """Test progress tracking functionality."""
 
     def test_set_progress_info(self):
         """Test setting progress information."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         mc.set_progress_info(5, 10)
 
@@ -78,13 +78,13 @@ class TestMuskingunCungeProgressTracking:
         assert mc.mini_batch == 10
 
 
-class TestMuskingunCungeInputSetup:
+class TestMuskingumCungeInputSetup:
     """Test input setup functionality."""
 
     def test_setup_inputs_basic(self):
         """Test basic input setup."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         hydrofabric = create_mock_hydrofabric(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
@@ -123,7 +123,7 @@ class TestMuskingunCungeInputSetup:
     def test_setup_inputs_slope_clamping(self):
         """Test that slope is properly clamped during setup."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         hydrofabric = create_mock_hydrofabric(num_reaches=5)
         # Set some slopes below minimum
@@ -140,7 +140,7 @@ class TestMuskingunCungeInputSetup:
     def test_setup_inputs_device_conversion(self):
         """Test that tensors are moved to correct device during setup."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         hydrofabric = create_mock_hydrofabric(num_reaches=5, device="cpu")
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5, device="cpu")
@@ -157,13 +157,13 @@ class TestMuskingunCungeInputSetup:
         assert mc.q_prime.device.type == "cpu"
 
 
-class TestMuskingunCungeSparseOperations:
+class TestMuskingumCungeSparseOperations:
     """Test sparse matrix operations."""
 
     def test_sparse_eye(self):
         """Test _sparse_eye method."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         n = 5
         identity = mc._sparse_eye(n)
@@ -181,7 +181,7 @@ class TestMuskingunCungeSparseOperations:
     def test_sparse_diag(self):
         """Test _sparse_diag method."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         data = torch.tensor([1.0, 2.0, 3.0, 4.0])
         diag_matrix = mc._sparse_diag(data)
@@ -199,7 +199,7 @@ class TestMuskingunCungeSparseOperations:
     def test_fill_op(self):
         """Test fill_op method."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs first
         hydrofabric = create_mock_hydrofabric(num_reaches=3)
@@ -217,13 +217,13 @@ class TestMuskingunCungeSparseOperations:
         assert not torch.isinf(result).any()
 
 
-class TestMuskingunCungeCoefficients:
+class TestMuskingumCungeCoefficients:
     """Test Muskingum coefficient calculations."""
 
     def test_calculate_muskingum_coefficients(self):
         """Test calculation of Muskingum coefficients."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         length = torch.tensor([1000.0, 1500.0, 2000.0])
         velocity = torch.tensor([1.0, 1.5, 2.0])
@@ -249,7 +249,7 @@ class TestMuskingunCungeCoefficients:
     def test_calculate_muskingum_coefficients_edge_cases(self):
         """Test coefficient calculation with edge cases."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Test with very small velocity
         length = torch.tensor([1000.0])
@@ -264,13 +264,13 @@ class TestMuskingunCungeCoefficients:
         assert_no_nan_or_inf(c_4, "c_4_small_velocity")
 
 
-class TestMuskingunCungePatternMapper:
+class TestMuskingumCungePatternMapper:
     """Test pattern mapper creation."""
 
     def test_create_pattern_mapper(self):
         """Test pattern mapper creation."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs first
         hydrofabric = create_mock_hydrofabric(num_reaches=5)
@@ -291,13 +291,13 @@ class TestMuskingunCungePatternMapper:
         assert isinstance(dense_cols, torch.Tensor)
 
 
-class TestMuskingunCungeRouteTimestep:
+class TestMuskingumCungeRouteTimestep:
     """Test single timestep routing."""
 
     def test_route_timestep(self):
         """Test routing for a single timestep."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs
         hydrofabric = create_mock_hydrofabric(num_reaches=5)
@@ -323,7 +323,7 @@ class TestMuskingunCungeRouteTimestep:
     def test_route_timestep_discharge_clamping(self):
         """Test that timestep routing properly clamps discharge."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs
         hydrofabric = create_mock_hydrofabric(num_reaches=5)
@@ -346,13 +346,13 @@ class TestMuskingunCungeRouteTimestep:
         assert (result >= min_discharge).all(), "All discharge values should be >= minimum"
 
 
-class TestMuskingunCungeForward:
+class TestMuskingumCungeForward:
     """Test the forward pass."""
 
     def test_forward_without_setup_raises_error(self):
         """Test that forward raises error without setup."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         with pytest.raises(ValueError, match="Hydrofabric not set"):
             mc.forward()
@@ -360,7 +360,7 @@ class TestMuskingunCungeForward:
     def test_forward_basic(self):
         """Test basic forward pass."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs
         hydrofabric = create_mock_hydrofabric(num_reaches=10)
@@ -425,7 +425,7 @@ class TestMuskingunCungeForward:
     def test_forward_discharge_state_updates(self):
         """Test that discharge state is updated during forward pass."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs
         hydrofabric = create_mock_hydrofabric(num_reaches=5)
@@ -447,14 +447,14 @@ class TestMuskingunCungeForward:
         assert torch.allclose(mc._discharge_t, torch.ones(5) * 10.0)
 
 
-class TestMuskingunCungeIntegration:
-    """Integration tests for MuskingunCunge."""
+class TestMuskingumCungeIntegration:
+    """Integration tests for MuskingumCunge."""
 
     @pytest.mark.parametrize("scenario", create_test_scenarios())
     def test_different_network_sizes(self, scenario):
-        """Test MuskingunCunge with different network sizes."""
+        """Test MuskingumCunge with different network sizes."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         hydrofabric = create_mock_hydrofabric(num_reaches=scenario["num_reaches"])
         streamflow = create_mock_streamflow(
@@ -482,8 +482,8 @@ class TestMuskingunCungeIntegration:
         # Set seeds for reproducibility
         torch.manual_seed(42)
 
-        mc1 = MuskingunCunge(cfg, device="cpu")
-        mc2 = MuskingunCunge(cfg, device="cpu")
+        mc1 = MuskingumCunge(cfg, device="cpu")
+        mc2 = MuskingumCunge(cfg, device="cpu")
 
         hydrofabric = create_mock_hydrofabric(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
@@ -513,7 +513,7 @@ class TestMuskingunCungeIntegration:
     def test_full_workflow(self):
         """Test complete workflow from initialization to forward pass."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Test initial state
         assert mc.hydrofabric is None
@@ -549,13 +549,13 @@ class TestMuskingunCungeIntegration:
         assert_no_nan_or_inf(output, "full_workflow_output")
 
 
-class TestMuskingunCungeErrorHandling:
-    """Test error handling in MuskingunCunge."""
+class TestMuskingumCungeErrorHandling:
+    """Test error handling in MuskingumCunge."""
 
     def test_setup_inputs_validation(self):
         """Test input validation in setup_inputs."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Test with None hydrofabric should not raise immediately
         # (validation happens in forward())
@@ -574,7 +574,7 @@ class TestMuskingunCungeErrorHandling:
     def test_forward_with_invalid_state(self):
         """Test forward method with invalid state."""
         cfg = create_mock_config()
-        mc = MuskingunCunge(cfg, device="cpu")
+        mc = MuskingumCunge(cfg, device="cpu")
 
         # Try to run forward without setup
         with pytest.raises(ValueError):

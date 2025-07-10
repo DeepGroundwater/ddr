@@ -183,3 +183,6 @@ data/
 
 # Hydra outputs
 runs/
+
+# Pykan model state
+model/

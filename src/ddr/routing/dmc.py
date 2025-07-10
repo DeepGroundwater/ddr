@@ -7,7 +7,6 @@ import torch
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-# Deprecation warning for the entire module
 warnings.warn(
     "ddr.routing.dmc is deprecated and will be removed in a future version. "
     "Use ddr.routing.torch_mc.TorchMC instead.",

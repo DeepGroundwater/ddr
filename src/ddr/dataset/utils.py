@@ -145,8 +145,11 @@ def read_ic(store: str, region="us-east-2") -> xr.Dataset:
     if "s3://" in store:
         # Getting the bucket and prefix from an s3:// URI
         log.info(f"Reading icechunk streamflow predictions from {store}")
-        bucket = store[5:].split("/")[0]
-        prefix = store[5:].split("/")[1]
+        path_parts = store[5:].split("/")
+        bucket = path_parts[0]
+        prefix = (
+            "/".join(path_parts[1:]) if len(path_parts) > 1 else ""
+        )  # Join all remaining parts as the prefix
         storage_config = ic.s3_storage(bucket=bucket, prefix=prefix, region=region, anonymous=True)
     else:
         # Assuming Local Icechunk Store

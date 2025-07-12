@@ -1,6 +1,8 @@
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import icechunk as ic
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -11,6 +13,8 @@ from scipy import sparse
 from scipy.sparse import csc_matrix
 
 from ddr.dataset.Dates import Dates
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -123,3 +127,34 @@ def fill_nans(attr):
     nan_mask = torch.isnan(attr)
     attr[nan_mask] = row_means
     return attr
+
+
+def read_ic(store: str, region="us-east-2") -> xr.Dataset:
+    """Reads an icechunk repo either from a local store or an S3 bucket
+
+    Parameters
+    ----------
+    store: str
+        The path to the icechunk store
+
+    Returns
+    -------
+    xr.Dataset
+        The icechunk store via xarray.Dataset
+    """
+    if "s3://" in store:
+        # Getting the bucket and prefix from an s3:// URI
+        log.info(f"Reading icechunk streamflow predictions from {store}")
+        path_parts = store[5:].split("/")
+        bucket = path_parts[0]
+        prefix = (
+            "/".join(path_parts[1:]) if len(path_parts) > 1 else ""
+        )  # Join all remaining parts as the prefix
+        storage_config = ic.s3_storage(bucket=bucket, prefix=prefix, region=region, anonymous=True)
+    else:
+        # Assuming Local Icechunk Store
+        log.info("Reading icechunk streamflow predictions from local disk")
+        storage_config = ic.local_filesystem_storage(store)
+    repo = ic.Repository.open(storage_config)
+    session = repo.readonly_session("main")
+    return xr.open_zarr(session.store, consolidated=False)

@@ -64,6 +64,7 @@ tests = [
     "pytest-cov==6.1.1",
     "ruff==0.12.2",
     "nbstripout==0.8.1",
+    "moto==5.1.8",
 ]
 engine = [
   "adbc-driver-sqlite==1.6.0",

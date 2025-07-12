@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 
 import hydra
-import icechunk as ic
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -15,44 +14,11 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-from ddr import Metrics
+from ddr import Metrics, read_ic
 from ddr._version import __version__
 
 daily_format: str = "%Y/%m/%d"
 log = logging.getLogger(__name__)
-
-
-def read_icechunk(cfg: DictConfig, file_path: str) -> xr.Dataset:
-    """Reads an icechunk repo either from S3 or local storage
-
-    Parameters
-    ----------
-    cfg : DictConfig
-        The config object
-    file_path : str
-        The path to the icechunk repo
-
-    Returns
-    -------
-    xr.Dataset
-        The icechunk repo in memory
-    """
-    log.info(f"Reading icechunk repo from {file_path}")
-    if "s3://" in file_path:
-        # Getting the bucket and prefix from an s3:// URI
-        bucket = file_path[5:].split("/")[0]
-        prefix = file_path[5:].split("/")[1]
-        storage_config = ic.s3_storage(bucket=bucket, prefix=prefix, region=cfg.s3_region, anonymous=True)
-    else:
-        # Assuming Local Icechunk Store
-        storage_config = ic.local_filesystem_storage(str(file_path))
-    repo = ic.Repository.open(storage_config)
-    session = repo.readonly_session("main")
-    ds = xr.open_zarr(
-        session.store,
-        consolidated=False,
-    )
-    return ds
 
 
 def print_metrics_summary(metrics: Metrics, save_path: Path, valid_gauges: np.ndarray) -> None:
@@ -260,8 +226,8 @@ def main(cfg: DictConfig) -> None:
     start_time = time.perf_counter()
     try:
         print(f"Checking Summed Q` NSE for streamflow predictions from: {cfg.data_sources.streamflow}")
-        streamflow = read_icechunk(cfg=cfg, file_path=cfg.data_sources.streamflow)
-        observations = read_icechunk(cfg=cfg, file_path=cfg.data_sources.observations)
+        streamflow = read_ic(cfg.data_sources.streamflow, region=cfg.s3_region)
+        observations = read_ic(cfg.data_sources.observations, region=cfg.s3_region)
         gages_adjacency = zarr.open_group(cfg.data_sources.gages_adjacency)
         basins_df = pd.read_csv(cfg.data_sources.gages)
         eval(

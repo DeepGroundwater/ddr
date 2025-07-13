@@ -7,6 +7,7 @@ forcings: hydrofabric_v2.2_dhbv_retrospective
 name: v${oc.env:DDR_VERSION,dev}-ddr-${forcings}
 
 data_sources:
+  attributes: s3://mhpi-spatial/hydrofabric_v2.2_attributes/
   conus_hydrofabric: /Users/taddbindas/projects/hydrofabric/v2.2/conus_nextgen.gpkg
   conus_adjacency: /Users/taddbindas/projects/forks/ddr/data/conus_adjacency.zarr
   gages_adjacency: /Users/taddbindas/projects/forks/ddr/data/gages_adjacency.zarr
@@ -40,9 +41,12 @@ train:
 
 params:
   attributes:
-  - mean.impervious
-  - mean.elevation
-  - mean.smcmax_soil_layers_stag=1
+  - glaciers
+  - aridity
+  - ksat
+  - meanelevation
+  - meanP
+  - uparea
   attribute_minimums:
     discharge: 0.0001
     slope: 0.0001

@@ -153,7 +153,7 @@ def read_ic(store: str, region="us-east-2") -> xr.Dataset:
         storage_config = ic.s3_storage(bucket=bucket, prefix=prefix, region=region, anonymous=True)
     else:
         # Assuming Local Icechunk Store
-        log.info("Reading icechunk streamflow predictions from local disk")
+        log.info(f"Reading icechunk streamflow predictions from local disk: {store}")
         storage_config = ic.local_filesystem_storage(store)
     repo = ic.Repository.open(storage_config)
     session = repo.readonly_session("main")

@@ -7,6 +7,7 @@ import torch
 from omegaconf import DictConfig
 from torch.utils.data import Dataset as TorchDataset
 
+from ddr.dataset.attributes import AttributesReader
 from ddr.dataset.Dates import Dates
 from ddr.dataset.observations import IcechunkUSGSReader
 from ddr.dataset.statistics import set_statistics
@@ -21,6 +22,20 @@ class train_dataset(TorchDataset):
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
         self.dates = Dates(**self.cfg.train)
+
+        self.attr_reader = AttributesReader(cfg=self.cfg)
+        self.attribute_stats = set_statistics(self.cfg, self.attr_reader.ds)
+        # Convert to tensor after collecting all valid data
+        self.means = torch.tensor(
+            [self.attribute_stats[attr].iloc[2] for attr in self.cfg.kan.input_var_names],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)  # Mean is always idx 2
+        self.stds = torch.tensor(
+            [self.attribute_stats[attr].iloc[3] for attr in self.cfg.kan.input_var_names],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)  # Mean is always idx 3
 
         self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
         self.observations = self.obs_reader.read_data(dates=self.dates)
@@ -71,20 +86,6 @@ class train_dataset(TorchDataset):
         self.side_slope = fill_nans(self.side_slope)
         self.x = fill_nans(self.x)
 
-        self.attribute_stats = set_statistics(self.cfg)
-
-        # Convert to tensor after collecting all valid data
-        self.means = torch.tensor(
-            [self.attribute_stats[attr].iloc[2] for attr in self.cfg.kan.input_var_names],
-            device=self.cfg.device,
-            dtype=torch.float32,
-        ).unsqueeze(1)  # Mean is always idx 2
-        self.stds = torch.tensor(
-            [self.attribute_stats[attr].iloc[3] for attr in self.cfg.kan.input_var_names],
-            device=self.cfg.device,
-            dtype=torch.float32,
-        ).unsqueeze(1)  # Mean is always idx 3
-
     def __len__(self) -> int:
         """Returns the total number of gauges."""
         return 1
@@ -101,6 +102,8 @@ class train_dataset(TorchDataset):
             device=self.cfg.device,
             dtype=torch.float32,
         )
+
+        spatial_attributes = self.attr_reader()
 
         for r in range(spatial_attributes.shape[0]):
             row_means = torch.nanmean(spatial_attributes[r])

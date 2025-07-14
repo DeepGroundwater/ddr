@@ -186,6 +186,7 @@ class MuskingumCunge:
         # Store hydrofabric and extract spatial attributes
         self.hydrofabric = hydrofabric
         self.observations = hydrofabric.observations.gage_id
+        self.gage_indices = hydrofabric.gage_idx
 
         # Setup network
         self.network = hydrofabric.adjacency_matrix
@@ -214,9 +215,6 @@ class MuskingumCunge:
         # Initialize discharge
         self._discharge_t = self.q_prime[0].to(self.device)
 
-        # TODO: Create dynamic gauge lookup - for now using placeholder
-        self.gage_indices = torch.tensor([-1])
-
     def forward(self) -> torch.Tensor:
         """Perform forward routing calculation.
 
@@ -238,13 +236,17 @@ class MuskingumCunge:
         mapper, dense_rows, dense_cols = self.create_pattern_mapper()
 
         # Set initial output values
-        if len(self._discharge_t) != 0:
-            for i, gage_idx in enumerate(self.gage_indices):
-                output[i, 0] = torch.sum(self._discharge_t[gage_idx])
-        else:
-            for i, gage_idx in enumerate(self.gage_indices):
-                output[i, 0] = self.q_prime[0, gage_idx]
-        output[:, 0] = torch.clamp(input=output[:, 0], min=self.discharge_lb)
+        try:
+            if len(self._discharge_t) != 0:
+                for i, gage_idx in enumerate(self.gage_indices):
+                    output[i, 0] = torch.sum(self._discharge_t[gage_idx])
+            else:
+                for i, gage_idx in enumerate(self.gage_indices):
+                    output[i, 0] = self.q_prime[0, gage_idx]
+            output[:, 0] = torch.clamp(input=output[:, 0], min=self.discharge_lb)
+        except IndexError as e:
+            log.exception("Indexing Error. Gage indices do not align with discharge")
+            raise IndexError from e
 
         # Route through time series
         desc = "Running dMC Routing"

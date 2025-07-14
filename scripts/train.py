@@ -20,7 +20,7 @@ from ddr.dataset.streamflow import StreamflowReader as streamflow
 from ddr.dataset.train_dataset import train_dataset
 from ddr.dataset.utils import downsample
 from ddr.nn.kan import kan
-from ddr.routing.dmc import dmc
+from ddr.routing.torch_mc import dmc
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ def train(cfg, flow, routing_model, nn):
         dataset=dataset,
         batch_size=cfg.train.batch_size,
         num_workers=0,
+        shuffle=cfg.train.shuffle,
         collate_fn=dataset.collate_fn,
         drop_last=True,
     )
@@ -76,7 +77,7 @@ def train(cfg, flow, routing_model, nn):
     for epoch in range(start_epoch, cfg.train.epochs + 1):
         routing_model.epoch = epoch
         for i, hydrofabric in enumerate(dataloader, start=0):
-            routing_model.mini_batch = i
+            routing_model.set_progress_info(epoch=epoch, mini_batch=i)
 
             streamflow_predictions = flow(cfg=cfg, hydrofabric=hydrofabric)
             q_prime = streamflow_predictions["streamflow"]
@@ -124,9 +125,7 @@ def train(cfg, flow, routing_model, nn):
             pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
             median_nse = torch.tensor(pred_nse_filtered).median()
 
-            # TODO: scale out when we have more gauges
-            # random_index = np.random.randint(low=0, high=filtered_observations.shape[0], size=(1,))[0]
-            random_gage = -1
+            random_gage = -1  # TODO: scale out when we have more gauges
             plot_time_series(
                 filtered_predictions[-1].detach().cpu().numpy(),
                 filtered_observations[-1].cpu().numpy(),
@@ -147,9 +146,9 @@ def train(cfg, flow, routing_model, nn):
                 saved_model_path=cfg.params.save_path / "saved_models",
             )
 
-            print(f"Loss: {loss.item()}")
-            print(f"Median NSE: {median_nse}")
-            print(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
+            log.info(f"Loss: {loss.item()}")
+            log.info(f"Median NSE: {median_nse}")
+            log.info(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
 
         if epoch in cfg.train.learning_rate.keys():
             log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")
@@ -186,16 +185,16 @@ def main(cfg: DictConfig) -> None:
         train(cfg=cfg, flow=flow, routing_model=routing_model, nn=nn)
 
     except KeyboardInterrupt:
-        print("Keyboard interrupt received")
+        log.info("Keyboard interrupt received")
 
     finally:
-        print("Cleaning up...")
+        log.info("Cleaning up...")
 
         total_time = time.perf_counter() - start_time
         log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
 
 
 if __name__ == "__main__":
-    print(f"Training DDR with version: {__version__}")
+    log.info(f"Training DDR with version: {__version__}")
     os.environ["DDR_VERSION"] = __version__
     main()

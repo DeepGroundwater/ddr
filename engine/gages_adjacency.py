@@ -248,11 +248,11 @@ def coo_to_zarr_group(
     values[:] = coo.data
     order[:] = zarr_order
 
-    root.attrs["format"] = "COO"
-    root.attrs["shape"] = list(coo.shape)
-    root.attrs["gage_wb"] = origin
-    root.attrs["gage_idx"] = conus_mapping[origin]
-    root.attrs["data_types"] = {
+    gauge_root.attrs["format"] = "COO"
+    gauge_root.attrs["shape"] = list(coo.shape)
+    gauge_root.attrs["gage_wb"] = origin
+    gauge_root.attrs["gage_idx"] = conus_mapping[origin]
+    gauge_root.attrs["data_types"] = {
         "indices_0": coo.row.dtype.__str__(),
         "indices_1": coo.col.dtype.__str__(),
         "values": coo.data.dtype.__str__(),
@@ -291,7 +291,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.path is None:
-        out_path = Path.cwd() / "observation_adjacency.zarr"
+        out_path = Path.cwd() / "gages_adjacency.zarr"
     else:
         out_path = Path(args.path)
 
@@ -335,6 +335,7 @@ if __name__ == "__main__":
     wb_network_dict = preprocess_river_network(network)
 
     # Read in conus_adjacency.zarr
+    print("Read CONUS zarr store")
     conus_root = zarr.open_group(store=conus_path)
     ts_order = conus_root["order"][:]
     ts_order = np.array([f"wb-{_id}" for _id in ts_order])
@@ -356,10 +357,16 @@ if __name__ == "__main__":
         try:
             origin = find_origin(gauge, fp, network)
         except ValueError:
-            print(f"Cannot find gauge: {gauge.STAID}. Skipping")
+            print(f"Cannot find gauge: {gauge.STAID}. Skipping write")
             root.__delitem__(gauge.STAID)
             continue
         connections = subset(origin, wb_network_dict)
+        if len(connections) == 0:
+            print(
+                f"Gauge: {gauge.STAID} is a headwater catchment with no upstream catchments. Skipping write"
+            )
+            root.__delitem__(gauge.STAID)
+            continue
         coo, subset_flowpaths = create_coo(connections, ts_order_dict)
         coo_to_zarr_group(
             coo=coo,

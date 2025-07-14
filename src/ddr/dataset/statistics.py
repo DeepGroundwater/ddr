@@ -37,10 +37,9 @@ def set_statistics(cfg: DictConfig, ds: xr.Dataset) -> pd.DataFrame:
             json_ = json.load(f)
         df = pd.DataFrame(json_)
     else:
-        print("Reading CONUS hydrofabric to construct attribute statistics")
+        log.info("Reading CONUS hydrofabric to construct attribute statistics")
         json_ = {}
-        for attr in cfg.params.attributes:
-            # Use xarray dataset instead of gdf
+        for attr in list(ds.data_vars.keys()):  # Iterating through all variables
             data = ds[attr].values
             json_[attr] = {
                 "min": np.min(data, axis=0),

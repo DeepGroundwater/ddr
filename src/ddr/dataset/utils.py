@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import icechunk as ic
 import numpy as np
@@ -10,7 +11,6 @@ import xarray as xr
 import zarr
 import zarr.storage
 from scipy import sparse
-from scipy.sparse import csc_matrix
 
 from ddr.dataset.Dates import Dates
 
@@ -31,8 +31,9 @@ class Hydrofabric:
     dates: Dates | None = field(default=None)
     normalized_spatial_attributes: torch.Tensor | None = field(default=None)
     observations: xr.Dataset | None = field(default=None)
-    transition_matrix: csc_matrix | None = field(default=None)
     divide_ids: np.ndarray | None = field(default=None)
+    gage_idx: list[str] | None = field(default=None)
+    gage_wb: list[str] | None = field(default=None)
 
 
 def create_hydrofabric_observations(
@@ -91,6 +92,79 @@ def read_coo(path: Path, key: str) -> tuple[sparse.coo_matrix, zarr.Group]:
         raise FileNotFoundError(f"Cannot find file: {path}")
 
 
+def read_zarr(path: Path) -> zarr.Group:
+    """Reads a zarr group from store.
+
+    Parameters
+    ----------
+    path : Path
+        Path to zarr store.
+
+    Returns
+    -------
+    zarr.Group
+        The saved group object
+    """
+    if path.exists():
+        store = zarr.storage.LocalStore(root=path, read_only=True)
+        root = zarr.open_group(store, mode="r")
+        return root
+    else:
+        raise FileNotFoundError(f"Cannot find file: {path}")
+
+
+def construct_network_matrix(
+    batch: list[str], subsets: zarr.Group
+) -> tuple[sparse.coo_matrix, list[str], list[str]]:
+    """Creates a sparse coo matrix from many subset basins from `engine/gages_adjacency.py`
+
+    Parameters
+    ----------
+    batch : list[str]
+        The gauges contained in the current batch
+    subsets : zarr.Group
+        The subset basins from `engine/gages_adjacency.py`
+
+    Returns
+    -------
+    tuple[sparse.coo_matrix, list[str], list[str]]
+        The sparse network matrix and lists of the idx of the gauge and its wb id
+
+    Raises
+    ------
+    KeyError
+        Cannot find a gauge from the batch in the gages_adjacency.zarr Group
+    """
+    r = []  # indices_0
+    c = []  # indices_1
+    output_idx = []
+    output_wb = []
+    for _id in batch:
+        try:
+            gauge_root = subsets[_id]
+            r.extend(gauge_root["indices_0"][:].tolist())  # type: ignore
+            c.extend(gauge_root["indices_1"][:].tolist())  # type: ignore
+            _attrs: dict[str, Any] = dict(gauge_root.attrs)
+            output_idx.append(_attrs["gage_idx"])
+            output_wb.append(_attrs["gage_wb"])
+        except KeyError as e:
+            msg = f"Cannot find gauge {_id} in subsets zarr store"
+            log.error(msg)
+            raise KeyError(msg) from e
+    shape = tuple(_attrs["shape"])  # type: ignore
+    coo = sparse.coo_matrix(
+        (
+            np.ones(len(r)),
+            (
+                r,
+                c,
+            ),
+        ),
+        shape=shape,
+    )
+    return coo, output_idx, output_wb
+
+
 def downsample(data: torch.Tensor, rho: int) -> torch.Tensor:
     """Downsamples data from hourly to daily resolution.
 
@@ -144,7 +218,7 @@ def read_ic(store: str, region="us-east-2") -> xr.Dataset:
     """
     if "s3://" in store:
         # Getting the bucket and prefix from an s3:// URI
-        log.info(f"Reading icechunk streamflow predictions from {store}")
+        log.info(f"Reading icechunk repo from {store}")
         path_parts = store[5:].split("/")
         bucket = path_parts[0]
         prefix = (
@@ -153,7 +227,7 @@ def read_ic(store: str, region="us-east-2") -> xr.Dataset:
         storage_config = ic.s3_storage(bucket=bucket, prefix=prefix, region=region, anonymous=True)
     else:
         # Assuming Local Icechunk Store
-        log.info(f"Reading icechunk streamflow predictions from local disk: {store}")
+        log.info(f"Reading icechunk store from local disk: {store}")
         storage_config = ic.local_filesystem_storage(store)
     repo = ic.Repository.open(storage_config)
     session = repo.readonly_session("main")

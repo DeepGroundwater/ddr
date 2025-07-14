@@ -43,6 +43,7 @@ def train(cfg, flow, routing_model, nn):
         dataset=dataset,
         batch_size=cfg.train.batch_size,
         num_workers=0,
+        shuffle=cfg.train.shuffle,
         collate_fn=dataset.collate_fn,
         drop_last=True,
     )
@@ -147,9 +148,9 @@ def train(cfg, flow, routing_model, nn):
                 saved_model_path=cfg.params.save_path / "saved_models",
             )
 
-            print(f"Loss: {loss.item()}")
-            print(f"Median NSE: {median_nse}")
-            print(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
+            log.info(f"Loss: {loss.item()}")
+            log.info(f"Median NSE: {median_nse}")
+            log.info(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
 
         if epoch in cfg.train.learning_rate.keys():
             log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")
@@ -186,16 +187,16 @@ def main(cfg: DictConfig) -> None:
         train(cfg=cfg, flow=flow, routing_model=routing_model, nn=nn)
 
     except KeyboardInterrupt:
-        print("Keyboard interrupt received")
+        log.info("Keyboard interrupt received")
 
     finally:
-        print("Cleaning up...")
+        log.info("Cleaning up...")
 
         total_time = time.perf_counter() - start_time
         log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
 
 
 if __name__ == "__main__":
-    print(f"Training DDR with version: {__version__}")
+    log.info(f"Training DDR with version: {__version__}")
     os.environ["DDR_VERSION"] = __version__
     main()

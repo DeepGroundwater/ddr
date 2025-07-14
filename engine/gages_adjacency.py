@@ -248,11 +248,11 @@ def coo_to_zarr_group(
     values[:] = coo.data
     order[:] = zarr_order
 
-    root.attrs["format"] = "COO"
-    root.attrs["shape"] = list(coo.shape)
-    root.attrs["gage_wb"] = origin
-    root.attrs["gage_idx"] = conus_mapping[origin]
-    root.attrs["data_types"] = {
+    gauge_root.attrs["format"] = "COO"
+    gauge_root.attrs["shape"] = list(coo.shape)
+    gauge_root.attrs["gage_wb"] = origin
+    gauge_root.attrs["gage_idx"] = conus_mapping[origin]
+    gauge_root.attrs["data_types"] = {
         "indices_0": coo.row.dtype.__str__(),
         "indices_1": coo.col.dtype.__str__(),
         "values": coo.data.dtype.__str__(),
@@ -291,7 +291,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.path is None:
-        out_path = Path.cwd() / "observation_adjacency.zarr"
+        out_path = Path.cwd() / "gages_adjacency.zarr"
     else:
         out_path = Path(args.path)
 

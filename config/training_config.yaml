@@ -8,7 +8,7 @@ name: v${oc.env:DDR_VERSION,dev}-ddr-${forcings}
 
 data_sources:
   attributes: s3://mhpi-spatial/hydrofabric_v2.2_attributes/
-  conus_hydrofabric: /Users/taddbindas/projects/hydrofabric/v2.2/conus_nextgen.gpkg
+  hydrofabric_gpkg: /Users/taddbindas/projects/forks/ddr/data/conus_nextgen.gpkg
   conus_adjacency: /Users/taddbindas/projects/forks/ddr/data/conus_adjacency.zarr
   gages_adjacency: /Users/taddbindas/projects/forks/ddr/data/gages_adjacency.zarr
   statistics: /Users/taddbindas/projects/forks/ddr/data
@@ -19,7 +19,7 @@ data_sources:
   gages: /Users/taddbindas//projects/forks/datasets/mhpi/dHBV2.0UH/training_gauges.csv
 
 train:
-  batch_size: 1
+  batch_size: 2
   start_time: 1981/10/01
   end_time: 1995/09/30
   checkpoint: null
@@ -41,20 +41,13 @@ train:
 
 params:
   attributes:
-  - glaciers
-  - aridity
-  - ksat
-  - meanelevation
-  - meanP
-  - uparea
+
   attribute_minimums:
     discharge: 0.0001
     slope: 0.0001
     velocity: 0.01
     depth: 0.01
     bottom_width: 0.01
-  attributes_region:
-  - '73'
   parameter_ranges:
     range:
       'n':
@@ -70,20 +63,21 @@ params:
 
 np_seed: 1
 seed: 0
-device: 1
+device: cpu
 s3_region: us-east-2
 
 kan:
   hidden_size: 11
   input_var_names:
-  - mean.impervious
-  - mean.elevation
-  - mean.smcmax_soil_layers_stag=1
+    - glaciers
+    - aridity
+    - meanelevation
+    - meanP
+    - log_uparea
   num_hidden_layers: 1
   output_size: 3
   learnable_parameters:
   - n
   - q_spatial
-  - p_spatial
   grid: 3
   k: 3

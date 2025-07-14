@@ -41,8 +41,8 @@ class kan(torch.nn.Module):
                 )
             )
         self.output = torch.nn.Linear(self.hidden_size, self.output_size, bias=False, device=device)
-        torch.nn.init.kaiming_normal_(self.input.weight)
-        torch.nn.init.kaiming_normal_(self.output.weight)
+        torch.nn.init.xavier_normal(self.input.weight)
+        torch.nn.init.xavier_normal(self.output.weight)
         torch.nn.init.zeros_(self.input.bias)
 
     def forward(self, *args, **kwargs) -> dict[str, torch.Tensor]:

@@ -125,9 +125,7 @@ def train(cfg, flow, routing_model, nn):
             pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
             median_nse = torch.tensor(pred_nse_filtered).median()
 
-            # TODO: scale out when we have more gauges
-            # random_index = np.random.randint(low=0, high=filtered_observations.shape[0], size=(1,))[0]
-            random_gage = -1
+            random_gage = -1  # TODO: scale out when we have more gauges
             plot_time_series(
                 filtered_predictions[-1].detach().cpu().numpy(),
                 filtered_observations[-1].cpu().numpy(),

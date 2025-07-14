@@ -48,9 +48,10 @@ class train_dataset(TorchDataset):
         self.observations = self.obs_reader.read_data(dates=self.dates)
         self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
 
-        self.flowpath_attr = gpd.read_file(
-            cfg.data_sources.hydrofabric_gpkg, layer="flowpath-attributes-ml"
+        _flowpath_attr = gpd.read_file(
+            self.cfg.data_sources.hydrofabric_gpkg, layer="flowpath-attributes-ml"
         ).set_index("id")
+        self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
 
         self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
         self.hf_ids = self.conus_adjacency["order"][:]  # type: ignore
@@ -75,7 +76,7 @@ class train_dataset(TorchDataset):
         # Combines all gauge information together into one large matrix where the CONUS hydrofabric is the indexing
         coo, _gage_idx, gage_wb = construct_network_matrix(batch, self.gages_adjacency)
         local_col_idx = []
-        for _idx in _gage_idx:
+        for _i, _idx in enumerate(_gage_idx):
             mask = np.isin(coo.row, _idx)
             local_gage_inflow_idx = np.where(mask)[0]
             local_col_idx.append(coo.col[local_gage_inflow_idx])

@@ -77,7 +77,7 @@ def train(cfg, flow, routing_model, nn):
     for epoch in range(start_epoch, cfg.train.epochs + 1):
         routing_model.epoch = epoch
         for i, hydrofabric in enumerate(dataloader, start=0):
-            routing_model.mini_batch = i
+            routing_model.set_progress_info(epoch=epoch, mini_batch=i)
 
             streamflow_predictions = flow(cfg=cfg, hydrofabric=hydrofabric)
             q_prime = streamflow_predictions["streamflow"]

@@ -142,15 +142,17 @@ def construct_network_matrix(
     for _id in batch:
         try:
             gauge_root = subsets[_id]
-            r.extend(gauge_root["indices_0"][:].tolist())  # type: ignore
-            c.extend(gauge_root["indices_1"][:].tolist())  # type: ignore
+            _r = gauge_root["indices_0"][:].tolist()  # type: ignore
+            _c = gauge_root["indices_1"][:].tolist()  # type: ignore
+            r.extend(_r)
+            c.extend(_c)
             _attrs: dict[str, Any] = dict(gauge_root.attrs)
             output_idx.append(_attrs["gage_idx"])
             output_wb.append(_attrs["gage_wb"])
-        except KeyError as e:
-            msg = f"Cannot find gauge {_id} in subsets zarr store"
-            log.error(msg)
-            raise KeyError(msg) from e
+        except KeyError:
+            msg = f"Cannot find gauge {_id} in subsets zarr store. Skipping"
+            log.info(msg)
+            pass
     shape = tuple(_attrs["shape"])  # type: ignore
     coo = sparse.coo_matrix(
         (

@@ -186,6 +186,7 @@ class MuskingumCunge:
         # Store hydrofabric and extract spatial attributes
         self.hydrofabric = hydrofabric
         self.observations = hydrofabric.observations.gage_id
+        self.gage_indices = hydrofabric.gage_idx
 
         # Setup network
         self.network = hydrofabric.adjacency_matrix
@@ -213,9 +214,6 @@ class MuskingumCunge:
 
         # Initialize discharge
         self._discharge_t = self.q_prime[0].to(self.device)
-
-        # TODO: Create dynamic gauge lookup - for now using placeholder
-        self.gage_indices = torch.tensor([-1])
 
     def forward(self) -> torch.Tensor:
         """Perform forward routing calculation.

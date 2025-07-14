@@ -20,7 +20,7 @@ from ddr.dataset.streamflow import StreamflowReader as streamflow
 from ddr.dataset.train_dataset import train_dataset
 from ddr.dataset.utils import downsample
 from ddr.nn.kan import kan
-from ddr.routing.dmc import dmc
+from ddr.routing.torch_mc import dmc
 
 log = logging.getLogger(__name__)
 

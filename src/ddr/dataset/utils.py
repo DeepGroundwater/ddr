@@ -186,7 +186,24 @@ def downsample(data: torch.Tensor, rho: int) -> torch.Tensor:
     return downsampled_data
 
 
-def fill_nans(attr):
+def naninfmean(arr) -> np.ndarray:
+    """Finds the mean of an array if there are both nan and inf values
+
+    Parameters
+    ----------
+    attr : torch.Tensor
+        The tensor to fill nan values in.
+
+    Returns
+    -------
+    np.ndarray
+        The array with nan values filled.
+    """
+    finite_vals = arr[np.isfinite(arr)]
+    return np.mean(finite_vals) if len(finite_vals) > 0 else np.nan
+
+
+def fill_nans(attr, row_means=None):
     """Fills nan values in a tensor using the mean.
 
     Parameters
@@ -199,9 +216,11 @@ def fill_nans(attr):
     torch.Tensor
         The tensor with nan values filled.
     """
-    row_means = torch.nanmean(attr)
+    if row_means is None:
+        row_means = torch.nanmean(attr)
     nan_mask = torch.isnan(attr)
-    attr[nan_mask] = row_means
+    if nan_mask.any():
+        attr[nan_mask] = row_means.squeeze()
     return attr
 
 

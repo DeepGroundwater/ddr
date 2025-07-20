@@ -79,13 +79,12 @@ def train(cfg, flow, routing_model, nn):
         for i, hydrofabric in enumerate(dataloader, start=0):
             routing_model.set_progress_info(epoch=epoch, mini_batch=i)
 
-            streamflow_predictions = flow(cfg=cfg, hydrofabric=hydrofabric)
-            q_prime = streamflow_predictions["streamflow"]
+            streamflow_predictions = flow(hydrofabric=hydrofabric, device=cfg.device, dtype=torch.float32)
             spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
             dmc_kwargs = {
                 "hydrofabric": hydrofabric,
                 "spatial_parameters": spatial_params,
-                "streamflow": torch.tensor(q_prime, device=cfg.device, dtype=torch.float32),
+                "streamflow": streamflow_predictions,
             }
             dmc_output = routing_model(**dmc_kwargs)
 
@@ -173,7 +172,6 @@ def main(cfg: DictConfig) -> None:
             input_var_names=cfg.kan.input_var_names,
             learnable_parameters=cfg.kan.learnable_parameters,
             hidden_size=cfg.kan.hidden_size,
-            output_size=cfg.kan.output_size,
             num_hidden_layers=cfg.kan.num_hidden_layers,
             grid=cfg.kan.grid,
             k=cfg.kan.k,

@@ -15,7 +15,6 @@ class kan(torch.nn.Module):
         input_var_names: list[str],
         learnable_parameters: list[str],
         hidden_size: int,
-        output_size: int,
         num_hidden_layers: int,
         grid: int,
         k: int,
@@ -25,8 +24,8 @@ class kan(torch.nn.Module):
         super().__init__()
         self.input_size = len(input_var_names)
         self.hidden_size = hidden_size
-        self.output_size = output_size
         self.learnable_parameters = learnable_parameters
+        self.output_size = len(self.learnable_parameters)
 
         self.input = torch.nn.Linear(self.input_size, self.hidden_size, device=device)
         self.layers = torch.nn.ModuleList()

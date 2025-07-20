@@ -17,6 +17,7 @@ from ddr.dataset.utils import (
     construct_network_matrix,
     create_hydrofabric_observations,
     fill_nans,
+    naninfmean,
     read_zarr,
 )
 
@@ -52,6 +53,15 @@ class train_dataset(TorchDataset):
             self.cfg.data_sources.hydrofabric_gpkg, layer="flowpath-attributes-ml"
         ).set_index("id")
         self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
+
+        self.phys_means = torch.tensor(
+            [
+                naninfmean(self.flowpath_attr[attr].values)
+                for attr in ["Length_m", "So", "TopWdth", "ChSlp", "MusX"]
+            ],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)  # Creating mean values for physical parameters within the HF
 
         self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
         self.hf_ids = self.conus_adjacency["order"][:]  # type: ignore
@@ -122,12 +132,11 @@ class train_dataset(TorchDataset):
         )
 
         # NOTE: You can check the accuracy of the CSR compression through the following lines. The "to" should be the same number as gage_wb
-        # compressed_flowpath_attr.iloc[np.concatenate(outflow_idx)]
-        # gage_wb
+        # np.array([_id.split("-")[1] for _id in compressed_flowpath_attr.iloc[np.concatenate(outflow_idx)]["to"].drop_duplicates(keep='first').values]) == np.array([_id.split("-")[1] for _id in gage_wb])
 
-        _spatial_attributes = self.attr_reader(divide_ids=divide_ids)
-        spatial_attributes = torch.tensor(
-            [_spatial_attributes[attr].values for attr in self.cfg.kan.input_var_names],
+        spatial_attributes = self.attr_reader(
+            divide_ids=divide_ids,
+            attr_means=self.means,
             device=self.cfg.device,
             dtype=torch.float32,
         )
@@ -146,11 +155,26 @@ class train_dataset(TorchDataset):
             observations=self.observations,
         )
 
-        length = fill_nans(torch.tensor(compressed_flowpath_attr["Length_m"].values, dtype=torch.float32))
-        slope = fill_nans(torch.tensor(compressed_flowpath_attr["So"].values, dtype=torch.float32))
-        top_width = fill_nans(torch.tensor(compressed_flowpath_attr["TopWdth"].values, dtype=torch.float32))
-        side_slope = fill_nans(torch.tensor(compressed_flowpath_attr["ChSlp"].values, dtype=torch.float32))
-        x = fill_nans(torch.tensor(compressed_flowpath_attr["MusX"].values, dtype=torch.float32))
+        length = fill_nans(
+            torch.tensor(compressed_flowpath_attr["Length_m"].values, dtype=torch.float32),
+            row_means=self.phys_means[0],
+        )
+        slope = fill_nans(
+            torch.tensor(compressed_flowpath_attr["So"].values, dtype=torch.float32),
+            row_means=self.phys_means[1],
+        )
+        top_width = fill_nans(
+            torch.tensor(compressed_flowpath_attr["TopWdth"].values, dtype=torch.float32),
+            row_means=self.phys_means[2],
+        )
+        side_slope = fill_nans(
+            torch.tensor(compressed_flowpath_attr["ChSlp"].values, dtype=torch.float32),
+            row_means=self.phys_means[3],
+        )
+        x = fill_nans(
+            torch.tensor(compressed_flowpath_attr["MusX"].values, dtype=torch.float32),
+            row_means=self.phys_means[4],
+        )
 
         return Hydrofabric(
             spatial_attributes=spatial_attributes,

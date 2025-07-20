@@ -16,8 +16,10 @@ class StreamflowReader(torch.nn.Module):
         super().__init__()
         self.cfg = cfg
         self.ds = read_ic(self.cfg.data_sources.streamflow, region=self.cfg.s3_region)
+        # Index Lookup Dictionary
+        self.divide_id_to_index = {divide_id: idx for idx, divide_id in enumerate(self.ds.divide_id.values)}
 
-    def forward(self, **kwargs) -> dict[str, np.ndarray]:
+    def forward(self, **kwargs) -> torch.Tensor:
         """The forward function of the module for generating streamflow values
 
         Returns
@@ -31,21 +33,35 @@ class StreamflowReader(torch.nn.Module):
             The basin you're searching for is not in the sample
         """
         hydrofabric = kwargs["hydrofabric"]
-        divide_indices = np.where(np.isin(self.ds.divide_id.values, hydrofabric.divide_ids))[0]
-        try:
-            lazy_flow_data = self.ds.isel(
-                time=hydrofabric.dates.numerical_time_range, divide_id=divide_indices
-            )["Qr"]
-        except IndexError as e:
-            msg = "index out of bounds. This means you're trying to find a basin that there is no data for."
-            log.exception(msg=msg)
-            raise IndexError(msg) from e
+        device = kwargs.get("device", "cpu")  # defaulting to a CPU tensor
+        dtype = kwargs.get("dtype", torch.float32)  # defaulting to float32
+        use_hourly = kwargs.get("use_hourly", False)
+        valid_divide_indices = []
+        divide_idx_mask = []
 
-        lazy_flow_data_interpolated = lazy_flow_data.interp(
-            time=hydrofabric.dates.batch_hourly_time_range,
-            method="nearest",
-        )
+        for i, divide_id in enumerate(hydrofabric.divide_ids):
+            if divide_id in self.divide_id_to_index:
+                valid_divide_indices.append(self.divide_id_to_index[divide_id])
+                divide_idx_mask.append(i)
+            else:
+                log.info(f"{divide_id} missing from the loaded attributes")
+
+        assert len(valid_divide_indices) != 0, "No valid divide IDs found in this batch. Throwing error"
+
+        _ds = self.ds.isel(time=hydrofabric.dates.numerical_time_range, divide_id=valid_divide_indices)["Qr"]
+
+        if use_hourly is False:
+            _ds = _ds.interp(
+                time=hydrofabric.dates.batch_hourly_time_range,
+                method="nearest",
+            )
         streamflow_data = (
-            lazy_flow_data_interpolated.compute().values.astype(np.float32).T
+            _ds.compute().values.astype(np.float32).T
         )  # Transposing to (num_timesteps, num_features)
-        return {"streamflow": streamflow_data}
+
+        # Creating an output tensor where we're filling any missing data with no-flow
+        output = torch.zeros(
+            (streamflow_data.shape[0], len(hydrofabric.divide_ids)), device=device, dtype=dtype
+        )
+        output[:, divide_idx_mask] = torch.tensor(streamflow_data, device=device, dtype=dtype)  # type: ignore
+        return output

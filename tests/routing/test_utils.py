@@ -19,7 +19,6 @@ def create_mock_nn() -> kan:
         ],
         learnable_parameters=["n", "q_spatial", "p_spatial"],
         hidden_size=11,
-        output_size=3,
         num_hidden_layers=1,
         grid=3,
         k=3,

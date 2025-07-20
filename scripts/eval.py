@@ -136,7 +136,6 @@ def main(cfg: DictConfig) -> None:
             input_var_names=cfg.kan.input_var_names,
             learnable_parameters=cfg.kan.learnable_parameters,
             hidden_size=cfg.kan.hidden_size,
-            output_size=cfg.kan.output_size,
             num_hidden_layers=cfg.kan.num_hidden_layers,
             grid=cfg.kan.grid,
             k=cfg.kan.k,

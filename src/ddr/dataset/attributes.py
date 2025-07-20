@@ -2,10 +2,9 @@ import logging
 
 import numpy as np
 import torch
-import xarray as xr
 from omegaconf import DictConfig
 
-from ddr.dataset.utils import read_ic
+from ddr.dataset.utils import fill_nans, read_ic
 
 log = logging.getLogger(__name__)
 
@@ -21,13 +20,16 @@ class AttributesReader(torch.nn.Module):
         )  # Have to cast to list for this to work with xarray
         self.ds = read_ic(self.cfg.data_sources.attributes, region=self.cfg.s3_region)
 
-    def forward(self, **kwargs) -> xr.Dataset:
+        # Index Lookup Dictionary
+        self.divide_id_to_index = {divide_id: idx for idx, divide_id in enumerate(self.ds.divide_id.values)}
+
+    def forward(self, **kwargs) -> torch.Tensor:
         """The forward function of the module for generating attributes
 
-        Returns
+        Returnsq
         -------
-        xr.Dataset
-            attributes for the given divides
+        torch.Tensor
+            attributes for the given divides in the shape (n_attributes, n_divides)
 
         Raises
         ------
@@ -35,13 +37,30 @@ class AttributesReader(torch.nn.Module):
             The basin you're searching for is not in the sample
         """
         divide_ids = kwargs["divide_ids"]
-        divide_indices = np.where(np.isin(self.ds.divide_id.values, divide_ids))[0]
-        try:
-            _ds = self.ds[self.attributes_list].isel(divide_id=divide_indices)
-        except IndexError as e:
-            msg = "index out of bounds. This means you're trying to find a basin that there is no data for."
-            log.exception(msg=msg)
-            raise IndexError(msg) from e
+        attr_means = kwargs["attr_means"]
+        device = kwargs.get("device", "cpu")  # defaulting to a CPU tensor
+        dtype = kwargs.get("dtype", torch.float32)  # defaulting to float32
 
-        attributes_data = _ds.compute()
-        return attributes_data
+        valid_divide_indices = []
+        divide_idx_mask = []
+
+        for i, divide_id in enumerate(divide_ids):
+            if divide_id in self.divide_id_to_index:
+                valid_divide_indices.append(self.divide_id_to_index[divide_id])
+                divide_idx_mask.append(i)
+            else:
+                log.info(f"{divide_id} missing from the loaded attributes")
+
+        assert len(valid_divide_indices) != 0, "No valid divide IDs found in this batch. Throwing error"
+
+        output = torch.full((len(self.attributes_list), len(divide_ids)), np.nan, device=device, dtype=dtype)
+
+        _ds = self.ds[self.attributes_list].isel(divide_id=valid_divide_indices).compute()
+        data_array = _ds.to_array(dim="divide_id").values
+        data_tensor = torch.from_numpy(data_array).to(device=device, dtype=dtype)
+        output[:, divide_idx_mask] = data_tensor
+
+        output = fill_nans(
+            attr=output, row_means=attr_means
+        )  # Filling missing attributes with the mean values
+        return output

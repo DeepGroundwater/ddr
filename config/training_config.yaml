@@ -64,7 +64,7 @@ params:
 
 np_seed: 1
 seed: 0
-device: cpu
+device: 0
 s3_region: us-east-2
 
 kan:
@@ -76,7 +76,6 @@ kan:
     - meanP
     - log_uparea
   num_hidden_layers: 1
-  output_size: 3
   learnable_parameters:
   - n
   - q_spatial

@@ -73,10 +73,8 @@ kan:
   - mean.elevation
   - mean.smcmax_soil_layers_stag=1
   num_hidden_layers: 1
-  output_size: 3
   learnable_parameters:
   - n
   - q_spatial
-  - p_spatial
   grid: 3
   k: 3

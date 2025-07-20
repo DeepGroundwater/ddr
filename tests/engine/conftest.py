@@ -10,7 +10,7 @@ Pytest fixtures to test adjacency matrix creation
 import polars as pl
 import pytest
 
-from ddr import Gauge
+from ddr.dataset import Gauge
 
 _flowpath_table_schema = {
     "id": pl.String,

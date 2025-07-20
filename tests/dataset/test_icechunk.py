@@ -11,7 +11,7 @@ import pytest
 import xarray as xr
 from moto import mock_aws
 
-from ddr import read_ic
+from ddr.dataset import utils
 
 
 class TestReadIcLocalStore:
@@ -32,7 +32,7 @@ class TestReadIcLocalStore:
             mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
             # Call function
-            result = read_ic(local_store_path)
+            result = utils.read_ic(local_store_path)
 
             # Verify calls
             mock_local_fs.assert_called_once_with(local_store_path)
@@ -59,7 +59,7 @@ class TestReadIcLocalStore:
             mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
             # Call function with Path object (convert to string)
-            result = read_ic(str(local_store_path))
+            result = utils.read_ic(str(local_store_path))
 
             # Verify calls
             mock_local_fs.assert_called_once_with(str(local_store_path))
@@ -83,7 +83,7 @@ class TestReadIcLocalStore:
             mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
             # Call function
-            result = read_ic(local_store_path)
+            result = utils.read_ic(local_store_path)
 
             # Verify calls
             mock_local_fs.assert_called_once_with(local_store_path)
@@ -121,7 +121,7 @@ class TestReadIcLocalIntegration:
                 mock_open_zarr.return_value = mock_dataset
 
                 # Call function
-                result = read_ic(store_path)
+                result = utils.read_ic(store_path)
 
                 # Verify calls
                 mock_local_fs.assert_called_once_with(store_path)
@@ -164,7 +164,7 @@ class TestReadIcLocalIntegration:
                     mock_open_zarr.return_value = mock_dataset
 
                     # Call function
-                    result = read_ic(store_path)
+                    result = utils.read_ic(store_path)
 
                     # Verify
                     mock_local_fs.assert_called_once_with(store_path)
@@ -205,7 +205,7 @@ class TestReadIcLocalIntegration:
                 mock_open_zarr.return_value = mock_dataset
 
                 # Call function
-                result = read_ic(store_path)
+                result = utils.read_ic(store_path)
 
                 # Verify
                 mock_local_fs.assert_called_once_with(store_path)
@@ -232,7 +232,7 @@ class TestReadIcLocalErrorHandling:
 
             # Call function and expect exception
             with pytest.raises(Exception, match="Repository not found"):
-                read_ic(local_store_path)
+                utils.read_ic(local_store_path)
 
     def test_read_ic_xarray_open_failure(self, mock_icechunk_components, sample_local_paths):
         """Test handling of xarray open failure."""
@@ -250,7 +250,7 @@ class TestReadIcLocalErrorHandling:
 
             # Call function and expect exception
             with pytest.raises(Exception, match="Failed to open zarr store"):
-                read_ic(local_store_path)
+                utils.read_ic(local_store_path)
 
     def test_read_ic_error_handling_integration(self):
         """Integration test for error handling with real filesystem operations."""
@@ -267,7 +267,7 @@ class TestReadIcLocalErrorHandling:
                 mock_repo_open.side_effect = Exception("Integration test: Repository open failed")
 
                 with pytest.raises(Exception, match="Integration test: Repository open failed"):
-                    read_ic(store_path)
+                    utils.read_ic(store_path)
 
             # Test xarray open failure
             from unittest.mock import MagicMock
@@ -287,7 +287,7 @@ class TestReadIcLocalErrorHandling:
                 mock_open_zarr.side_effect = Exception("Integration test: XArray open failed")
 
                 with pytest.raises(Exception, match="Integration test: XArray open failed"):
-                    read_ic(store_path)
+                    utils.read_ic(store_path)
 
 
 class TestReadIcS3Store:
@@ -308,7 +308,7 @@ class TestReadIcS3Store:
             mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
             # Call function
-            result = read_ic(s3_store_path)
+            result = utils.read_ic(s3_store_path)
 
             # Verify calls
             mock_s3_storage.assert_called_once_with(
@@ -338,7 +338,7 @@ class TestReadIcS3Store:
             mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
             # Call function with custom region
-            result = read_ic(s3_store_path, region=custom_region)
+            result = utils.read_ic(s3_store_path, region=custom_region)
 
             # Verify calls
             mock_s3_storage.assert_called_once_with(
@@ -366,7 +366,7 @@ class TestReadIcS3Store:
             mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
             # Call function
-            result = read_ic(s3_store_path)
+            result = utils.read_ic(s3_store_path)
 
             # Verify that the full path after bucket is used as prefix
             mock_s3_storage.assert_called_once_with(
@@ -395,7 +395,7 @@ class TestReadIcS3Store:
             mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
             # Call function with specific region
-            read_ic(s3_store_path, region=region)
+            utils.read_ic(s3_store_path, region=region)
 
             # Verify region is passed correctly
             mock_s3_storage.assert_called_once_with(
@@ -438,7 +438,7 @@ class TestReadIcS3Integration:
             mock_open_zarr.return_value = mock_dataset
 
             # Call function
-            result = read_ic(s3_store_path, region=region)
+            result = utils.read_ic(s3_store_path, region=region)
 
             # Verify the S3 storage configuration was called with correct parameters
             mock_s3_storage.assert_called_once_with(
@@ -489,7 +489,7 @@ class TestReadIcS3Integration:
                 mock_open_zarr.return_value = mock_dataset
 
                 # Call function
-                result = read_ic(s3_store_path, region=region)
+                result = utils.read_ic(s3_store_path, region=region)
 
                 # Verify correct parameters were passed
                 mock_s3_storage.assert_called_once_with(
@@ -536,7 +536,7 @@ class TestReadIcS3Integration:
             mock_open_zarr.return_value = mock_dataset
 
             # Call function
-            result = read_ic(s3_store_path, region=region)
+            result = utils.read_ic(s3_store_path, region=region)
 
             # Verify integration worked
             assert result == mock_dataset
@@ -582,7 +582,7 @@ class TestReadIcS3Integration:
                 mock_repo_open.return_value = mock_repo
                 mock_open_zarr.return_value = mock_dataset
 
-                result = read_ic(s3_store_path, region=region)
+                result = utils.read_ic(s3_store_path, region=region)
                 assert result == mock_dataset
 
 
@@ -603,7 +603,7 @@ class TestReadIcS3PathParsing:
                 mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
                 # Call function
-                read_ic(s3_path)
+                utils.read_ic(s3_path)
 
                 # Verify parsing
                 mock_s3_storage.assert_called_once_with(
@@ -635,7 +635,7 @@ class TestReadIcS3PathParsing:
             mock_open_zarr.return_value = mock_icechunk_components["mock_dataset"]
 
             # Call function
-            read_ic(store_path)
+            utils.read_ic(store_path)
 
             # Verify parsing
             mock_s3_storage.assert_called_once_with(
@@ -677,7 +677,7 @@ class TestReadIcMixedIntegration:
             mock_repo_open.return_value = mock_repo
             mock_open_zarr.return_value = mock_dataset
 
-            s3_result = read_ic(s3_store_path, region=region)
+            s3_result = utils.read_ic(s3_store_path, region=region)
 
             # Verify S3 call
             mock_s3_storage.assert_called_once_with(
@@ -704,7 +704,7 @@ class TestReadIcMixedIntegration:
                 mock_repo_open.return_value = mock_repo
                 mock_open_zarr.return_value = mock_dataset
 
-                local_result = read_ic(local_store_path)
+                local_result = utils.read_ic(local_store_path)
 
                 # Verify local call
                 mock_local_fs.assert_called_once_with(local_store_path)

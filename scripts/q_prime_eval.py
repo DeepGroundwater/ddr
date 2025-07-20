@@ -14,8 +14,9 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-from ddr import Metrics, read_ic
 from ddr._version import __version__
+from ddr.analysis import Metrics
+from ddr.dataset import utils
 
 daily_format: str = "%Y/%m/%d"
 log = logging.getLogger(__name__)
@@ -226,8 +227,8 @@ def main(cfg: DictConfig) -> None:
     start_time = time.perf_counter()
     try:
         print(f"Checking Summed Q` NSE for streamflow predictions from: {cfg.data_sources.streamflow}")
-        streamflow = read_ic(cfg.data_sources.streamflow, region=cfg.s3_region)
-        observations = read_ic(cfg.data_sources.observations, region=cfg.s3_region)
+        streamflow = utils.read_ic(cfg.data_sources.streamflow, region=cfg.s3_region)
+        observations = utils.read_ic(cfg.data_sources.observations, region=cfg.s3_region)
         gages_adjacency = zarr.open_group(cfg.data_sources.gages_adjacency)
         basins_df = pd.read_csv(cfg.data_sources.gages)
         eval(

@@ -12,8 +12,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from ddr._version import __version__
-from ddr.analysis.metrics import Metrics
-from ddr.analysis.utils import log_eval_metrics
+from ddr.analysis import Metrics, utils
 from ddr.dataset.eval_dataset import eval_dataset
 from ddr.dataset.streamflow import StreamflowReader as streamflow
 from ddr.dataset.utils import downsample
@@ -116,7 +115,7 @@ def evaluate(cfg, flow, routing_model, nn):
     rmse = metrics.rmse
     kge = metrics.kge
 
-    log_eval_metrics(log, nse, rmse, kge)
+    utils.log_eval_metrics(log, nse, rmse, kge)
 
 
 @hydra.main(

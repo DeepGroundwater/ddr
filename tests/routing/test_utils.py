@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 
-from ddr.nn.kan import kan
+from ddr.nn import kan
 
 
 def create_mock_nn() -> kan:
@@ -108,6 +108,10 @@ def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> Any:
             self.means = self.spatial_attributes.mean(dim=1, keepdim=True)
             self.stds = self.spatial_attributes.std(dim=1, keepdim=True)
             self.normalized_spatial_attributes = self.spatial_attributes.sub(self.means).div(self.stds).T
+
+            # mock gauge outflows
+            self.gage_idx = [np.array([-1])]  # assuming the last values in the array
+            self.gage_wb = ["wb-1"]
 
     return MockHydrofabric()
 

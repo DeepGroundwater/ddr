@@ -147,6 +147,7 @@ class MuskingumCunge:
         self.x_storage = None
         self.observations = None
         self.gage_indices = None
+        self.gage_wb = None
 
         # Input data
         self.q_prime = None
@@ -187,6 +188,7 @@ class MuskingumCunge:
         self.hydrofabric = hydrofabric
         self.observations = hydrofabric.observations.gage_id
         self.gage_indices = hydrofabric.gage_idx
+        self.gage_wb = hydrofabric.gage_wb
 
         # Setup network
         self.network = hydrofabric.adjacency_matrix

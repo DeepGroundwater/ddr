@@ -117,9 +117,6 @@ class TestMuskingumCungeInputSetup:
         # Check discharge initialization
         assert torch.equal(mc._discharge_t, streamflow[0])
 
-        # Check gauge indices
-        assert_tensor_properties(mc.gage_indices, (1,), expected_dtype=torch.int64)
-
     def test_setup_inputs_slope_clamping(self):
         """Test that slope is properly clamped during setup."""
         cfg = create_mock_config()

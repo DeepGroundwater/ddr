@@ -59,9 +59,12 @@ class StreamflowReader(torch.nn.Module):
             _ds.compute().values.astype(np.float32).T
         )  # Transposing to (num_timesteps, num_features)
 
-        # Creating an output tensor where we're filling any missing data with no-flow
-        output = torch.zeros(
-            (streamflow_data.shape[0], len(hydrofabric.divide_ids)), device=device, dtype=dtype
+        # Creating an output tensor where we're filling any missing data with minimum flow
+        output = torch.full(
+            (streamflow_data.shape[0], len(hydrofabric.divide_ids)),
+            fill_value=0.001,
+            device=device,
+            dtype=dtype,
         )
         output[:, divide_idx_mask] = torch.tensor(streamflow_data, device=device, dtype=dtype)  # type: ignore
         return output

@@ -19,7 +19,7 @@ import zarr
 from scipy import sparse
 from tqdm import tqdm
 
-from ddr import Gauge, GaugeSet, validate_gages
+from ddr.dataset import Gauge, GaugeSet, validate_gages
 
 
 def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.ndarray:

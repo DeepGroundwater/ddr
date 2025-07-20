@@ -32,7 +32,9 @@ class Hydrofabric:
     normalized_spatial_attributes: torch.Tensor | None = field(default=None)
     observations: xr.Dataset | None = field(default=None)
     divide_ids: np.ndarray | None = field(default=None)
-    gage_idx: list[np.ndarray] | None = field(default=None)
+    gage_idx: list[np.ndarray] | None = field(
+        default=None
+    )  # Has to be list[np.ndarray] since idx are ragged arrays
     gage_wb: list[str] | None = field(default=None)
 
 

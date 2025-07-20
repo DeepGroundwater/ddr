@@ -1,8 +1,4 @@
-from ddr.analysis.metrics import Metrics
-from ddr.dataset.Gauges import Gauge, GaugeSet, validate_gages
-from ddr.dataset.streamflow import StreamflowReader
-from ddr.dataset.utils import read_ic
-from ddr.nn.kan import kan
-from ddr.routing.dmc import dmc
+from . import analysis, dataset, nn, routing
+from ._version import __version__
 
-__all__ = ["dmc", "kan", "StreamflowReader", "Metrics", "Gauge", "GaugeSet", "validate_gages", "read_ic"]
+__all__ = ["__version__", "routing", "nn", "dataset", "analysis"]

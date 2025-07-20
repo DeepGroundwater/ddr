@@ -13,13 +13,11 @@ from torch.nn.functional import mse_loss
 from torch.utils.data import DataLoader
 
 from ddr._version import __version__
-from ddr.analysis.metrics import Metrics
-from ddr.analysis.plots import plot_time_series
-from ddr.analysis.utils import save_state
-from ddr.dataset.streamflow import StreamflowReader as streamflow
-from ddr.dataset.train_dataset import train_dataset
-from ddr.dataset.utils import downsample
-from ddr.nn.kan import kan
+from ddr.analysis import Metrics, plot_time_series, utils
+from ddr.dataset import StreamflowReader as streamflow
+from ddr.dataset import train_dataset
+from ddr.dataset import utils as ds_utils
+from ddr.nn import kan
 from ddr.routing.torch_mc import dmc
 
 log = logging.getLogger(__name__)
@@ -89,7 +87,7 @@ def train(cfg, flow, routing_model, nn):
             dmc_output = routing_model(**dmc_kwargs)
 
             num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
-            daily_runoff = downsample(
+            daily_runoff = ds_utils.downsample(
                 dmc_output["runoff"][:, 13 : (-11 + cfg.params.tau)],
                 rho=num_days,
             )
@@ -136,7 +134,7 @@ def train(cfg, flow, routing_model, nn):
                 warmup=cfg.train.warmup,
             )
 
-            save_state(
+            utils.save_state(
                 epoch=epoch,
                 mini_batch=i,
                 mlp=nn,

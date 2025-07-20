@@ -11,11 +11,29 @@ An implementation of differentiable river routing methods for the NextGen Framew
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-#### Domain of interest:
+### How to run locally
+```sh
+# CPU
+uv synv
+. .venv/bin/activate
 
-The Juniata River Basin
+# or GPU
+uv sync --extra cu124
+. .venv/bin/activate
 
-<img src="docs/images/srb.png" alt="srb" width="50%"/>
+```
+
+Create the necessary data files:
+```sh
+# Create CONUS adjacency
+python engine/adjacency.py PATH/TO/conus_nextgen.gpkg data/conus_adjacency.zarr
+
+# Create gauges adjacency
+python engine/gages_adjacency.py PATH/TO/conus_nextgen.gpkg PATH/TO/TRAINING_GAUGES.csv data/gages_adjacency.zarr --conus-adj ata/conus_adjacency.zarr
+
+# Train a model using the MHPI S3 defaults
+python scripts/train.py
+```
 
 ### How to build docs locally
 The mkdocs-material documentation can be built/verified locally through installing the optional `docs` dependencies and serving through localhost:

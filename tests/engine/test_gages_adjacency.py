@@ -9,7 +9,7 @@ Tests for functionality of the subset adjacency module
 import polars as pl
 import pytest
 
-from ddr import Gauge
+from ddr.dataset import Gauge
 from engine.gages_adjacency import find_origin, preprocess_river_network, subset
 
 

@@ -220,14 +220,20 @@ def fill_nans(attr, row_means=None):
     torch.Tensor
         The tensor with nan values filled.
     """
+    original_shape = attr.shape
     if row_means is None:
-        output = torch.where(torch.isnan(attr), torch.nanmean(attr), attr)
-        return output
+        result = torch.where(torch.isnan(attr), torch.nanmean(attr), attr)
+    else:
+        row_means = row_means.to(attr.device)
 
-    if row_means.dim() == 1:
-        row_means = row_means.unsqueeze(-1)
-    output = torch.where(torch.isnan(attr), row_means, attr)
-    return output
+        # Ensuring row_means will work if we have multiple rows and row_means needs to be broadcast across them
+        if attr.dim() == 2 and row_means.dim() == 1 and len(row_means) > 1:
+            row_means = row_means.unsqueeze(-1)
+
+        result = torch.where(torch.isnan(attr), row_means, attr)
+
+    # Ensure output shape matches input shape
+    return result.view(original_shape)
 
 
 def read_ic(store: str, region="us-east-2") -> xr.Dataset:

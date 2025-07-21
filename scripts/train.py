@@ -142,11 +142,11 @@ def train(cfg, flow, routing_model, nn):
                 name=cfg.name,
                 saved_model_path=cfg.params.save_path / "saved_models",
             )
-
-            nse = metrics.nse
+            _nse = metrics.nse
+            nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
             rmse = metrics.rmse
             kge = metrics.kge
-            utils.log_metrics(nse, rmse, kge)
+            utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
 
         if epoch in cfg.train.learning_rate.keys():
             log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")

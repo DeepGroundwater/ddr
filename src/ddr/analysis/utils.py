@@ -71,7 +71,7 @@ def save_state(
     )
 
 
-def log_metrics(nse, rmse, kge):
+def log_metrics(nse, rmse, kge, epoch=None, mini_batch=None):
     """
     Logs evaluation metrics in a formatted and readable way.
 
@@ -86,8 +86,11 @@ def log_metrics(nse, rmse, kge):
     kge : np.ndarray
         NumPy array of Kling-Gupta Efficiency values.
     """
+    if epoch is not None and mini_batch is not None:
+        log.info("----------------------------------------")  # Separator line
+        log.info(f"{'Epoch':<10})| {epoch:>6} | {'Mini Batch':<10})| {mini_batch:>6} |")
     log.info("----------------------------------------")  # Separator line
-    log.info(f"{'Metric':<10} | {'Mean':>12} | {'Median':>12}")  # Header row
+    log.info(f"{'Metric':<10} | {'Mean':>12} | {'Median':>12}")
     log.info("----------------------------------------")
     log.info(f"{'NSE':<10} | {np.nanmean(nse):12.4f} | {np.nanmedian(nse[~np.isinf(nse)]):12.4f}")
     log.info(f"{'RMSE':<10} | {np.nanmean(rmse):12.4f} | {np.nanmedian(rmse):12.4f}")

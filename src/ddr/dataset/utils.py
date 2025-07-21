@@ -212,6 +212,8 @@ def fill_nans(attr, row_means=None):
     ----------
     attr : torch.Tensor
         The tensor to fill nan values in.
+    row_means : torch.Tensor, optional
+        Per-row means to use for filling. If None, uses global mean.
 
     Returns
     -------
@@ -219,11 +221,13 @@ def fill_nans(attr, row_means=None):
         The tensor with nan values filled.
     """
     if row_means is None:
-        row_means = torch.nanmean(attr)
-    nan_mask = torch.isnan(attr)
-    if nan_mask.any():
-        attr[nan_mask] = row_means.squeeze()
-    return attr
+        output = torch.where(torch.isnan(attr), torch.nanmean(attr), attr)
+        return output
+
+    if row_means.dim() == 1:
+        row_means = row_means.unsqueeze(-1)
+    output = torch.where(torch.isnan(attr), row_means, attr)
+    return output
 
 
 def read_ic(store: str, region="us-east-2") -> xr.Dataset:

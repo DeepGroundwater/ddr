@@ -1,8 +1,11 @@
+import logging
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
+
+log = logging.getLogger(__name__)
 
 
 def save_state(
@@ -68,7 +71,7 @@ def save_state(
     )
 
 
-def log_eval_metrics(log, nse, rmse, kge):
+def log_metrics(nse, rmse, kge):
     """
     Logs evaluation metrics in a formatted and readable way.
 
@@ -83,7 +86,6 @@ def log_eval_metrics(log, nse, rmse, kge):
     kge : np.ndarray
         NumPy array of Kling-Gupta Efficiency values.
     """
-    log.info("Evaluation Results:")
     log.info("----------------------------------------")  # Separator line
     log.info(f"{'Metric':<10} | {'Mean':>12} | {'Median':>12}")  # Header row
     log.info("----------------------------------------")

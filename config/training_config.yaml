@@ -20,7 +20,7 @@ data_sources:
   gages: /projects/mhpi/tbindas/datasets/mhpi/dHBV2.0UH/training_gauges.csv
 
 train:
-  batch_size: 16
+  batch_size: 64
   start_time: 1981/10/01
   end_time: 1995/09/30
   checkpoint: null

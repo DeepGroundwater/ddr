@@ -30,6 +30,7 @@ def create_mock_nn() -> kan:
 def create_mock_config() -> DictConfig:
     """Create a mock configuration for testing routing models."""
     cfg = {
+        "data_sources": {"streamflow": "mock://streamflow/store"},
         "params": {
             "parameter_ranges": {"range": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9]}},
             "defaults": {"p": 1.0},
@@ -42,6 +43,7 @@ def create_mock_config() -> DictConfig:
             },
             "tau": 7,
         },
+        "s3_region": "us-east-1",
         "device": "cpu",
     }
     return DictConfig(cfg)
@@ -74,6 +76,7 @@ def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> Any:
             self.adjacency_matrix = torch.zeros(num_reaches, num_reaches, device=device)
             for i in range(num_reaches - 1):
                 self.adjacency_matrix[i + 1, i] = 1.0  # i flows to i+1
+            self.divide_ids = [f"cat-{i}" for i in range(num_reaches)]
 
             # Channel properties
             self.length = torch.ones(num_reaches, device=device) * 1000.0

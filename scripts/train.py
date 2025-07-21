@@ -119,16 +119,16 @@ def train(cfg, flow, routing_model, nn):
 
             metrics = Metrics(pred=np_pred, target=np_target)
             pred_nse = metrics.nse
-            pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
-            median_nse = torch.tensor(pred_nse_filtered).median()
+            # pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
+            # median_nse = torch.tensor(pred_nse_filtered).median()
 
             random_gage = -1  # TODO: scale out when we have more gauges
             plot_time_series(
                 filtered_predictions[-1].detach().cpu().numpy(),
                 filtered_observations[-1].cpu().numpy(),
                 plotted_dates,
-                dataset.obs_reader.gage_dict["STAID"][random_gage],
-                dataset.obs_reader.gage_dict["STANAME"][random_gage],
+                hydrofabric.observations.gage_id.values[random_gage],
+                hydrofabric.observations.gage_id.values[random_gage],
                 metrics={"nse": pred_nse[-1]},
                 path=cfg.params.save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
                 warmup=cfg.train.warmup,
@@ -143,9 +143,10 @@ def train(cfg, flow, routing_model, nn):
                 saved_model_path=cfg.params.save_path / "saved_models",
             )
 
-            log.info(f"Loss: {loss.item()}")
-            log.info(f"Median NSE: {median_nse}")
-            log.info(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
+            nse = metrics.nse
+            rmse = metrics.rmse
+            kge = metrics.kge
+            utils.log_metrics(nse, rmse, kge)
 
         if epoch in cfg.train.learning_rate.keys():
             log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")

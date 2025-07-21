@@ -13,11 +13,11 @@ from torch.utils.data import DataLoader
 
 from ddr._version import __version__
 from ddr.analysis import Metrics, utils
-from ddr.dataset.eval_dataset import eval_dataset
-from ddr.dataset.streamflow import StreamflowReader as streamflow
-from ddr.dataset.utils import downsample
-from ddr.nn.kan import kan
-from ddr.routing.dmc import dmc
+from ddr.dataset import StreamflowReader as streamflow
+from ddr.dataset import eval_dataset
+from ddr.dataset import utils as ds_utils
+from ddr.nn import kan
+from ddr.routing.torch_mc import dmc
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ def evaluate(cfg, flow, routing_model, nn):
             dmc_output = routing_model(**dmc_kwargs)
 
             num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
-            daily_runoff = downsample(
+            daily_runoff = ds_utils.downsample(
                 dmc_output["runoff"][:, 13 : (-11 + cfg.params.tau)],
                 rho=num_days,
             )
@@ -115,7 +115,7 @@ def evaluate(cfg, flow, routing_model, nn):
     rmse = metrics.rmse
     kge = metrics.kge
 
-    utils.log_eval_metrics(log, nse, rmse, kge)
+    utils.log_metrics(nse, rmse, kge)
 
 
 @hydra.main(

@@ -10,7 +10,7 @@ import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.nn.functional import mse_loss
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, RandomSampler
 
 from ddr._version import __version__
 from ddr.analysis import Metrics, plot_time_series, utils
@@ -35,123 +35,132 @@ def _set_seed(cfg: DictConfig) -> None:
 
 def train(cfg, flow, routing_model, nn):
     """Do model training."""
+    data_generator = torch.Generator()
+    data_generator.manual_seed(cfg.seed)
     dataset = train_dataset(cfg=cfg)
-
-    dataloader = DataLoader(
-        dataset=dataset,
-        batch_size=cfg.train.batch_size,
-        num_workers=0,
-        shuffle=cfg.train.shuffle,
-        collate_fn=dataset.collate_fn,
-        drop_last=True,
-    )
 
     if cfg.train.checkpoint:
         file_path = Path(cfg.train.checkpoint)
+        device = torch.device(cfg.device)
         log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
-        state = torch.load(file_path, map_location=cfg.device)
+        state = torch.load(file_path, map_location=device)
         state_dict = state["model_state_dict"]
-
+        for key in state_dict.keys():
+            state_dict[key] = state_dict[key].to(device)
         nn.load_state_dict(state_dict)
-        torch.set_rng_state(state["rng_state"])
         start_epoch = state["epoch"]
-        # start_mini_batch = 0 if state["mini_batch"] == 0 else state["mini_batch"] + 1  # Start from the next mini-batch
+        start_mini_batch = (
+            0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
+        )  # Start from the next mini-batch
 
-        if torch.cuda.is_available() and "cuda_rng_state" in state:
-            torch.cuda.set_rng_state(state["cuda_rng_state"])
         if start_epoch in cfg.train.learning_rate.keys():
             lr = cfg.train.learning_rate[start_epoch]
         else:
             key_list = list(cfg.train.learning_rate.keys())
-            lr = cfg.train.learning_rate[key_list[-1]]
+            lr = cfg.train.learning_rate[key_list[0]]  # defaults to first LR
     else:
         log.info("Creating new spatial model")
         start_epoch = 1
-        # start_mini_batch = 0
-        lr = cfg.train.learning_rate[str(0)]
+        start_mini_batch = 0
+        lr = cfg.train.learning_rate[start_epoch]
 
     optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
-
+    sampler = RandomSampler(
+        data_source=dataset,
+        generator=data_generator,
+    )
+    dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=cfg.train.batch_size,
+        num_workers=0,
+        sampler=sampler,
+        collate_fn=dataset.collate_fn,
+        drop_last=True,
+    )
     for epoch in range(start_epoch, cfg.train.epochs + 1):
-        routing_model.epoch = epoch
-        for i, hydrofabric in enumerate(dataloader, start=0):
-            routing_model.set_progress_info(epoch=epoch, mini_batch=i)
-
-            streamflow_predictions = flow(hydrofabric=hydrofabric, device=cfg.device, dtype=torch.float32)
-            spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
-            dmc_kwargs = {
-                "hydrofabric": hydrofabric,
-                "spatial_parameters": spatial_params,
-                "streamflow": streamflow_predictions,
-            }
-            dmc_output = routing_model(**dmc_kwargs)
-
-            num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
-            daily_runoff = ds_utils.downsample(
-                dmc_output["runoff"][:, 13 : (-11 + cfg.params.tau)],
-                rho=num_days,
-            )
-
-            nan_mask = hydrofabric.observations.isnull().any(dim="time")
-            np_nan_mask = nan_mask.streamflow.values
-
-            filtered_ds = hydrofabric.observations.where(~nan_mask, drop=True)
-            filtered_observations = torch.tensor(
-                filtered_ds.streamflow.values, device=cfg.device, dtype=torch.float32
-            )[:, 1:-1]  # Cutting off days to match with realigned timesteps
-
-            filtered_predictions = daily_runoff[~np_nan_mask]
-
-            loss = mse_loss(
-                input=filtered_predictions.transpose(0, 1)[cfg.train.warmup :].unsqueeze(2),
-                target=filtered_observations.transpose(0, 1)[cfg.train.warmup :].unsqueeze(2),
-            )
-
-            log.info("Running backpropagation")
-
-            loss.backward()
-            optimizer.step()
-            optimizer.zero_grad()
-
-            np_pred = filtered_predictions.detach().cpu().numpy()
-            np_target = filtered_observations.detach().cpu().numpy()
-            plotted_dates = dataset.dates.batch_daily_time_range[1:-1]  # type: ignore
-
-            metrics = Metrics(pred=np_pred, target=np_target)
-            pred_nse = metrics.nse
-            # pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
-            # median_nse = torch.tensor(pred_nse_filtered).median()
-
-            random_gage = -1  # TODO: scale out when we have more gauges
-            plot_time_series(
-                filtered_predictions[-1].detach().cpu().numpy(),
-                filtered_observations[-1].cpu().numpy(),
-                plotted_dates,
-                hydrofabric.observations.gage_id.values[random_gage],
-                hydrofabric.observations.gage_id.values[random_gage],
-                metrics={"nse": pred_nse[-1]},
-                path=cfg.params.save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
-                warmup=cfg.train.warmup,
-            )
-
-            utils.save_state(
-                epoch=epoch,
-                mini_batch=i,
-                mlp=nn,
-                optimizer=optimizer,
-                name=cfg.name,
-                saved_model_path=cfg.params.save_path / "saved_models",
-            )
-            _nse = metrics.nse
-            nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
-            rmse = metrics.rmse
-            kge = metrics.kge
-            utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
-
         if epoch in cfg.train.learning_rate.keys():
-            log.info(f"Updating learning rate: {cfg.train.learning_rate[epoch]}")
+            log.info(f"Setting learning rate: {cfg.train.learning_rate[epoch]}")
             for param_group in optimizer.param_groups:
                 param_group["lr"] = cfg.train.learning_rate[epoch]
+
+        for i, hydrofabric in enumerate(dataloader, start=0):
+            if i < start_mini_batch:
+                log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")
+            else:
+                start_mini_batch = 0
+                routing_model.set_progress_info(epoch=epoch, mini_batch=i)
+
+                streamflow_predictions = flow(hydrofabric=hydrofabric, device=cfg.device, dtype=torch.float32)
+                spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
+                dmc_kwargs = {
+                    "hydrofabric": hydrofabric,
+                    "spatial_parameters": spatial_params,
+                    "streamflow": streamflow_predictions,
+                }
+                dmc_output = routing_model(**dmc_kwargs)
+
+                num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
+                daily_runoff = ds_utils.downsample(
+                    dmc_output["runoff"][:, 13 : (-11 + cfg.params.tau)],
+                    rho=num_days,
+                )
+
+                nan_mask = hydrofabric.observations.isnull().any(dim="time")
+                np_nan_mask = nan_mask.streamflow.values
+
+                filtered_ds = hydrofabric.observations.where(~nan_mask, drop=True)
+                filtered_observations = torch.tensor(
+                    filtered_ds.streamflow.values, device=cfg.device, dtype=torch.float32
+                )[:, 1:-1]  # Cutting off days to match with realigned timesteps
+
+                filtered_predictions = daily_runoff[~np_nan_mask]
+
+                loss = mse_loss(
+                    input=filtered_predictions.transpose(0, 1)[cfg.train.warmup :].unsqueeze(2),
+                    target=filtered_observations.transpose(0, 1)[cfg.train.warmup :].unsqueeze(2),
+                )
+
+                log.info("Running backpropagation")
+
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+
+                np_pred = filtered_predictions.detach().cpu().numpy()
+                np_target = filtered_observations.detach().cpu().numpy()
+                plotted_dates = dataset.dates.batch_daily_time_range[1:-1]  # type: ignore
+
+                metrics = Metrics(pred=np_pred, target=np_target)
+                pred_nse = metrics.nse
+                # pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
+                # median_nse = torch.tensor(pred_nse_filtered).median()
+
+                random_gage = -1  # TODO: scale out when we have more gauges
+                plot_time_series(
+                    filtered_predictions[-1].detach().cpu().numpy(),
+                    filtered_observations[-1].cpu().numpy(),
+                    plotted_dates,
+                    hydrofabric.observations.gage_id.values[random_gage],
+                    hydrofabric.observations.gage_id.values[random_gage],
+                    metrics={"nse": pred_nse[-1]},
+                    path=cfg.params.save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
+                    warmup=cfg.train.warmup,
+                )
+
+                utils.save_state(
+                    epoch=epoch,
+                    generator=data_generator,
+                    mini_batch=i,
+                    mlp=nn,
+                    optimizer=optimizer,
+                    name=cfg.name,
+                    saved_model_path=cfg.params.save_path / "saved_models",
+                )
+                _nse = metrics.nse
+                nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
+                rmse = metrics.rmse
+                kge = metrics.kge
+                utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
 
 
 @hydra.main(

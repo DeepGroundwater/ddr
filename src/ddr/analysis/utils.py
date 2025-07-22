@@ -9,7 +9,13 @@ log = logging.getLogger(__name__)
 
 
 def save_state(
-    epoch: int, mini_batch: int, mlp: nn.Module, optimizer: nn.Module, name: str, saved_model_path: Path
+    epoch: int,
+    generator: torch.Generator,
+    mini_batch: int,
+    mlp: nn.Module,
+    optimizer: nn.Module,
+    name: str,
+    saved_model_path: Path,
 ) -> None:
     """Save model state
 
@@ -54,7 +60,7 @@ def save_state(
         "model_state_dict": mlp_state_dict,
         "optimizer_state_dict": cpu_optimizer_state_dict,
         "rng_state": torch.get_rng_state(),
-        # "loss_idx_value": loss_idx_value,
+        "data_generator_state": generator.get_state(),
     }
     if torch.cuda.is_available():
         state["cuda_rng_state"] = torch.cuda.get_rng_state()

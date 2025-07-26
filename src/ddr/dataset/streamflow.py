@@ -44,7 +44,7 @@ class StreamflowReader(torch.nn.Module):
                 valid_divide_indices.append(self.divide_id_to_index[divide_id])
                 divide_idx_mask.append(i)
             else:
-                log.info(f"{divide_id} missing from the loaded attributes")
+                log.info(f"{divide_id} missing from the streamflow dataset")
 
         assert len(valid_divide_indices) != 0, "No valid divide IDs found in this batch. Throwing error"
 

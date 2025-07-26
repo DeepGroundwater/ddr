@@ -109,12 +109,7 @@ class train_dataset(TorchDataset):
         divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
 
         # Get subset of flowpath attributes for this batch
-        try:
-            compressed_flowpath_attr = self.flowpath_attr.loc[wb_ids]
-        except KeyError:
-            valid_wb_ids = [wb_id for wb_id in wb_ids if wb_id in self.flowpath_attr.index]
-            assert len(valid_wb_ids) != 0, "No valid watersheds found"
-            compressed_flowpath_attr = self.flowpath_attr.loc[valid_wb_ids]
+        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         # Update local_col_idx to use compressed indices
         outflow_idx = []

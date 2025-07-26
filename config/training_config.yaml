@@ -23,8 +23,8 @@ train:
   batch_size: 64
   start_time: 1981/10/01
   end_time: 1995/09/30
-  # checkpoint: null
-  checkpoint: /projects/mhpi/tbindas/ddr/runs/v0.3.1.dev67+ga6faa14.d20250721-ddr-hydrofabric_v2.2_dhbv_retrospective/2025-07-22_08-26-10/saved_models/_v0.3.1.dev67+ga6faa14.d20250721-ddr-hydrofabric_v2.2_dhbv_retrospective_epoch_1_mb_3.pt
+  checkpoint: null
+  # checkpoint: /projects/mhpi/tbindas/ddr/runs/v0.3.1.dev67+ga6faa14.d20250721-ddr-hydrofabric_v2.2_dhbv_retrospective/2025-07-22_08-26-10/saved_models/_v0.3.1.dev67+ga6faa14.d20250721-ddr-hydrofabric_v2.2_dhbv_retrospective_epoch_1_mb_3.pt
   dropout_threshold: null
   epochs: 5
   learning_rate:

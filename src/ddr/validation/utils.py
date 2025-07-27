@@ -94,7 +94,7 @@ def log_metrics(nse, rmse, kge, epoch=None, mini_batch=None):
     """
     if epoch is not None and mini_batch is not None:
         log.info("----------------------------------------")  # Separator line
-        log.info(f"{'Epoch':<10})| {epoch:>6} | {'Mini Batch':<10})| {mini_batch:>6} |")
+        log.info(f"Epoch {epoch:<16} | Mini Batch{mini_batch:<16} |")
     log.info("----------------------------------------")  # Separator line
     log.info(f"{'Metric':<10} | {'Mean':>12} | {'Median':>12}")
     log.info("----------------------------------------")

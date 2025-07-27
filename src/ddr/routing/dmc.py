@@ -100,7 +100,7 @@ class dmc(torch.nn.Module):
         self.network = None
 
         self.parameter_bounds = self.cfg.params.parameter_ranges
-        self.p_spatial = torch.tensor(self.cfg.params.defaults["p"], device=self.device_num)
+        self.p_spatial = torch.tensor(self.cfg.params.defaults["p_spatial"], device=self.device_num)
         self.velocity_lb = torch.tensor(
             self.cfg.params.attribute_minimums["velocity"], device=self.device_num
         )

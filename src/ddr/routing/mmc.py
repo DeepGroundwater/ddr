@@ -130,7 +130,7 @@ class MuskingumCunge:
 
         # Parameter bounds and defaults
         self.parameter_bounds = self.cfg.params.parameter_ranges
-        self.p_spatial = torch.tensor(self.cfg.params.defaults["p"], device=self.device)
+        self.p_spatial = torch.tensor(self.cfg.params.defaults["p_spatial"], device=self.device)
         self.velocity_lb = torch.tensor(self.cfg.params.attribute_minimums["velocity"], device=self.device)
         self.depth_lb = torch.tensor(self.cfg.params.attribute_minimums["depth"], device=self.device)
         self.discharge_lb = torch.tensor(self.cfg.params.attribute_minimums["discharge"], device=self.device)

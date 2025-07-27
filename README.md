@@ -29,10 +29,10 @@ Create the necessary data files:
 python engine/adjacency.py PATH/TO/conus_nextgen.gpkg data/conus_adjacency.zarr
 
 # Create gauges adjacency
-python engine/gages_adjacency.py PATH/TO/conus_nextgen.gpkg PATH/TO/TRAINING_GAUGES.csv data/gages_adjacency.zarr --conus-adj ata/conus_adjacency.zarr
+python engine/gages_adjacency.py PATH/TO/conus_nextgen.gpkg PATH/TO/TRAINING_GAUGES.csv data/gages_adjacency.zarr --conus-adj data/conus_adjacency.zarr
 
 # Train a model using the MHPI S3 defaults
-python scripts/train.py --config-name config/training_config.yaml
+python scripts/train.py --config-name example_config.yaml
 ```
 
 ### How to build docs locally

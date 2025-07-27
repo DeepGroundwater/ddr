@@ -186,3 +186,5 @@ runs/
 
 # Pykan model state
 model/
+
+# config classes

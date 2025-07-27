@@ -1,0 +1,52 @@
+# This is an example config file meant to serve as a start for you to generate your own
+defaults:
+  - _self_
+  - hydra: settings
+
+name: DDR-v${oc.env:DDR_VERSION,dev}
+
+data_sources:
+  hydrofabric_gpkg: "DOWNLOAD THE FILE FROM https://www.lynker-spatial.com/data/hydrofabric/v2.2/conus/"  # patched
+  conus_adjacency: ./../data/conus_adjacency.zarr
+  gages_adjacency: ./../data/gages_adjacency.zarr
+  statistics: ./../data/
+  gages: "DOWNLOAD THE FILE FROM https://github.com/DeepGroundwater/datasets/blob/master/mhpi/dHBV2.0UH/training_gauges.csv"
+
+params:
+  attribute_minimums:
+    discharge: 0.0001
+    slope: 0.0001
+    velocity: 0.01
+    depth: 0.01
+    bottom_width: 0.01
+  parameter_ranges:
+    'n':
+    - 0.01
+    - 0.35
+    q_spatial:
+    - 0.0
+    - 3.0
+  defaults:
+    p: 21
+  tau: 3
+  save_path: ./
+
+np_seed: 1
+seed: 0
+device: 0
+s3_region: us-east-2
+
+kan:
+  hidden_size: 11
+  input_var_names:
+    - glaciers
+    - aridity
+    - meanelevation
+    - meanP
+    - log_uparea
+  num_hidden_layers: 1
+  learnable_parameters:
+  - n
+  - q_spatial
+  grid: 3
+  k: 3

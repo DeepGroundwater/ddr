@@ -15,8 +15,8 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from ddr._version import __version__
-from ddr.analysis import Metrics
 from ddr.dataset import utils
+from ddr.validation import Metrics
 
 daily_format: str = "%Y/%m/%d"
 log = logging.getLogger(__name__)

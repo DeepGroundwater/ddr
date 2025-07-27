@@ -7,6 +7,7 @@ import torch
 from omegaconf import DictConfig
 
 from ddr.nn import kan
+from ddr.validation.validate_configs import Config, validate_config
 
 
 def create_mock_nn() -> kan:
@@ -27,12 +28,19 @@ def create_mock_nn() -> kan:
     )
 
 
-def create_mock_config() -> DictConfig:
+def create_mock_config() -> Config:
     """Create a mock configuration for testing routing models."""
     cfg = {
-        "data_sources": {"streamflow": "mock://streamflow/store"},
+        "name": "mock",
+        "data_sources": {
+            "hydrofabric_gpkg": "mock.gpkg",
+            "streamflow": "mock://streamflow/store",
+            "conus_adjacency": "mock.zarr",
+            "gages_adjacency": "mock.zarr",
+            "gages": "mock.csv",
+        },
         "params": {
-            "parameter_ranges": {"range": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9]}},
+            "parameter_ranges": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9]},
             "defaults": {"p": 1.0},
             "attribute_minimums": {
                 "velocity": 0.1,
@@ -43,10 +51,16 @@ def create_mock_config() -> DictConfig:
             },
             "tau": 7,
         },
+        "kan": {
+            "input_var_names": [
+                "mock",
+            ],
+        },
         "s3_region": "us-east-1",
         "device": "cpu",
     }
-    return DictConfig(cfg)
+    config = validate_config(DictConfig(cfg))
+    return config
 
 
 def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> Any:

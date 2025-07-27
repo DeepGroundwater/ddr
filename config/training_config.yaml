@@ -2,48 +2,33 @@ defaults:
   - _self_
   - hydra: settings
 
-version: 0.3.0
-forcings: hydrofabric_v2.2_dhbv_retrospective
-name: v${oc.env:DDR_VERSION,dev}-ddr-${forcings}
+name: DDR-v${oc.env:DDR_VERSION,dev}
 
 data_sources:
   attributes: /projects/mhpi/data/icechunk/hydrofabric_v2.2_attributes
-  # attributes: s3://mhpi-spatial/hydrofabric_v2.2_attributes/
   hydrofabric_gpkg: /projects/mhpi/tbindas/ddr/data/conus_nextgen.gpkg  # patched
   conus_adjacency: /projects/mhpi/tbindas/ddr/data/conus_adjacency.zarr
   gages_adjacency: /projects/mhpi/tbindas/ddr/data/_gages_adjacency.zarr
   statistics: /projects/mhpi/tbindas/ddr/data
   streamflow: /projects/mhpi/data/icechunk/hydrofabric_v2.2_dhbv_retrospective
-  # streamflow: s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective
   observations: /projects/mhpi/data/icechunk/usgs_daily_observations
-  # observations: s3://mhpi-spatial/usgs_streamflow_observations/
   gages: /projects/mhpi/tbindas/datasets/mhpi/dHBV2.0UH/training_gauges.csv
 
-train:
+experiment:
   batch_size: 64
   start_time: 1981/10/01
   end_time: 1995/09/30
   checkpoint: null
   # checkpoint: /projects/mhpi/tbindas/ddr/runs/v0.3.1.dev67+ga6faa14.d20250721-ddr-hydrofabric_v2.2_dhbv_retrospective/2025-07-22_08-26-10/saved_models/_v0.3.1.dev67+ga6faa14.d20250721-ddr-hydrofabric_v2.2_dhbv_retrospective_epoch_1_mb_3.pt
-  dropout_threshold: null
   epochs: 5
   learning_rate:
     1: 0.005
     3: 0.001
-  minimum_zones: 3
-  range_bound_lower_bounds:
-  - 0.001
-  - 0.001
-  range_bound_upper_bounds:
-  - 0.15
-  - 1.0
   rho: 365
   shuffle: true
   warmup: 3
 
 params:
-  attributes:
-
   attribute_minimums:
     discharge: 0.0001
     slope: 0.0001
@@ -51,13 +36,12 @@ params:
     depth: 0.01
     bottom_width: 0.01
   parameter_ranges:
-    range:
-      'n':
-      - 0.01
-      - 0.35
-      q_spatial:
-      - 0.0
-      - 3.0
+    'n':
+    - 0.01
+    - 0.35
+    q_spatial:
+    - 0.0
+    - 3.0
   defaults:
     p: 21
   tau: 3

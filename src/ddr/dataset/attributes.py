@@ -2,9 +2,9 @@ import logging
 
 import numpy as np
 import torch
-from omegaconf import DictConfig
 
 from ddr.dataset.utils import fill_nans, read_ic
+from ddr.validation.validate_configs import Config
 
 log = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 class AttributesReader(torch.nn.Module):
     """A class to read attributes from a local zarr store or icechunk repo"""
 
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: Config):
         super().__init__()
         self.cfg = cfg
         self.attributes_list = list(

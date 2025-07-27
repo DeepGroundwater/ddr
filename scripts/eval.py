@@ -12,12 +12,12 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
 from ddr._version import __version__
-from ddr.analysis import Metrics, utils
 from ddr.dataset import StreamflowReader as streamflow
 from ddr.dataset import eval_dataset
 from ddr.dataset import utils as ds_utils
 from ddr.nn import kan
 from ddr.routing.torch_mc import dmc
+from ddr.validation import Metrics, utils
 
 log = logging.getLogger(__name__)
 

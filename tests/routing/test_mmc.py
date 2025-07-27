@@ -56,12 +56,12 @@ class TestMuskingumCungeInitialization:
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
-        assert mc.parameter_bounds == cfg.params.parameter_ranges.range
-        assert mc.p_spatial.item() == cfg.params.defaults.p
-        assert torch.allclose(mc.velocity_lb, torch.tensor(cfg.params.attribute_minimums.velocity))
-        assert torch.allclose(mc.depth_lb, torch.tensor(cfg.params.attribute_minimums.depth))
-        assert torch.allclose(mc.discharge_lb, torch.tensor(cfg.params.attribute_minimums.discharge))
-        assert torch.allclose(mc.bottom_width_lb, torch.tensor(cfg.params.attribute_minimums.bottom_width))
+        assert mc.parameter_bounds == cfg.params.parameter_ranges
+        assert mc.p_spatial.item() == cfg.params.defaults["p"]
+        assert torch.allclose(mc.velocity_lb, torch.tensor(cfg.params.attribute_minimums["velocity"]))
+        assert torch.allclose(mc.depth_lb, torch.tensor(cfg.params.attribute_minimums["depth"]))
+        assert torch.allclose(mc.discharge_lb, torch.tensor(cfg.params.attribute_minimums["discharge"]))
+        assert torch.allclose(mc.bottom_width_lb, torch.tensor(cfg.params.attribute_minimums["bottom_width"]))
 
 
 class TestMuskingumCungeProgressTracking:
@@ -131,7 +131,7 @@ class TestMuskingumCungeInputSetup:
 
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
-        min_slope = cfg.params.attribute_minimums.slope
+        min_slope = cfg.params.attribute_minimums["slope"]
         assert (mc.slope >= min_slope).all(), "All slopes should be >= minimum"
 
     def test_setup_inputs_device_conversion(self):

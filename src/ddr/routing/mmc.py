@@ -9,7 +9,6 @@ import logging
 from typing import Any
 
 import torch
-from omegaconf import DictConfig
 from tqdm import tqdm
 
 from ddr.routing.utils import (
@@ -18,6 +17,7 @@ from ddr.routing.utils import (
     get_network_idx,
     triangular_sparse_solve,
 )
+from ddr.validation.validate_configs import Config
 
 log = logging.getLogger(__name__)
 
@@ -106,12 +106,12 @@ class MuskingumCunge:
     algorithm, managing all hydrofabric data, parameters, and routing calculations.
     """
 
-    def __init__(self, cfg: dict[str, Any] | DictConfig, device: str = "cpu"):
+    def __init__(self, cfg: dict[str, Any] | Config, device: str = "cpu"):
         """Initialize the Muskingum-Cunge router.
 
         Parameters
         ----------
-        cfg : Dict[str, Any] | DictConfig
+        cfg : Dict[str, Any] | Config
             Configuration dictionary containing routing parameters
         device : str, optional
             Device to use for computations, by default "cpu"
@@ -129,13 +129,13 @@ class MuskingumCunge:
         self.network = None
 
         # Parameter bounds and defaults
-        self.parameter_bounds = self.cfg.params.parameter_ranges.range
-        self.p_spatial = torch.tensor(self.cfg.params.defaults.p, device=self.device)
-        self.velocity_lb = torch.tensor(self.cfg.params.attribute_minimums.velocity, device=self.device)
-        self.depth_lb = torch.tensor(self.cfg.params.attribute_minimums.depth, device=self.device)
-        self.discharge_lb = torch.tensor(self.cfg.params.attribute_minimums.discharge, device=self.device)
+        self.parameter_bounds = self.cfg.params.parameter_ranges
+        self.p_spatial = torch.tensor(self.cfg.params.defaults["p"], device=self.device)
+        self.velocity_lb = torch.tensor(self.cfg.params.attribute_minimums["velocity"], device=self.device)
+        self.depth_lb = torch.tensor(self.cfg.params.attribute_minimums["depth"], device=self.device)
+        self.discharge_lb = torch.tensor(self.cfg.params.attribute_minimums["discharge"], device=self.device)
         self.bottom_width_lb = torch.tensor(
-            self.cfg.params.attribute_minimums.bottom_width, device=self.device
+            self.cfg.params.attribute_minimums["bottom_width"], device=self.device
         )
 
         # Hydrofabric data - managed internally
@@ -197,7 +197,7 @@ class MuskingumCunge:
         self.length = hydrofabric.length.to(self.device).to(torch.float32)
         self.slope = torch.clamp(
             hydrofabric.slope.to(self.device).to(torch.float32),
-            min=self.cfg.params.attribute_minimums.slope,
+            min=self.cfg.params.attribute_minimums["slope"],
         )
         self.top_width = hydrofabric.top_width.to(self.device).to(torch.float32)
         self.side_slope = hydrofabric.side_slope.to(self.device).to(torch.float32)
@@ -259,7 +259,7 @@ class MuskingumCunge:
             ascii=True,
         ):
             q_prime_sub = self.q_prime[timestep - 1].clone()
-            q_prime_clamp = torch.clamp(q_prime_sub, min=self.cfg.params.attribute_minimums.discharge)
+            q_prime_clamp = torch.clamp(q_prime_sub, min=self.cfg.params.attribute_minimums["discharge"])
 
             # Route this timestep
             q_t1 = self.route_timestep(

@@ -126,12 +126,14 @@ class TestDMCInitialization:
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
-        assert model.parameter_bounds == cfg.params.parameter_ranges.range
-        assert model.p_spatial.item() == cfg.params.defaults.p
-        assert torch.allclose(model.velocity_lb, torch.tensor(cfg.params.attribute_minimums.velocity))
-        assert torch.allclose(model.depth_lb, torch.tensor(cfg.params.attribute_minimums.depth))
-        assert torch.allclose(model.discharge_lb, torch.tensor(cfg.params.attribute_minimums.discharge))
-        assert torch.allclose(model.bottom_width_lb, torch.tensor(cfg.params.attribute_minimums.bottom_width))
+        assert model.parameter_bounds == cfg.params.parameter_ranges
+        assert model.p_spatial.item() == cfg.params.defaults["p"]
+        assert torch.allclose(model.velocity_lb, torch.tensor(cfg.params.attribute_minimums["velocity"]))
+        assert torch.allclose(model.depth_lb, torch.tensor(cfg.params.attribute_minimums["depth"]))
+        assert torch.allclose(model.discharge_lb, torch.tensor(cfg.params.attribute_minimums["discharge"]))
+        assert torch.allclose(
+            model.bottom_width_lb, torch.tensor(cfg.params.attribute_minimums["bottom_width"])
+        )
 
 
 class TestDMCSparseOperations:
@@ -622,7 +624,7 @@ class TestParameterTraining:
         # The routing engine only uses parameters that are in cfg.params.parameter_ranges.range
         unused_spatial_params = []
         for param_name in ["n", "q_spatial", "p_spatial"]:
-            if param_name not in cfg.params.parameter_ranges.range:
+            if param_name not in cfg.params.parameter_ranges:
                 unused_spatial_params.append(f"spatial_parameters['{param_name}']")
 
         # do this in a loop so we can see which tensors changed more explicitly

@@ -4,7 +4,6 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import torch
-from omegaconf import DictConfig
 from scipy import sparse
 from torch.utils.data import Dataset as TorchDataset
 
@@ -20,6 +19,7 @@ from ddr.dataset.utils import (
     naninfmean,
     read_zarr,
 )
+from ddr.validation.validate_configs import Config
 
 log = logging.getLogger(__name__)
 
@@ -27,9 +27,9 @@ log = logging.getLogger(__name__)
 class train_dataset(TorchDataset):
     """train_dataset class for handling dataset operations for training dMC models"""
 
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.dates = Dates(**self.cfg.train)
+        self.dates = Dates(**self.cfg.experiment.model_dump())
 
         self.attr_reader = AttributesReader(cfg=self.cfg)
         self.attr_stats = set_statistics(self.cfg, self.attr_reader.ds)

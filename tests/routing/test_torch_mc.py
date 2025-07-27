@@ -734,7 +734,7 @@ class TestParameterTraining:
         # The routing engine only uses parameters that are in cfg.params.parameter_ranges.range
         unused_spatial_params = []
         for param_name in ["n", "q_spatial", "p_spatial"]:
-            if param_name not in cfg.params.parameter_ranges.range:
+            if param_name not in cfg.params.parameter_ranges:
                 unused_spatial_params.append(f"spatial_parameters['{param_name}']")
 
         # do this in a loop so we can see which tensors changed more explicitly

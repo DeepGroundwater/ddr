@@ -8,9 +8,9 @@ import logging
 from typing import Any
 
 import torch
-from omegaconf import DictConfig
 
 from ddr.routing.mmc import MuskingumCunge
+from ddr.validation.validate_configs import Config
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class TorchMC(torch.nn.Module):
     replacement for the original dmc implementation.
     """
 
-    def __init__(self, cfg: dict[str, Any] | DictConfig, device: str | None = "cpu"):
+    def __init__(self, cfg: dict[str, Any] | Config, device: str | None = "cpu"):
         """Initialize the PyTorch Muskingum-Cunge module.
 
         Parameters

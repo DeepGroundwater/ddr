@@ -5,12 +5,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
-from omegaconf import DictConfig
+
+from ddr.validation.validate_configs import Config
 
 log = logging.getLogger(__name__)
 
 
-def set_statistics(cfg: DictConfig, ds: xr.Dataset) -> pd.DataFrame:
+def set_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
     """Creating the necessary statistics for normalizing attributes
 
     Parameters

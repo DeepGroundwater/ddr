@@ -4,7 +4,6 @@ import logging
 import warnings
 
 import torch
-from omegaconf import DictConfig
 from tqdm import tqdm
 
 from ddr.routing.utils import (
@@ -14,6 +13,7 @@ from ddr.routing.utils import (
     # RiverNetworkMatrix,
     triangular_sparse_solve,
 )
+from ddr.validation import Config
 
 log = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class dmc(torch.nn.Module):
     various parameters and the handling of reservoir routing if needed.
     """
 
-    def __init__(self, cfg: dict[str, any] | DictConfig, device: str | None = "cpu"):
+    def __init__(self, cfg: dict[str, any] | Config, device: str | None = "cpu"):
         super().__init__()
         self.cfg = cfg
 
@@ -99,13 +99,17 @@ class dmc(torch.nn.Module):
         self._discharge_t = None
         self.network = None
 
-        self.parameter_bounds = self.cfg.params.parameter_ranges.range
-        self.p_spatial = torch.tensor(self.cfg.params.defaults.p, device=self.device_num)
-        self.velocity_lb = torch.tensor(self.cfg.params.attribute_minimums.velocity, device=self.device_num)
-        self.depth_lb = torch.tensor(self.cfg.params.attribute_minimums.depth, device=self.device_num)
-        self.discharge_lb = torch.tensor(self.cfg.params.attribute_minimums.discharge, device=self.device_num)
+        self.parameter_bounds = self.cfg.params.parameter_ranges
+        self.p_spatial = torch.tensor(self.cfg.params.defaults["p"], device=self.device_num)
+        self.velocity_lb = torch.tensor(
+            self.cfg.params.attribute_minimums["velocity"], device=self.device_num
+        )
+        self.depth_lb = torch.tensor(self.cfg.params.attribute_minimums["depth"], device=self.device_num)
+        self.discharge_lb = torch.tensor(
+            self.cfg.params.attribute_minimums["discharge"], device=self.device_num
+        )
         self.bottom_width_lb = torch.tensor(
-            self.cfg.params.attribute_minimums.bottom_width, device=self.device_num
+            self.cfg.params.attribute_minimums["bottom_width"], device=self.device_num
         )
 
     def forward(self, **kwargs) -> dict[str, torch.Tensor]:
@@ -160,7 +164,7 @@ class dmc(torch.nn.Module):
         length = hydrofabric.length.to(self.device_num).to(torch.float32)
         slope = torch.clamp(
             hydrofabric.slope.to(self.device_num).to(torch.float32),
-            min=self.cfg.params.attribute_minimums.slope,
+            min=self.cfg.params.attribute_minimums["slope"],
         )
         top_width = hydrofabric.top_width.to(self.device_num).to(torch.float32)
         side_slope = hydrofabric.side_slope.to(self.device_num).to(torch.float32)
@@ -174,7 +178,7 @@ class dmc(torch.nn.Module):
             ascii=True,
         ):
             q_prime_sub = q_prime[timestep - 1].clone()
-            q_prime_clamp = torch.clamp(q_prime_sub, min=self.cfg.params.attribute_minimums.discharge)
+            q_prime_clamp = torch.clamp(q_prime_sub, min=self.cfg.params.attribute_minimums["discharge"])
             velocity = _get_trapezoid_velocity(
                 q_t=self._discharge_t,
                 _n=self.n,

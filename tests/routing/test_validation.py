@@ -294,8 +294,8 @@ class TestCoreMuskingumCungeValidation:
 
         # Values should be in physical ranges (denormalized)
         cfg = core_model.cfg
-        n_bounds = cfg.params.parameter_ranges.range.n
-        q_bounds = cfg.params.parameter_ranges.range.q_spatial
+        n_bounds = cfg.params.parameter_ranges["n"]
+        q_bounds = cfg.params.parameter_ranges["q_spatial"]
 
         assert (core_model.n >= n_bounds[0]).all()
         assert (core_model.n <= n_bounds[1]).all()

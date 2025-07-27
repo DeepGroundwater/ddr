@@ -1,6 +1,5 @@
 import logging
 import os
-import random
 import time
 from pathlib import Path
 
@@ -13,34 +12,24 @@ from torch.nn.functional import mse_loss
 from torch.utils.data import DataLoader, RandomSampler
 
 from ddr._version import __version__
-from ddr.analysis import Metrics, plot_time_series, utils
 from ddr.dataset import StreamflowReader as streamflow
 from ddr.dataset import train_dataset
 from ddr.dataset import utils as ds_utils
 from ddr.nn import kan
 from ddr.routing.torch_mc import dmc
+from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
 
 
-def _set_seed(cfg: DictConfig) -> None:
-    torch.manual_seed(cfg.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(cfg.seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-    np.random.seed(cfg.np_seed)
-    random.seed(cfg.seed)
-
-
-def train(cfg, flow, routing_model, nn):
+def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
     """Do model training."""
     data_generator = torch.Generator()
     data_generator.manual_seed(cfg.seed)
     dataset = train_dataset(cfg=cfg)
 
-    if cfg.train.checkpoint:
-        file_path = Path(cfg.train.checkpoint)
+    if cfg.experiment.checkpoint:
+        file_path = Path(cfg.experiment.checkpoint)
         device = torch.device(cfg.device)
         log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
         state = torch.load(file_path, map_location=device)
@@ -53,16 +42,16 @@ def train(cfg, flow, routing_model, nn):
             0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
         )  # Start from the next mini-batch
 
-        if start_epoch in cfg.train.learning_rate.keys():
-            lr = cfg.train.learning_rate[start_epoch]
+        if start_epoch in cfg.experiment.learning_rate.keys():
+            lr = cfg.experiment.learning_rate[start_epoch]
         else:
-            key_list = list(cfg.train.learning_rate.keys())
-            lr = cfg.train.learning_rate[key_list[0]]  # defaults to first LR
+            key_list = list(cfg.experiment.learning_rate.keys())
+            lr = cfg.experiment.learning_rate[key_list[0]]  # defaults to first LR
     else:
         log.info("Creating new spatial model")
         start_epoch = 1
         start_mini_batch = 0
-        lr = cfg.train.learning_rate[start_epoch]
+        lr = cfg.experiment.learning_rate[start_epoch]
 
     optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
     sampler = RandomSampler(
@@ -71,17 +60,17 @@ def train(cfg, flow, routing_model, nn):
     )
     dataloader = DataLoader(
         dataset=dataset,
-        batch_size=cfg.train.batch_size,
+        batch_size=cfg.experiment.batch_size,
         num_workers=0,
         sampler=sampler,
         collate_fn=dataset.collate_fn,
         drop_last=True,
     )
-    for epoch in range(start_epoch, cfg.train.epochs + 1):
-        if epoch in cfg.train.learning_rate.keys():
-            log.info(f"Setting learning rate: {cfg.train.learning_rate[epoch]}")
+    for epoch in range(start_epoch, cfg.experiment.epochs + 1):
+        if epoch in cfg.experiment.learning_rate.keys():
+            log.info(f"Setting learning rate: {cfg.experiment.learning_rate[epoch]}")
             for param_group in optimizer.param_groups:
-                param_group["lr"] = cfg.train.learning_rate[epoch]
+                param_group["lr"] = cfg.experiment.learning_rate[epoch]
 
         for i, hydrofabric in enumerate(dataloader, start=0):
             if i < start_mini_batch:
@@ -116,8 +105,8 @@ def train(cfg, flow, routing_model, nn):
                 filtered_predictions = daily_runoff[~np_nan_mask]
 
                 loss = mse_loss(
-                    input=filtered_predictions.transpose(0, 1)[cfg.train.warmup :].unsqueeze(2),
-                    target=filtered_observations.transpose(0, 1)[cfg.train.warmup :].unsqueeze(2),
+                    input=filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
+                    target=filtered_observations.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
                 )
 
                 log.info("Running backpropagation")
@@ -144,7 +133,7 @@ def train(cfg, flow, routing_model, nn):
                     hydrofabric.observations.gage_id.values[random_gage],
                     metrics={"nse": pred_nse[-1]},
                     path=cfg.params.save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
-                    warmup=cfg.train.warmup,
+                    warmup=cfg.experiment.warmup,
                 )
 
                 utils.save_state(
@@ -166,29 +155,28 @@ def train(cfg, flow, routing_model, nn):
 @hydra.main(
     version_base="1.3",
     config_path="../config",
-    config_name="training_config",
 )
 def main(cfg: DictConfig) -> None:
     """Main function."""
-    _set_seed(cfg=cfg)
     cfg.params.save_path = Path(HydraConfig.get().run.dir)
     (cfg.params.save_path / "plots").mkdir(exist_ok=True)
     (cfg.params.save_path / "saved_models").mkdir(exist_ok=True)
+    config = validate_config(cfg)
     start_time = time.perf_counter()
     try:
         nn = kan(
-            input_var_names=cfg.kan.input_var_names,
-            learnable_parameters=cfg.kan.learnable_parameters,
-            hidden_size=cfg.kan.hidden_size,
-            num_hidden_layers=cfg.kan.num_hidden_layers,
-            grid=cfg.kan.grid,
-            k=cfg.kan.k,
-            seed=cfg.seed,
-            device=cfg.device,
+            input_var_names=config.kan.input_var_names,
+            learnable_parameters=config.kan.learnable_parameters,
+            hidden_size=config.kan.hidden_size,
+            num_hidden_layers=config.kan.num_hidden_layers,
+            grid=config.kan.grid,
+            k=config.kan.k,
+            seed=config.seed,
+            device=config.device,
         )
-        routing_model = dmc(cfg=cfg, device=cfg.device)
-        flow = streamflow(cfg)
-        train(cfg=cfg, flow=flow, routing_model=routing_model, nn=nn)
+        routing_model = dmc(cfg=config, device=cfg.device)
+        flow = streamflow(config)
+        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

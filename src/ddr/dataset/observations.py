@@ -40,12 +40,6 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
         "DRAIN_SQKM",
         "LAT_GAGE",
         "LNG_GAGE",
-        "COMID",
-        "edge_intersection",
-        "zone_edge_id",
-        "zone_edge_uparea",
-        "zone_edge_vs_gage_area_difference",
-        "drainage_area_percent_error",
     ]
 
     try:

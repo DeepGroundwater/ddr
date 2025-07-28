@@ -127,7 +127,7 @@ class TestDMCInitialization:
         model = dmc(cfg, device="cpu")
 
         assert model.parameter_bounds == cfg.params.parameter_ranges
-        assert model.p_spatial.item() == cfg.params.defaults["p"]
+        assert model.p_spatial.item() == cfg.params.defaults["p_spatial"]
         assert torch.allclose(model.velocity_lb, torch.tensor(cfg.params.attribute_minimums["velocity"]))
         assert torch.allclose(model.depth_lb, torch.tensor(cfg.params.attribute_minimums["depth"]))
         assert torch.allclose(model.discharge_lb, torch.tensor(cfg.params.attribute_minimums["discharge"]))

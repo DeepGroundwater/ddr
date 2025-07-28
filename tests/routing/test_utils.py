@@ -41,7 +41,7 @@ def create_mock_config() -> Config:
         },
         "params": {
             "parameter_ranges": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9]},
-            "defaults": {"p": 1.0},
+            "defaults": {"p_spatial": 1.0},
             "attribute_minimums": {
                 "velocity": 0.1,
                 "depth": 0.01,
@@ -59,7 +59,7 @@ def create_mock_config() -> Config:
         "s3_region": "us-east-1",
         "device": "cpu",
     }
-    config = validate_config(DictConfig(cfg))
+    config = validate_config(DictConfig(cfg), save_config=False)
     return config
 
 

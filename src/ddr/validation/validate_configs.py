@@ -250,13 +250,15 @@ def _save_cfg(cfg: Config) -> None:
         OmegaConf.save(config=OmegaConf.create(json_cfg), f=f)
 
 
-def validate_config(cfg: DictConfig) -> Config:
+def validate_config(cfg: DictConfig, save_config: bool = True) -> Config:
     """Creating the Pydantic config object from the DictConfig
 
     Parameters
     ----------
     cfg : DictConfig
         The Hydra DictConfig object
+    save_config: bool, optional
+        A check of whether to save the config outputs or not. Tests set this to false
 
     Returns
     -------
@@ -268,8 +270,9 @@ def validate_config(cfg: DictConfig) -> Config:
         # Convert the DictConfig to a dictionary and then to a Config object for validation
         config_dict: dict[str, Any] | Any = OmegaConf.to_container(cfg, resolve=True)
         config = Config(**config_dict)
-        _save_cfg(cfg=config)
         _set_seed(cfg=config)
+        if save_config:
+            _save_cfg(cfg=config)
         return config
     except ValidationError as e:
         log.exception(e)

@@ -57,7 +57,7 @@ class TestMuskingumCungeInitialization:
         mc = MuskingumCunge(cfg, device="cpu")
 
         assert mc.parameter_bounds == cfg.params.parameter_ranges
-        assert mc.p_spatial.item() == cfg.params.defaults["p"]
+        assert mc.p_spatial.item() == cfg.params.defaults["p_spatial"]
         assert torch.allclose(mc.velocity_lb, torch.tensor(cfg.params.attribute_minimums["velocity"]))
         assert torch.allclose(mc.depth_lb, torch.tensor(cfg.params.attribute_minimums["depth"]))
         assert torch.allclose(mc.discharge_lb, torch.tensor(cfg.params.attribute_minimums["discharge"]))

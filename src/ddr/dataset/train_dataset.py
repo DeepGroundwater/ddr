@@ -85,11 +85,6 @@ class train_dataset(TorchDataset):
         batch: list[str] = args[0]
         # Combines all gauge information together into one large matrix where the CONUS hydrofabric is the indexing
         coo, _gage_idx, gage_wb = construct_network_matrix(batch, self.gages_adjacency)
-        local_col_idx = []
-        for _i, _idx in enumerate(_gage_idx):
-            mask = np.isin(coo.row, _idx)
-            local_gage_inflow_idx = np.where(mask)[0]
-            local_col_idx.append(coo.col[local_gage_inflow_idx])
 
         _active_indices = np.concatenate([coo.col, coo.row])  # cols go first as cols flow into rows
         _active_indices_, idx = np.unique(_active_indices, return_index=True)
@@ -119,12 +114,8 @@ class train_dataset(TorchDataset):
         # Update local_col_idx to use compressed indices
         outflow_idx = []
         for _idx in _gage_idx:
-            mask = np.isin(coo.row, _idx)
-            local_gage_inflow_idx = np.where(mask)[0]
-            # Map original column indices to compressed indices
-            original_col_indices = coo.col[local_gage_inflow_idx]
-            compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
-            outflow_idx.append(compressed_col_indices)
+            compressed_gauge_row = index_mapping[_idx]  # Direct mapping
+            outflow_idx.append([compressed_gauge_row])
 
         # Create PyTorch sparse tensor with compressed 135x135 matrix
         adjacency_matrix = torch.sparse_csr_tensor(

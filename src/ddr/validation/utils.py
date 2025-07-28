@@ -83,19 +83,21 @@ def log_metrics(nse, rmse, kge, epoch=None, mini_batch=None):
 
     Parameters
     ----------
-    log : Logger
-        The logger object.
     nse : np.ndarray
         NumPy array of Nash-Sutcliffe Efficiency values.
     rmse : np.ndarray
         NumPy array of Root Mean Squared Error values.
     kge : np.ndarray
         NumPy array of Kling-Gupta Efficiency values.
+    epoch : int, optional
+        Epoch number for header display.
+    mini_batch : int, optional
+        Mini batch number for header display.
     """
     if epoch is not None and mini_batch is not None:
-        log.info("----------------------------------------")  # Separator line
-        log.info(f"Epoch {epoch:<16} | Mini Batch{mini_batch:<16} |")
-    log.info("----------------------------------------")  # Separator line
+        log.info("----------------------------------------")
+        log.info(f"Epoch {epoch:<15} | Mini Batch{mini_batch:<15} |")
+    log.info("----------------------------------------")
     log.info(f"{'Metric':<10} | {'Mean':>12} | {'Median':>12}")
     log.info("----------------------------------------")
     log.info(f"{'NSE':<10} | {np.nanmean(nse):12.4f} | {np.nanmedian(nse[~np.isinf(nse)]):12.4f}")

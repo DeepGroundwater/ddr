@@ -224,10 +224,322 @@ def denormalize(value: torch.Tensor, bounds: list[float]) -> torch.Tensor:
     return output
 
 
-def torch_to_cupy(tensor):
-    """Efficiently convert PyTorch tensor to CuPy array without going through CPU.
+def _backward_cpu(
+    A_values: torch.Tensor,
+    crow_indices: torch.Tensor,
+    col_indices: torch.Tensor,
+    x: torch.Tensor,
+    grad_output: torch.Tensor,
+    transposed_lower: bool,
+    unit_diagonal: bool,
+) -> torch.Tensor:
+    """
+    CPU backward pass using SciPy for sparse triangular linear system.
 
-    This is much faster than tensor.cpu().numpy() for CUDA tensors.
+    This function solves the transposed system A^T * gradb = grad_output using SciPy's
+    efficient sparse matrix operations, avoiding the expensive manual transpose construction.
+
+    Parameters
+    ----------
+    A_values : torch.Tensor
+        Values of the sparse matrix A in CSR format.
+    crow_indices : torch.Tensor
+        Row pointers for the CSR format (crow_indices).
+    col_indices : torch.Tensor
+        Column indices for the CSR format.
+    x : torch.Tensor
+        Solution vector from the forward pass (Ax = b).
+    grad_output : torch.Tensor
+        Gradient from the next layer in the computational graph.
+    transposed_lower : bool
+        Whether the transposed matrix is lower triangular.
+    unit_diagonal : bool
+        Whether the matrix has unit diagonal elements.
+
+    Returns
+    -------
+    torch.Tensor
+        Gradient with respect to the right-hand side vector b.
+    """
+    n = len(crow_indices) - 1
+
+    # Convert to SciPy CSR matrix
+    crow_np = crow_indices.cpu().numpy().astype(np.int32)
+    col_np = col_indices.cpu().numpy().astype(np.int32)
+    data_np = A_values.cpu().numpy().astype(np.float64)
+
+    A_scipy = sp.csr_matrix((data_np, col_np, crow_np), shape=(n, n))
+
+    A_T_scipy = A_scipy.T
+
+    # Solve transposed system
+    grad_output_np = grad_output.cpu().numpy().astype(np.float64)
+    gradb_np = spsolve_triangular(
+        A_T_scipy, grad_output_np, lower=transposed_lower, unit_diagonal=unit_diagonal
+    )
+
+    return torch.tensor(gradb_np, dtype=grad_output.dtype, device=grad_output.device)
+
+
+def _backward_gpu(
+    A_values: torch.Tensor,
+    crow_indices: torch.Tensor,
+    col_indices: torch.Tensor,
+    x: torch.Tensor,
+    grad_output: torch.Tensor,
+    transposed_lower: bool,
+    unit_diagonal: bool,
+    device: str | torch.device,
+) -> torch.Tensor:
+    """
+    GPU backward pass using CuPy for sparse triangular linear system.
+
+    This function performs the backward pass computation entirely on GPU using CuPy's
+    efficient sparse matrix operations, avoiding CPU-GPU transfers during transpose.
+
+    Parameters
+    ----------
+    A_values : torch.Tensor
+        Values of the sparse matrix A in CSR format.
+    crow_indices : torch.Tensor
+        Row pointers for the CSR format (crow_indices).
+    col_indices : torch.Tensor
+        Column indices for the CSR format.
+    x : torch.Tensor
+        Solution vector from the forward pass (Ax = b).
+    grad_output : torch.Tensor
+        Gradient from the next layer in the computational graph.
+    transposed_lower : bool
+        Whether the transposed matrix is lower triangular.
+    unit_diagonal : bool
+        Whether the matrix has unit diagonal elements.
+    device : str | torch.device
+        CUDA device identifier (e.g., 'cuda:0').
+
+    Returns
+    -------
+    torch.Tensor
+        Gradient with respect to the right-hand side vector b.
+
+    Raises
+    ------
+    Exception
+        If GPU computation fails, falls back to CPU implementation.
+    """
+    n = len(crow_indices) - 1
+
+    cuda_device = cp.cuda.Device(device)
+    with cuda_device:
+        # Convert to CuPy CSR matrix (reusing conversion functions)
+        data_cp = torch_to_cupy(A_values)
+        indices_cp = torch_to_cupy(col_indices)
+        indptr_cp = torch_to_cupy(crow_indices)
+        grad_output_cp = torch_to_cupy(grad_output)
+
+        A_cp = cp_csr_matrix((data_cp, indices_cp, indptr_cp), shape=(n, n))
+
+        # Use CuPy's efficient transpose (GPU-native operation)
+        A_T_cp = A_cp.T
+
+        # Solve transposed system on GPU
+        gradb_cp = cp_spsolve_triangular(
+            A_T_cp, grad_output_cp, lower=transposed_lower, unit_diagonal=unit_diagonal
+        )
+
+        # Convert back to PyTorch
+        pytorch_device = A_values.device if A_values.is_cuda else grad_output.device
+        return cupy_to_torch(gradb_cp, device=pytorch_device)
+
+    # NOTE: Uncomment if we get to an exception one day
+    # except Exception as e:
+    #     log.warning(f"GPU backward failed, falling back to CPU: {e}")
+    #     # Fallback to CPU implementation
+    #     return _backward_cpu(
+    #         A_values, crow_indices, col_indices, x, grad_output, transposed_lower, unit_diagonal
+    #     )
+
+
+def _compute_A_gradients(
+    A_values: torch.Tensor,
+    crow_indices: torch.Tensor,
+    col_indices: torch.Tensor,
+    x: torch.Tensor,
+    gradb: torch.Tensor,
+    device: str | torch.device,
+) -> torch.Tensor:
+    """
+    Gradient computation for sparse matrix values A_values.
+
+    Computes gradients with respect to the non-zero values of matrix A using the formula:
+    gradA_values = -gradb[rows] * x[cols], where rows and cols correspond to the
+    non-zero positions in the sparse matrix.
+
+    Parameters
+    ----------
+    A_values : torch.Tensor
+        Values of the sparse matrix A in CSR format.
+    crow_indices : torch.Tensor
+        Row pointers for the CSR format (crow_indices).
+    col_indices : torch.Tensor
+        Column indices for the CSR format.
+    x : torch.Tensor
+        Solution vector from the forward pass (Ax = b).
+    gradb : torch.Tensor
+        Gradient with respect to the right-hand side vector b.
+    device : str | torch.device
+        Device where computations should be performed.
+
+    Returns
+    -------
+    torch.Tensor
+        Gradient with respect to the non-zero values of matrix A.
+
+    Notes
+    -----
+    This function uses vectorized operations to compute gradients efficiently:
+    - On CPU: Pre-allocates arrays and uses vectorized row index computation
+    - On GPU: Uses torch.repeat_interleave for efficient row index generation
+
+    The gradient computation is based on the matrix calculus identity for linear solves.
+    """
+    if device == "cpu":
+        # CPU path - vectorized operations
+        crow_indices_cpu = crow_indices.cpu()
+
+        # Pre-allocate arrays for better memory access
+        nnz = len(A_values)
+        row_indices = torch.empty(nnz, dtype=torch.long, device="cpu")
+
+        # Vectorized row index computation
+        _fill_row_indices_vectorized(crow_indices_cpu, row_indices)
+
+        # Move to target device and compute gradients
+        row_indices = row_indices.to(device)
+        col_indices_device = col_indices.to(device)
+
+        # Vectorized gradient computation: -gradb[rows] * x[cols]
+        gradA_values = -gradb[row_indices] * x[col_indices_device]
+
+    else:
+        # GPU path - keep everything on GPU
+        row_indices = _compute_row_indices_gpu(crow_indices, len(A_values))
+
+        # Vectorized gradient computation on GPU
+        gradA_values = -gradb[row_indices] * x[col_indices]
+
+    return gradA_values
+
+
+def _fill_row_indices_vectorized(crow_indices: torch.Tensor, row_indices: torch.Tensor) -> None:
+    """
+    Vectorized computation of row indices from CSR crow_indices for CPU.
+
+    Fills the row_indices tensor with the row index for each non-zero element
+    in the sparse matrix, based on the CSR format's crow_indices.
+
+    Parameters
+    ----------
+    crow_indices : torch.Tensor
+        Row pointers for the CSR format. Should be on CPU.
+    row_indices : torch.Tensor
+        Pre-allocated tensor to store row indices. Will be modified in-place.
+
+    Notes
+    -----
+    This function operates in-place on the row_indices tensor for memory efficiency.
+    The crow_indices[i] gives the starting position in the values array for row i,
+    and crow_indices[i+1] gives the ending position.
+
+    Examples
+    --------
+    For a 3x3 matrix with crow_indices = [0, 2, 3, 5]:
+    - Row 0 has 2 non-zeros at positions 0, 1
+    - Row 1 has 1 non-zero at position 2
+    - Row 2 has 2 non-zeros at positions 3, 4
+    Result: row_indices = [0, 0, 1, 2, 2]
+    """
+    n = len(crow_indices) - 1
+    idx = 0
+
+    for i in range(n):
+        start, end = crow_indices[i].item(), crow_indices[i + 1].item()
+        count = end - start
+        if count > 0:
+            row_indices[idx : idx + count] = i
+            idx += count
+
+
+def _compute_row_indices_gpu(crow_indices: torch.Tensor, nnz: int) -> torch.Tensor:
+    """
+    GPU computation of row indices using PyTorch operations.
+
+    Computes row indices for each non-zero element in a sparse matrix using
+    efficient GPU operations, avoiding CPU-GPU transfers.
+
+    Parameters
+    ----------
+    crow_indices : torch.Tensor
+        Row pointers for the CSR format. Should be on GPU.
+    nnz : int
+        Number of non-zero elements in the sparse matrix.
+
+    Returns
+    -------
+    torch.Tensor
+        Row indices for each non-zero element, with shape (nnz,).
+
+    Notes
+    -----
+    This function uses torch.repeat_interleave which is on GPU
+    and avoids the Python loops required in the CPU version. The operation is
+    equivalent to expanding each row index i by the number of non-zeros in that row.
+
+    Examples
+    --------
+    For a matrix with crow_indices = [0, 2, 3, 5] (3 rows):
+    - Row 0: 2 non-zeros
+    - Row 1: 1 non-zero
+    - Row 2: 2 non-zeros
+    Result: [0, 0, 1, 2, 2]
+    """
+    # Use torch operations to avoid CPU-GPU transfers
+    device = crow_indices.device
+    n = len(crow_indices) - 1
+
+    # Compute row counts
+    row_counts = crow_indices[1:] - crow_indices[:-1]
+
+    # Use repeat_interleave for efficient row index generation
+    row_indices = torch.arange(n, device=device, dtype=torch.long)
+    row_indices = torch.repeat_interleave(row_indices, row_counts)
+
+    return row_indices
+
+
+def torch_to_cupy(tensor: torch.Tensor) -> "cp.ndarray":
+    """
+    Efficiently convert PyTorch tensor to CuPy array without going through CPU.
+
+    This function creates a CuPy array that shares the same GPU memory as the
+    input PyTorch tensor, avoiding expensive memory copies.
+
+    Parameters
+    ----------
+    tensor : torch.Tensor
+        Input PyTorch tensor. Should be on CUDA device.
+
+    Returns
+    -------
+    cp.ndarray
+        CuPy array sharing memory with the input tensor.
+
+    Notes
+    -----
+    This is much faster than tensor.cpu().numpy() for CUDA tensors as it avoids
+    the CPU round-trip. The returned CuPy array shares memory with the original
+    tensor, so modifications to one will affect the other.
+
+    For unsupported dtypes, falls back to CPU conversion as a safety measure.
     """
     pointer = tensor.data_ptr()
     size = tensor.shape
@@ -256,8 +568,35 @@ def torch_to_cupy(tensor):
     return cupy_array
 
 
-def cupy_to_torch(cupy_array, device=None, dtype=torch.float32):
-    """Efficiently convert CuPy array to PyTorch tensor without going through CPU."""
+def cupy_to_torch(
+    cupy_array: "cp.ndarray", device: str | torch.device | None = None, dtype: torch.dtype = torch.float32
+) -> torch.Tensor:
+    """
+    Efficiently convert CuPy array to PyTorch tensor without going through CPU.
+
+    This function converts a CuPy array to a PyTorch tensor while attempting to
+    minimize memory transfers. For supported dtypes, it performs the conversion
+    efficiently on GPU.
+
+    Parameters
+    ----------
+    cupy_array : cp.ndarray
+        Input CuPy array to convert.
+    device : str | torch.device | None, optional
+        Target device for the PyTorch tensor. If None, infers from array.
+    dtype : torch.dtype, optional
+        Target dtype for the PyTorch tensor. Default is torch.float32.
+
+    Returns
+    -------
+    torch.Tensor
+        PyTorch tensor containing the same data as the input CuPy array.
+
+    Notes
+    -----
+    This function avoids memory copying between GPU and CPU for supported dtypes.
+    For unsupported dtypes, it falls back to numpy conversion as a safety measure.
+    """
     # Determine the PyTorch dtype from CuPy dtype
     dtype_map = {
         cp.float32: torch.float32,
@@ -291,11 +630,75 @@ def cupy_to_torch(cupy_array, device=None, dtype=torch.float32):
 
 
 class TriangularSparseSolver(torch.autograd.Function):
-    """Custom autograd function for solving triangular sparse linear systems."""
+    """
+    Custom autograd function for solving triangular sparse linear systems.
+
+    This class implements forward and backward passes for solving sparse triangular
+    linear systems of the form Ax = b, where A is a sparse triangular matrix.
+    The implementation supports both CPU (via SciPy) and GPU (via CuPy) computation
+    with memory transfers and transpose operations.
+
+    Notes
+    -----
+    The backward pass solves the transposed system A^T * gradb = grad_output to
+    compute gradients with respect to the right-hand side b, and uses matrix
+    calculus to compute gradients with respect to the matrix values A.
+
+    For the gradient computation:
+    - ∇b = A^(-T) * grad_output (solved via transpose system)
+    - ∇A = -A^(-T) * grad_output * x^T (computed efficiently for sparse entries)
+    """
 
     @staticmethod
-    def forward(ctx, A_values, crow_indices, col_indices, b, lower, unit_diagonal, device):
-        """Solve the sparse triangular linear system with optimized GPU transfers."""
+    def forward(
+        ctx,
+        A_values: torch.Tensor,
+        crow_indices: torch.Tensor,
+        col_indices: torch.Tensor,
+        b: torch.Tensor,
+        lower: bool,
+        unit_diagonal: bool,
+        device: str | torch.device,
+    ) -> torch.Tensor:
+        """
+        Solve the sparse triangular linear system Ax = b.
+
+        Parameters
+        ----------
+        ctx : torch.autograd.function.FunctionCtx
+            Context object for saving tensors for backward pass.
+        A_values : torch.Tensor
+            Values of the sparse triangular matrix A in CSR format.
+        crow_indices : torch.Tensor
+            Row pointers for the CSR format.
+        col_indices : torch.Tensor
+            Column indices for the CSR format.
+        b : torch.Tensor
+            Right-hand side vector.
+        lower : bool
+            Whether A is lower triangular (True) or upper triangular (False).
+        unit_diagonal : bool
+            Whether A has unit diagonal elements.
+        device : str | torch.device
+            Device for computation ('cpu' or CUDA device like 'cuda:0').
+
+        Returns
+        -------
+        torch.Tensor
+            Solution vector x such that Ax = b.
+
+        Raises
+        ------
+        ValueError
+            If the sparse solver fails to converge or encounters numerical issues.
+
+        Notes
+        -----
+        The forward pass uses:
+        - SciPy's spsolve_triangular for CPU computation
+        - CuPy's spsolve_triangular for GPU computation
+
+        """
         n = len(crow_indices) - 1
 
         if device == "cpu":
@@ -340,8 +743,46 @@ class TriangularSparseSolver(torch.autograd.Function):
         return x
 
     @staticmethod
-    def backward(ctx, grad_output):
-        """Compute gradients with optimized memory transfers."""
+    def backward(
+        ctx, grad_output: torch.Tensor
+    ) -> tuple[torch.Tensor, None, None, torch.Tensor, None, None, None]:
+        """
+        Compute gradients for the sparse triangular linear system solve.
+
+        This method implements the backward pass for the triangular solve operation,
+        computing gradients with respect to the matrix values A and right-hand side b.
+
+        Parameters
+        ----------
+        ctx : torch.autograd.function.FunctionCtx
+            Context object containing saved tensors from forward pass.
+        grad_output : torch.Tensor
+            Gradient of the loss with respect to the output x.
+
+        Returns
+        -------
+        Tuple[torch.Tensor, None, None, torch.Tensor, None, None, None]
+            Gradients with respect to:
+            - A_values: Gradient w.r.t. sparse matrix values
+            - crow_indices: None (not differentiable)
+            - col_indices: None (not differentiable)
+            - b: Gradient w.r.t. right-hand side vector
+            - lower: None (not differentiable)
+            - unit_diagonal: None (not differentiable)
+            - device: None (not differentiable)
+
+        Notes
+        -----
+        The backward pass computes:
+        1. ∇b by solving A^T * gradb = grad_output
+        2. ∇A by computing -gradb[rows] * x[cols] for non-zero entries
+
+        The implementation uses transpose operations:
+        - SciPy's .T property for CPU
+        - CuPy's .T property for GPU
+
+        This avoids the expensive manual CSR ↔ COO conversions used in naive implementations.
+        """
         A_values, crow_indices, col_indices, x, b = ctx.saved_tensors
         lower = ctx.lower
         unit_diagonal = ctx.unit_diagonal
@@ -350,52 +791,18 @@ class TriangularSparseSolver(torch.autograd.Function):
         # NOTE For backward pass with triangular matrices: if A is lower triangular, A^T is upper triangular
         transposed_lower = not lower
 
-        # Optimize the transposition process - do it in one go with vectorized operations
-        n = len(crow_indices) - 1
+        if device == "cpu":
+            gradb = _backward_cpu(
+                A_values, crow_indices, col_indices, x, grad_output, transposed_lower, unit_diagonal
+            )
+        else:
+            gradb = _backward_gpu(
+                A_values, crow_indices, col_indices, x, grad_output, transposed_lower, unit_diagonal, device
+            )
 
-        # Create CSR to COO conversion using optimized PyTorch operations
-        # This is much faster than Python loops for large matrices
-        rows = []
-        cols = []
-        crow_indices_cpu = crow_indices.cpu()
-        col_indices_cpu = col_indices.cpu()
-
-        for i in range(n):
-            start, end = crow_indices_cpu[i].item(), crow_indices_cpu[i + 1].item()
-            row_count = end - start
-            if row_count > 0:  # Skip empty rows
-                rows.extend([i] * row_count)
-                cols.extend([col_indices_cpu[j].item() for j in range(start, end)])
-
-        # Create COO indices for transposed matrix
-        transposed_indices = torch.tensor([cols, rows], dtype=torch.int32, device=A_values.device)
-
-        # Create transposed COO tensor
-        A_T_values = A_values.clone()
-        A_T_coo = torch.sparse_coo_tensor(transposed_indices, A_T_values, size=(n, n), device=A_values.device)
-
-        # Convert to CSR for solving
-        A_T_csr = A_T_coo.to_sparse_csr()
-        A_T_crow = A_T_csr.crow_indices()
-        A_T_col = A_T_csr.col_indices()
-        A_T_values = A_T_csr.values()
-
-        # Solve the transposed system
-        gradb = TriangularSparseSolver.apply(
-            A_T_values, A_T_crow, A_T_col, grad_output, transposed_lower, unit_diagonal, device
-        )
-
-        # Optimize gradient computation for A_values if needed
+        # gradient computation for A_values if needed
         if A_values.requires_grad:
-            if len(rows) > 0:  # Make sure we have non-zero elements
-                row_indices = torch.tensor(rows, device=A_values.device)
-                col_indices_vector = torch.tensor(cols, device=A_values.device)
-
-                # Vectorized gradient computation: -gradb[rows] * x[cols]
-                gradA_values = -gradb[row_indices] * x[col_indices_vector]
-            else:
-                gradA_values = torch.zeros_like(A_values)
-
+            gradA_values = _compute_A_gradients(A_values, crow_indices, col_indices, x, gradb, device)
             return gradA_values, None, None, gradb, None, None, None
         else:
             return None, None, None, gradb, None, None, None

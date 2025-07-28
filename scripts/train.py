@@ -120,9 +120,13 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
                 plotted_dates = dataset.dates.batch_daily_time_range[1:-1]  # type: ignore
 
                 metrics = Metrics(pred=np_pred, target=np_target)
-                pred_nse = metrics.nse
-                # pred_nse_filtered = pred_nse[~np.isinf(pred_nse) & ~np.isnan(pred_nse)]
-                # median_nse = torch.tensor(pred_nse_filtered).median()
+                _nse = metrics.nse
+                nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
+                rmse = metrics.rmse
+                kge = metrics.kge
+                utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
+                log.info(f"Loss: {loss.item()}")
+                log.info(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
 
                 random_gage = -1  # TODO: scale out when we have more gauges
                 plot_time_series(
@@ -131,7 +135,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
                     plotted_dates,
                     hydrofabric.observations.gage_id.values[random_gage],
                     hydrofabric.observations.gage_id.values[random_gage],
-                    metrics={"nse": pred_nse[-1]},
+                    metrics={"nse": nse[-1]},
                     path=cfg.params.save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
                     warmup=cfg.experiment.warmup,
                 )
@@ -145,11 +149,6 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
                 )
-                _nse = metrics.nse
-                nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
-                rmse = metrics.rmse
-                kge = metrics.kge
-                utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
 
 
 @hydra.main(

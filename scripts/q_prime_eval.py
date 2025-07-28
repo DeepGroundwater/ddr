@@ -191,8 +191,8 @@ def eval(
     log.info(f"{valid_gauges.shape[0]}/{len(gauges)} Gauges found in the hydrofabric")
 
     eval_daily_time_range = pd.date_range(
-        datetime.strptime(cfg.eval.start_time, daily_format),
-        datetime.strptime(cfg.eval.end_time, daily_format),
+        datetime.strptime(cfg.experiment.start_time, daily_format),
+        datetime.strptime(cfg.experiment.end_time, daily_format),
         freq="D",
         inclusive="both",
     )
@@ -217,7 +217,6 @@ def eval(
 @hydra.main(
     version_base="1.3",
     config_path="../config",
-    config_name="evaluation_config",
 )
 def main(cfg: DictConfig) -> None:
     """Main function."""
@@ -249,6 +248,7 @@ def main(cfg: DictConfig) -> None:
         log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
 
 
+# Run this using python scripts/q_prime_eval.py --config-name <CONFIG.yaml>
 if __name__ == "__main__":
     os.environ["DDR_VERSION"] = __version__
     main()

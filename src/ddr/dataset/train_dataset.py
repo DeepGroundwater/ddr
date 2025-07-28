@@ -85,24 +85,24 @@ class train_dataset(TorchDataset):
         batch: list[str] = args[0]
         # Combines all gauge information together into one large matrix where the CONUS hydrofabric is the indexing
         coo, _gage_idx, gage_wb = construct_network_matrix(batch, self.gages_adjacency)
+        local_col_idx = []
+        for _i, _idx in enumerate(_gage_idx):
+            mask = np.isin(coo.row, _idx)
+            local_gage_inflow_idx = np.where(mask)[0]
+            local_col_idx.append(coo.col[local_gage_inflow_idx])
 
-        _active_indices = np.concatenate([coo.col, coo.row])  # cols go first as cols flow into rows
-        _active_indices_, idx = np.unique(_active_indices, return_index=True)
-        unique_active_indices = _active_indices_[np.argsort(idx)]
-
-        index_mapping = {
-            orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(unique_active_indices)
-        }
+        active_indices = np.unique(np.concatenate([coo.row, coo.col]))
+        index_mapping = {orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(active_indices)}
 
         compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
         compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
 
-        compressed_size = len(unique_active_indices)
+        compressed_size = len(active_indices)
         compressed_coo = sparse.coo_matrix(
             (coo.data, (compressed_rows, compressed_cols)), shape=(compressed_size, compressed_size)
         )
         compressed_csr = compressed_coo.tocsr()
-        compressed_hf_ids = self.hf_ids[unique_active_indices]
+        compressed_hf_ids = self.hf_ids[active_indices]
 
         # Create waterbody and divide IDs for the compressed matrix
         wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
@@ -114,8 +114,25 @@ class train_dataset(TorchDataset):
         # Update local_col_idx to use compressed indices
         outflow_idx = []
         for _idx in _gage_idx:
-            compressed_gauge_row = index_mapping[_idx]  # Direct mapping
-            outflow_idx.append([compressed_gauge_row])
+            mask = np.isin(coo.row, _idx)
+            local_gage_inflow_idx = np.where(mask)[0]
+            # Map original column indices to compressed indices
+            original_col_indices = coo.col[local_gage_inflow_idx]
+            compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
+            outflow_idx.append(compressed_col_indices)
+
+        # NOTE: You can check the accuracy of the CSR compression through the following lines. The "to" should be the same number as gage_wb
+        assert (
+            np.array(
+                [
+                    _id.split("-")[1]
+                    for _id in compressed_flowpath_attr.iloc[np.concatenate(outflow_idx)]["to"]
+                    .drop_duplicates(keep="first")
+                    .values
+                ]
+            )
+            == np.array([_id.split("-")[1] for _id in gage_wb])
+        ).all(), "Gage WB don't match up with indices"
 
         # Create PyTorch sparse tensor with compressed 135x135 matrix
         adjacency_matrix = torch.sparse_csr_tensor(
@@ -126,9 +143,6 @@ class train_dataset(TorchDataset):
             device=self.cfg.device,
             dtype=torch.float32,
         )
-
-        # NOTE: You can check the accuracy of the CSR compression through the following lines. The "to" should be the same number as gage_wb
-        # np.array([_id.split("-")[1] for _id in compressed_flowpath_attr.iloc[np.concatenate(outflow_idx)]["to"].drop_duplicates(keep='first').values]) == np.array([_id.split("-")[1] for _id in gage_wb])
 
         spatial_attributes = self.attr_reader(
             divide_ids=divide_ids,

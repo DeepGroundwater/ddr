@@ -116,7 +116,9 @@ class forward_eval_dataset(TorchDataset):
                 ]
             )
             == np.array([_id.split("-")[1] for _id in gage_wb])
-        ).all(), "Gage WB don't match up with indices"
+        ).all(), (
+            "Gage WB don't match up with indices. There is something wrong with your batching and how it's loading in sparse matrices from the engine"
+        )
 
         # Create PyTorch sparse tensor with compressed 135x135 matrix
         adjacency_matrix = torch.sparse_csr_tensor(

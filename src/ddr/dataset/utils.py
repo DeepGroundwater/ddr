@@ -137,8 +137,7 @@ def construct_network_matrix(
     KeyError
         Cannot find a gauge from the batch in the gages_adjacency.zarr Group
     """
-    r = []  # indices_0
-    c = []  # indices_1
+    coordinates = set()  # (indices_0, indices_1)
     output_idx = []
     output_wb = []
     for _id in batch:
@@ -146,8 +145,8 @@ def construct_network_matrix(
             gauge_root = subsets[_id]
             _r = gauge_root["indices_0"][:].tolist()  # type: ignore
             _c = gauge_root["indices_1"][:].tolist()  # type: ignore
-            r.extend(_r)
-            c.extend(_c)
+            for row, col in zip(_r, _c, strict=False):
+                coordinates.add((row, col))
             _attrs: dict[str, Any] = dict(gauge_root.attrs)
             output_idx.append(_attrs["gage_idx"])
             output_wb.append(_attrs["gage_wb"])
@@ -155,15 +154,15 @@ def construct_network_matrix(
             msg = f"Cannot find gauge {_id} in subsets zarr store. Skipping"
             log.info(msg)
             pass
+    if coordinates:
+        rows, cols = zip(*coordinates, strict=False)
+        rows = list(rows)
+        cols = list(cols)
+    else:
+        raise ValueError("No coordinate-pairs found. Cannot construct a matrix")
     shape = tuple(_attrs["shape"])  # type: ignore
     coo = sparse.coo_matrix(
-        (
-            np.ones(len(r)),
-            (
-                r,
-                c,
-            ),
-        ),
+        (np.ones(len(rows)), (rows, cols)),
         shape=shape,
     )
     return coo, output_idx, output_wb

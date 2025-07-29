@@ -188,6 +188,7 @@ class train_dataset(TorchDataset):
             row_means=self.phys_means[4],
         )
 
+        log.info(f"Creating an adjacency matrix of shape: {adjacency_matrix.shape}")
         return Hydrofabric(
             spatial_attributes=spatial_attributes,
             length=length,

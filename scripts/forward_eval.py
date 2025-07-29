@@ -102,7 +102,7 @@ def forward_eval(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
             all_dates.append(batch_dates)
 
             if i == 0:
-                all_gage_ids.extend([gage_ids[idx] for idx in indices])
+                all_gage_ids.extend([gage_ids[idx].zfill(8) for idx in indices])
                 all_gage_names.extend([gage_names[idx] for idx in indices])
 
     # Concatenate results across all batches
@@ -169,11 +169,11 @@ def forward_eval(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
         gage_nse = nse[i] if not np.isnan(nse[i]) else 0.0
 
         plot_time_series(
-            pred_data,
-            obs_data,
-            plotted_dates,
-            gage_id,
-            gage_id,  # Using gage_id for both gage_id and name
+            prediction=pred_data,
+            observation=obs_data,
+            time_range=plotted_dates,
+            gage_id=gage_id,
+            name=all_gage_names[i],
             metrics={"nse": gage_nse},
             path=plots_dir / f"gage_{gage_id}_evaluation_plot.png",
             warmup=cfg.experiment.warmup,

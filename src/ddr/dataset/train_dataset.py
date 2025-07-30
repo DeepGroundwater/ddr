@@ -82,7 +82,11 @@ class train_dataset(TorchDataset):
         """
         self.dates.calculate_time_period()
 
-        batch: list[str] = args[0]
+        # Filter observations based on batch and what gauges exist in the zarr store/HF
+        batch = np.array(args[0])
+        valid_gauges_mask = np.isin(batch, list(self.gages_adjacency.keys()))
+        batch = batch[valid_gauges_mask].tolist()
+
         # Combines all gauge information together into one large matrix where the CONUS hydrofabric is the indexing
         coo, _gage_idx, gage_wb = construct_network_matrix(batch, self.gages_adjacency)
         local_col_idx = []

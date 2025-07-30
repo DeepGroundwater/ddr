@@ -67,8 +67,11 @@ class forward_eval_dataset(TorchDataset):
         self.hf_ids = self.conus_adjacency["order"][:]  # type: ignore
         self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
 
-        self.batch = self.gage_ids.tolist()  # batch is all gauges
-        coo, _gage_idx, gage_wb = construct_network_matrix(self.batch, self.gages_adjacency)
+        # Filter observations based on batch and what gauges exist in the zarr store/HF
+        valid_gauges_mask = np.isin(self.gage_ids, list(self.gages_adjacency.keys()))
+        self.gage_ids = self.gage_ids[valid_gauges_mask].tolist()  # batch is all gauges
+
+        coo, _gage_idx, gage_wb = construct_network_matrix(self.gage_ids, self.gages_adjacency)
         local_col_idx = []
         for _i, _idx in enumerate(_gage_idx):
             mask = np.isin(coo.row, _idx)
@@ -199,14 +202,11 @@ class forward_eval_dataset(TorchDataset):
 
         self.dates.set_date_range(indices)
 
-        # Read observations for the current date range only
-        batch_observations = self.obs_reader.read_data(dates=self.dates)
-
         # Create hydrofabric observations for this batch
         hydrofabric_observations = create_hydrofabric_observations(
             dates=self.dates,
-            gage_ids=self.batch,
-            observations=batch_observations,
+            gage_ids=self.gage_ids,
+            observations=self.observations,
         )
         self.hydrofabric.observations = hydrofabric_observations
         return self.hydrofabric

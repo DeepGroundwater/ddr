@@ -43,6 +43,7 @@ def forward_eval(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
     else:
         log.warning("Creating new spatial model for evaluation.")
 
+    nn = nn.eval()
     sampler = SequentialSampler(
         data_source=dataset,
     )

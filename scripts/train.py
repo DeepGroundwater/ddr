@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, RandomSampler
 
 from ddr._version import __version__
 from ddr.dataset import StreamflowReader as streamflow
-from ddr.dataset import train_dataset
+from ddr.dataset import TrainDataset
 from ddr.dataset import utils as ds_utils
 from ddr.nn import kan
 from ddr.routing.torch_mc import dmc
@@ -26,7 +26,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
     """Do model training."""
     data_generator = torch.Generator()
     data_generator.manual_seed(cfg.seed)
-    dataset = train_dataset(cfg=cfg)
+    dataset = TrainDataset(cfg=cfg)
 
     if cfg.experiment.checkpoint:
         file_path = Path(cfg.experiment.checkpoint)

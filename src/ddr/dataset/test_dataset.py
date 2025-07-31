@@ -24,7 +24,7 @@ from ddr.validation.validate_configs import Config
 log = logging.getLogger(__name__)
 
 
-class forward_eval_dataset(TorchDataset):
+class TestDataset(TorchDataset):
     """Runs through all data sequentially over a specific amount of timesteps"""
 
     def __init__(self, cfg: Config):
@@ -169,6 +169,13 @@ class forward_eval_dataset(TorchDataset):
             row_means=self.phys_means[4],
         )
 
+        # Create hydrofabric observations for this batch
+        hydrofabric_observations = create_hydrofabric_observations(
+            dates=self.dates,
+            gage_ids=self.gage_ids,
+            observations=self.observations,
+        )
+
         self.hydrofabric = Hydrofabric(
             spatial_attributes=spatial_attributes,
             length=length,
@@ -179,7 +186,7 @@ class forward_eval_dataset(TorchDataset):
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
-            observations=None,
+            observations=hydrofabric_observations,
             divide_ids=divide_ids,
             gage_idx=outflow_idx,
             gage_wb=gage_wb,
@@ -201,12 +208,4 @@ class forward_eval_dataset(TorchDataset):
             indices.insert(0, prev_day)
 
         self.dates.set_date_range(indices)
-
-        # Create hydrofabric observations for this batch
-        hydrofabric_observations = create_hydrofabric_observations(
-            dates=self.dates,
-            gage_ids=self.gage_ids,
-            observations=self.observations,
-        )
-        self.hydrofabric.observations = hydrofabric_observations
         return self.hydrofabric

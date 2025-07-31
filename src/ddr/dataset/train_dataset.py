@@ -24,7 +24,7 @@ from ddr.validation.validate_configs import Config
 log = logging.getLogger(__name__)
 
 
-class train_dataset(TorchDataset):
+class TrainDataset(TorchDataset):
     """train_dataset class for handling dataset operations for training dMC models"""
 
     def __init__(self, cfg: Config):

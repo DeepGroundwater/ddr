@@ -50,6 +50,7 @@ docs = [
   "sympy==1.14.0"
 ]
 jupyter = [
+  "contextily==1.6.2",
   "ipykernel==6.29.5",
   "jupyterlab==4.4.4",
 ]

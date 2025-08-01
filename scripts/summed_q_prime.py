@@ -1,3 +1,5 @@
+"""A script for calculating summed Q` for streamflow inputs"""
+
 import json
 import logging
 import os
@@ -211,6 +213,34 @@ def eval(
         qr = streamflow.isel(time=time_indices, divide_id=divide_indices)["Qr"].values.astype(np.float32)
         preds[i] = qr.sum(axis=0)
     metrics = Metrics(pred=preds, target=target)
+
+    start_time = pd.to_datetime(eval_daily_time_range.values[0]).strftime("%Y-%m-%d")
+    end_time = pd.to_datetime(eval_daily_time_range.values[-1]).strftime("%Y-%m-%d")
+    pred_da = xr.DataArray(
+        data=preds,
+        dims=["gage_ids", "time"],
+        coords={"gage_ids": valid_gauges, "time": eval_daily_time_range.values},
+    )
+    obs_da = xr.DataArray(
+        data=target,
+        dims=["gage_ids", "time"],
+        coords={"gage_ids": valid_gauges, "time": eval_daily_time_range},
+    )
+    ds = xr.Dataset(
+        data_vars={"predictions": pred_da, "observations": obs_da},
+        attrs={
+            "description": "Predictions and obs for time period",
+            "start time": start_time,
+            "end time": end_time,
+            "version": __version__,
+            "evaluation basins file": str(cfg.data_sources.gages),
+            "model": str(cfg.experiment.checkpoint) if cfg.experiment.checkpoint else "No Trained Model",
+        },
+    )
+    ds.to_zarr(
+        cfg.params.save_path / f"{start_time}_{end_time}_validation",
+        mode="w",
+    )
     print_metrics_summary(metrics, cfg.params.save_path, valid_gauges)
 
 

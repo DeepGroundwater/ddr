@@ -238,5 +238,5 @@ if __name__ == "__main__":
     network = pl.read_database(query=query, connection=conn).lazy()
     network = network.filter(pl.col("id").str.starts_with("wb-").not_())
     matrix, ts_order = create_matrix(fp, network)
-    coo_to_zarr(matrix, ts_order, args.path)
+    coo_to_zarr(matrix, ts_order, out_path)
     conn.close()

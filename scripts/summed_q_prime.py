@@ -229,16 +229,17 @@ def eval(
     ds = xr.Dataset(
         data_vars={"predictions": pred_da, "observations": obs_da},
         attrs={
-            "description": "Predictions and obs for time period",
+            "description": "Summed Q` predictions and observations",
             "start time": start_time,
             "end time": end_time,
             "version": __version__,
             "evaluation basins file": str(cfg.data_sources.gages),
+            "data source": str(cfg.data_sources.streamflow),
             "model": str(cfg.experiment.checkpoint) if cfg.experiment.checkpoint else "No Trained Model",
         },
     )
     ds.to_zarr(
-        cfg.params.save_path / f"{start_time}_{end_time}_validation",
+        cfg.params.save_path / "summed_q_prime.zarr",
         mode="w",
     )
     print_metrics_summary(metrics, cfg.params.save_path, valid_gauges)

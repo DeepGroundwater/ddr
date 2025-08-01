@@ -189,3 +189,6 @@ model/
 
 # config classes
 config/
+
+# eval example data
+examples/eval/*.zarr

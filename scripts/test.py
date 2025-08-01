@@ -110,7 +110,7 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
         },
     )
     ds.to_zarr(
-        cfg.params.save_path / f"{start_time}_{end_time}_validation",
+        cfg.params.save_path / "model_test.zarr",
         mode="w",
     )
     metrics = Metrics(pred=ds.predictions.values[:, warmup:], target=ds.observations.values[:, warmup:])
@@ -119,7 +119,9 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
     rmse = metrics.rmse
     kge = metrics.kge
     utils.log_metrics(nse, rmse, kge)
-    log.info("Test run complete. Please run scripts/evaluate.py to generate performance plots / metrics")
+    log.info(
+        "Test run complete. Please run examples/eval/evaluate.ipynb to generate performance plots / metrics"
+    )
 
 
 @hydra.main(

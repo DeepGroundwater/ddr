@@ -143,7 +143,9 @@ class ExperimentConfig(BaseModel):
         default_factory=lambda: {1: 0.005, 3: 0.001},
         description="Learning rate schedule mapping epoch numbers to learning rate values",
     )
-    rho: int = Field(default=365, description="Number of consecutive days selected in each training batch")
+    rho: int | None = Field(
+        default=None, description="Number of consecutive days selected in each training batch"
+    )
     shuffle: bool = Field(
         default=True, description="Whether to randomize the order of samples in the dataloader"
     )

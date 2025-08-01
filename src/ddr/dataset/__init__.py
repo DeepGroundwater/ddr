@@ -1,21 +1,23 @@
 from .attributes import AttributesReader
 from .Dates import Dates
-from .forward_eval_dataset import forward_eval_dataset
 from .Gauges import Gauge, GaugeSet, validate_gages
+from .large_scale_dataset import LargeScaleDataset
 from .observations import IcechunkUSGSReader
 from .streamflow import StreamflowReader
-from .train_dataset import train_dataset
+from .test_dataset import TestDataset
+from .train_dataset import TrainDataset
 from .utils import Hydrofabric
 
 __all__ = [
     "AttributesReader",
     "Dates",
-    "forward_eval_dataset",
+    "TestDataset",
     "Gauge",
     "GaugeSet",
+    "LargeScaleDataset",
     "validate_gages",
     "IcechunkUSGSReader",
     "StreamflowReader",
-    "train_dataset",
+    "TrainDataset",
     "Hydrofabric",
 ]

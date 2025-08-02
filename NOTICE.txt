@@ -1,5 +1,8 @@
 --
-This file builds off of the Lynker Cloud Native Water Resource Modeling Hydrofabric dataset
+This work was primarily supported by subawards A23-0271-S001, A23-0252-S002, and A22-0307-S003 from the Cooperative Institute for Research to Operations in Hydrology (CIROH) through the National Oceanic and Atmospheric Administration (NOAA) Cooperative Agreement (Grant NA22NWS4320003). The statements, findings, conclusions, and recommendations are those of the authors and do not necessarily reflect the view of NOAA. The authors gratefully acknowledge the computing resources on the Wukong compute cluster managed by the University of Alabama CIROH IT group. 
+
+--
+This code uses/builds off of the Lynker Cloud Native Water Resource Modeling Hydrofabric dataset
 
 This dataset is made available under the Open Database License (ODbL).
 

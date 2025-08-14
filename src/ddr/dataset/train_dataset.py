@@ -24,7 +24,7 @@ from ddr.validation.validate_configs import Config
 log = logging.getLogger(__name__)
 
 
-class train_dataset(TorchDataset):
+class TrainDataset(TorchDataset):
     """train_dataset class for handling dataset operations for training dMC models"""
 
     def __init__(self, cfg: Config):
@@ -82,7 +82,11 @@ class train_dataset(TorchDataset):
         """
         self.dates.calculate_time_period()
 
-        batch: list[str] = args[0]
+        # Filter observations based on batch and what gauges exist in the zarr store/HF
+        batch = np.array(args[0])
+        valid_gauges_mask = np.isin(batch, list(self.gages_adjacency.keys()))
+        batch = batch[valid_gauges_mask].tolist()
+
         # Combines all gauge information together into one large matrix where the CONUS hydrofabric is the indexing
         coo, _gage_idx, gage_wb = construct_network_matrix(batch, self.gages_adjacency)
         local_col_idx = []
@@ -188,6 +192,7 @@ class train_dataset(TorchDataset):
             row_means=self.phys_means[4],
         )
 
+        log.info(f"Created an adjacency matrix of shape: {adjacency_matrix.shape}")
         return Hydrofabric(
             spatial_attributes=spatial_attributes,
             length=length,

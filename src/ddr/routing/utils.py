@@ -346,9 +346,7 @@ def _backward_gpu(
             A_T_cp, grad_output_cp, lower=transposed_lower, unit_diagonal=unit_diagonal
         )
 
-        # Convert back to PyTorch
-        pytorch_device = A_values.device if A_values.is_cuda else grad_output.device
-        return cupy_to_torch(gradb_cp, device=pytorch_device)
+        return cupy_to_torch(gradb_cp)
 
     # NOTE: Uncomment if we get to an exception one day
     # except Exception as e:

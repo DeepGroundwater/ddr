@@ -535,6 +535,7 @@ def torch_to_cupy(t: torch.Tensor) -> cp.ndarray:
     with cp.cuda.Device(t.device.index):
         return cp.from_dlpack(torch.utils.dlpack.to_dlpack(t))
 
+
 def cupy_to_torch(a: cp.ndarray) -> torch.Tensor:
     """
     Returns a CUDA tensor sharing memory with `a`

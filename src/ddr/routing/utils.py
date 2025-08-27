@@ -643,16 +643,17 @@ class TriangularSparseSolver(torch.autograd.Function):
             try:
                 cuda_device = cp.cuda.Device(device)
                 with cuda_device:
-                    data_cp = torch_to_cupy(A_values)
-                    indices_cp = torch_to_cupy(col_indices)
-                    indptr_cp = torch_to_cupy(crow_indices)
-                    b_cp = torch_to_cupy(b)
+                    data_cp = torch_to_cupy(A_values).astype(cp.float32)
+                    indices_cp = torch_to_cupy(col_indices).astype(cp.int32)
+                    indptr_cp = torch_to_cupy(crow_indices).astype(cp.int32)
+                    b_cp = torch_to_cupy(b).astype(cp.float32)
                     A_cp = cp_csr_matrix((data_cp, indices_cp, indptr_cp), shape=(n, n))
 
-                    x_cp = cp_spsolve_triangular(A_cp, b_cp, lower=lower, unit_diagonal=unit_diagonal)
+                    x_cp = cp_spsolve_triangular(A_cp, b_cp, lower=lower, unit_diagonal=unit_diagonal).astype(
+                        cp.float32
+                    )
 
-                    pytorch_device = A_values.device if A_values.is_cuda else b.device
-                    x = cupy_to_torch(x_cp, device=pytorch_device)
+                    x = cupy_to_torch(x_cp)
 
             except ValueError as e:
                 log.error(f"GPU triangular sparse solve failed: {e}")

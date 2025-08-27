@@ -516,7 +516,7 @@ def _compute_row_indices_gpu(crow_indices: torch.Tensor, nnz: int) -> torch.Tens
     return row_indices
 
 
-def torch_to_cupy(t: torch.Tensor) -> cp.ndarray:
+def torch_to_cupy(t: torch.Tensor) -> "cp.ndarray":
     """
     Converts a torch tensor to the cupy using dlpack
 
@@ -536,7 +536,7 @@ def torch_to_cupy(t: torch.Tensor) -> cp.ndarray:
         return cp.from_dlpack(torch.utils.dlpack.to_dlpack(t))
 
 
-def cupy_to_torch(a: cp.ndarray) -> torch.Tensor:
+def cupy_to_torch(a: "cp.ndarray") -> torch.Tensor:
     """
     Returns a CUDA tensor sharing memory with `a`
 

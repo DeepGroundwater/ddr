@@ -516,117 +516,15 @@ def _compute_row_indices_gpu(crow_indices: torch.Tensor, nnz: int) -> torch.Tens
     return row_indices
 
 
-def torch_to_cupy(tensor: torch.Tensor) -> "cp.ndarray":
-    """
-    Efficiently convert PyTorch tensor to CuPy array without going through CPU.
+def torch_to_cupy(t: torch.Tensor) -> cp.ndarray:
+    assert t.is_cuda, "Expect a CUDA tensor"
+    t = t.contiguous()  # ensure C-contiguous layout
+    with cp.cuda.Device(t.device.index):
+        return cp.from_dlpack(torch.utils.dlpack.to_dlpack(t))
 
-    This function creates a CuPy array that shares the same GPU memory as the
-    input PyTorch tensor, avoiding expensive memory copies.
-
-    Parameters
-    ----------
-    tensor : torch.Tensor
-        Input PyTorch tensor. Should be on CUDA device.
-
-    Returns
-    -------
-    cp.ndarray
-        CuPy array sharing memory with the input tensor.
-
-    Notes
-    -----
-    This is much faster than tensor.cpu().numpy() for CUDA tensors as it avoids
-    the CPU round-trip. The returned CuPy array shares memory with the original
-    tensor, so modifications to one will affect the other.
-
-    For unsupported dtypes, falls back to CPU conversion as a safety measure.
-    """
-    pointer = tensor.data_ptr()
-    size = tensor.shape
-    dtype = tensor.dtype
-
-    # Map PyTorch dtype to CuPy dtype
-    dtype_map = {
-        torch.float32: cp.float32,
-        torch.float64: cp.float64,
-        torch.int32: cp.int32,
-        torch.int64: cp.int64,
-    }
-    if dtype not in dtype_map:
-        # Fall back to numpy conversion for unsupported dtypes
-        return cp.array(tensor.detach().cpu().numpy())
-    cupy_dtype = dtype_map[dtype]
-
-    # NOTE Create a CuPy array from the pointer which points
-    # to the same GPU memory as the PyTorch tensor without any copying
-    cupy_array = cp.ndarray(
-        shape=size,
-        dtype=cupy_dtype,
-        memptr=cp.cuda.MemoryPointer(cp.cuda.UnownedMemory(pointer, 0, None), 0),
-    )
-
-    return cupy_array
-
-
-def cupy_to_torch(
-    cupy_array: "cp.ndarray", device: str | torch.device | None = None, dtype: torch.dtype = torch.float32
-) -> torch.Tensor:
-    """
-    Efficiently convert CuPy array to PyTorch tensor without going through CPU.
-
-    This function converts a CuPy array to a PyTorch tensor while attempting to
-    minimize memory transfers. For supported dtypes, it performs the conversion
-    efficiently on GPU.
-
-    Parameters
-    ----------
-    cupy_array : cp.ndarray
-        Input CuPy array to convert.
-    device : str | torch.device | None, optional
-        Target device for the PyTorch tensor. If None, infers from array.
-    dtype : torch.dtype, optional
-        Target dtype for the PyTorch tensor. Default is torch.float32.
-
-    Returns
-    -------
-    torch.Tensor
-        PyTorch tensor containing the same data as the input CuPy array.
-
-    Notes
-    -----
-    This function avoids memory copying between GPU and CPU for supported dtypes.
-    For unsupported dtypes, it falls back to numpy conversion as a safety measure.
-    """
-    # Determine the PyTorch dtype from CuPy dtype
-    dtype_map = {
-        cp.float32: torch.float32,
-        cp.float64: torch.float64,
-        cp.int32: torch.int32,
-        cp.int64: torch.int64,
-    }
-
-    if cupy_array.dtype.type not in dtype_map:
-        # Fall back to numpy conversion for unsupported dtypes
-        return torch.from_numpy(cp.asnumpy(cupy_array)).to(device)
-
-    # Get CuPy array pointer
-
-    # NOTE Create a PyTorch tensor from the CuPy array pointer
-    # This avoids any memory copying between GPU and CPU
-    torch_dtype = dtype_map[cupy_array.dtype.type]
-    torch_tensor = torch.empty(
-        cupy_array.shape,
-        dtype=dtype,
-        device=device,
-    )
-    torch_tensor.data_ptr()
-
-    result = torch_tensor.copy_(torch.as_tensor(np.zeros(cupy_array.shape).astype(np.float32), device=device))
-    result.copy_(
-        torch.frombuffer(cupy_array.tobytes(), dtype=torch_dtype).reshape(cupy_array.shape).to(device)
-    )
-
-    return result
+def cupy_to_torch(a: cp.ndarray) -> torch.Tensor:
+    # returns a CUDA tensor sharing memory with `a`
+    return torch.utils.dlpack.from_dlpack(a)
 
 
 class TriangularSparseSolver(torch.autograd.Function):

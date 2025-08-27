@@ -517,13 +517,38 @@ def _compute_row_indices_gpu(crow_indices: torch.Tensor, nnz: int) -> torch.Tens
 
 
 def torch_to_cupy(t: torch.Tensor) -> cp.ndarray:
+    """
+    Converts a torch tensor to the cupy using dlpack
+
+    Parameters
+    ----------
+    t: torch.Tensor
+        the input tensor
+
+    Returns
+    -------
+    cp.ndarray
+        The same input tensor moved to a CUPY array
+    """
     assert t.is_cuda, "Expect a CUDA tensor"
     t = t.contiguous()  # ensure C-contiguous layout
     with cp.cuda.Device(t.device.index):
         return cp.from_dlpack(torch.utils.dlpack.to_dlpack(t))
 
 def cupy_to_torch(a: cp.ndarray) -> torch.Tensor:
-    # returns a CUDA tensor sharing memory with `a`
+    """
+    Returns a CUDA tensor sharing memory with `a`
+
+    Parameters
+    ----------
+    a: cp.ndarray
+        the input cupy array
+
+    Returns
+    -------
+    torch.Tensor
+        The output pytorch tensor
+    """
     return torch.utils.dlpack.from_dlpack(a)
 
 

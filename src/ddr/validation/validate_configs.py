@@ -138,6 +138,9 @@ class ExperimentConfig(BaseModel):
     checkpoint: Path | None = Field(
         default=None, description="Path to checkpoint file (.pt) for resuming model from previous state"
     )
+    catchment_out: bool = Field(
+        default=False, description="Whether to return routing output at catchment level"
+    )
     epochs: int = Field(default=1, description="Number of complete passes through the training dataset")
     learning_rate: dict[int, float] = Field(
         default_factory=lambda: {1: 0.005, 3: 0.001},

@@ -33,6 +33,9 @@ python engine/gages_adjacency.py PATH/TO/conus_nextgen.gpkg PATH/TO/TRAINING_GAU
 
 # Train a model using the MHPI S3 defaults
 python scripts/train.py --config-name example_config.yaml
+
+#Test the model
+python scripts/test.py --config-name example_test_config.yaml
 ```
 
 ### How to build docs locally

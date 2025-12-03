@@ -147,9 +147,9 @@ def plot_cdf(
 
         median_value = np.median(sorted_data)
         if legend_labels is not None:
-            legend_string = f"{legend_labels[i]}: Median NSE {median_value:.4f}"
+            legend_string = f"{legend_labels[i]}: (NSE={median_value:.4f})"
         else:
-            legend_string = f"Median NSE: {median_value:.4f}"
+            legend_string = f"(NSE={median_value:.4f})"
 
         ax.plot(sorted_data, rank_values, color=color_list[i % len(color_list)], label=legend_string)
 

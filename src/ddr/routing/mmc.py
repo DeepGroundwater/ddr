@@ -122,6 +122,9 @@ class MuskingumCunge:
         # Time step (1 hour in seconds)
         self.t = torch.tensor(3600.0, device=self.device)
 
+        # Spatial resolution
+        self.catchment_out = self.cfg.experiment.catchment_out  # Catchment-level runoff output
+
         # Routing parameters
         self.n = None
         self.q_spatial = None
@@ -146,7 +149,7 @@ class MuskingumCunge:
         self.side_slope = None
         self.x_storage = None
         self.observations = None
-        self.gage_indices = None
+        self.gage_indices = None  # List of arrays (gages) containing catchment indicies for each gage
         self.gage_wb = None
 
         # Input data
@@ -217,6 +220,8 @@ class MuskingumCunge:
         # Initialize discharge
         self._discharge_t = self.q_prime[0].to(self.device)
 
+        self.catchment_idx = torch.zeros_like(self.q_prime[0], device=self.device)
+
     def forward(self) -> torch.Tensor:
         """Perform forward routing calculation.
 
@@ -228,51 +233,90 @@ class MuskingumCunge:
         if self.hydrofabric is None:
             raise ValueError("Hydrofabric not set. Call setup_inputs() first.")
 
-        # Setup output tensor
-        output = torch.zeros(
-            size=[self.observations.shape[0], self.q_prime.shape[0]],
-            device=torch.device(self.device),
-        )
-
         # Create pattern mapper
         mapper, dense_rows, dense_cols = self.create_pattern_mapper()
 
-        # Set initial output values
-        try:
-            if len(self._discharge_t) != 0:
-                for i, gage_idx in enumerate(self.gage_indices):
-                    output[i, 0] = torch.sum(self._discharge_t[gage_idx])
-            else:
-                for i, gage_idx in enumerate(self.gage_indices):
-                    output[i, 0] = self.q_prime[0, gage_idx]
-            output[:, 0] = torch.clamp(input=output[:, 0], min=self.discharge_lb)
-        except IndexError as e:
-            log.exception("Indexing Error. Gage indices do not align with discharge")
-            raise IndexError from e
-
-        # Route through time series
-        desc = "Running dMC Routing"
-        for timestep in tqdm(
-            range(1, len(self.q_prime)),
-            desc=f"\r{desc} for Epoch: {self.epoch} | Mini Batch: {self.mini_batch} | ",
-            ncols=140,
-            ascii=True,
-        ):
-            q_prime_sub = self.q_prime[timestep - 1].clone()
-            q_prime_clamp = torch.clamp(q_prime_sub, min=self.cfg.params.attribute_minimums["discharge"])
-
-            # Route this timestep
-            q_t1 = self.route_timestep(
-                q_prime_clamp=q_prime_clamp,
-                mapper=mapper,
+        if self.catchment_out:
+            # Output at catchment level
+            # Setup output tensor
+            output = torch.zeros(
+                size=[self.q_prime.shape[1], self.q_prime.shape[0]],
+                device=torch.device(self.device),
             )
 
-            # Store output at gauge locations
-            for i, gage_idx in enumerate(self.gage_indices):
-                output[i, timestep] = torch.sum(q_t1[gage_idx])
+            # Set initial output values
+            if len(self._discharge_t) != 0:
+                output[:, 0] = self._discharge_t
+            else:
+                output[:, 0] = self.q_prime[0]
+            output[:, 0] = torch.clamp(input=output[:, 0], min=self.discharge_lb)
 
-            # Update discharge state
-            self._discharge_t = q_t1
+            # Route through time series
+            desc = "Running dMC Routing"
+            for timestep in tqdm(
+                range(1, len(self.q_prime)),
+                desc=f"\r{desc} for Epoch: {self.epoch} | Mini Batch: {self.mini_batch} | ",
+                ncols=140,
+                ascii=True,
+            ):
+                q_prime_sub = self.q_prime[timestep - 1].clone()
+                q_prime_clamp = torch.clamp(q_prime_sub, min=self.cfg.params.attribute_minimums["discharge"])
+
+                # Route this timestep
+                q_t1 = self.route_timestep(
+                    q_prime_clamp=q_prime_clamp,
+                    mapper=mapper,
+                )
+
+                # Store output at catchment locations
+                output[:, timestep] = torch.sum(q_t1)
+
+                # Update discharge state
+                self._discharge_t = q_t1
+
+        else:
+            # Output at gauge level
+            output = torch.zeros(
+                size=[self.observations.shape[0], self.q_prime.shape[0]],
+                device=torch.device(self.device),
+            )
+
+            # Set initial output values
+            try:
+                if len(self._discharge_t) != 0:
+                    for i, gage_idx in enumerate(self.gage_indices):
+                        output[i, 0] = torch.sum(self._discharge_t[gage_idx])
+                else:
+                    for i, gage_idx in enumerate(self.gage_indices):
+                        output[i, 0] = self.q_prime[0, gage_idx]
+                output[:, 0] = torch.clamp(input=output[:, 0], min=self.discharge_lb)
+            except IndexError as e:
+                log.exception("Indexing Error. Gage indices do not align with discharge")
+                raise IndexError from e
+
+            # Route through time series
+            desc = "Running dMC Routing"
+            for timestep in tqdm(
+                range(1, len(self.q_prime)),
+                desc=f"\r{desc} for Epoch: {self.epoch} | Mini Batch: {self.mini_batch} | ",
+                ncols=140,
+                ascii=True,
+            ):
+                q_prime_sub = self.q_prime[timestep - 1].clone()
+                q_prime_clamp = torch.clamp(q_prime_sub, min=self.cfg.params.attribute_minimums["discharge"])
+
+                # Route this timestep
+                q_t1 = self.route_timestep(
+                    q_prime_clamp=q_prime_clamp,
+                    mapper=mapper,
+                )
+
+                # Store output at gauge locations
+                for i, gage_idx in enumerate(self.gage_indices):
+                    output[i, timestep] = torch.sum(q_t1[gage_idx])
+
+                # Update discharge state
+                self._discharge_t = q_t1
 
         return output
 

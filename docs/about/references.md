@@ -1,4 +1,10 @@
+---
+icon: lucide/book-marked
+---
+
 # References
+
+This work was made possible through the work of others. See below for some kudos:
 
 ## Previous Publications
 

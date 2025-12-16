@@ -3,7 +3,9 @@ icon: lucide/rocket
 ---
 
 !!! note
-    This repo is a work in progress and will be updating frequently. Be sure to be using the most recent release version
+    This repo is a work in progress and will be updating frequently. Be sure to be using the most recent release version.
+
+    These docs were made with love and no AI
 
 <p align="center">
   <img src="images/ddr_logo.png" width="40%"/>

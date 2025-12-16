@@ -23,6 +23,7 @@ nav = [
      "usage/test.md",
      "usage/routing.md",
      "usage/summed_q_prime.md",
+     "usage/examples.md",
   ]}
 ]
 

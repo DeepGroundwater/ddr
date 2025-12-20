@@ -20,7 +20,7 @@ import zarr
 from engine.adjacency import coo_to_zarr, create_matrix, index_matrix
 
 # TODO consider generating random flowpaths and networks for more robust testing
-# then figure out a way to reporduce the same random flowpaths and networks
+# then figure out a way to reproduce the same random flowpaths and networks
 # when a failure occurs so it can be debugged easily
 
 _table_schema = {"id": pl.String, "toid": pl.String}

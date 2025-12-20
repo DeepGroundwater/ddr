@@ -291,12 +291,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.path is None:
-        out_path = Path.cwd() / "gages_adjacency.zarr"
+        out_path = Path.cwd() / "data/v2.2_gages_adjacency.zarr"
+        out_path.parent.mkdir(exist_ok=True)
     else:
         out_path = Path(args.path)
 
     if args.conus_adj is None:
-        conus_path = Path.cwd() / "conus_adjacency.zarr"
+        conus_path = Path.cwd() / "data/v2.2_conus_adjacency.zarr"
     else:
         conus_path = Path(args.conus_adj)
     if conus_path.exists() is False:
@@ -376,3 +377,5 @@ if __name__ == "__main__":
             conus_mapping=ts_order_dict,
         )
     conn.close()
+
+    print(f"Gage Adjacency matrices for v2.2 were created at: {out_path}")

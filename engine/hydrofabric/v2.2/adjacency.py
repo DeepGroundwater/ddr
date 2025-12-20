@@ -212,6 +212,7 @@ if __name__ == "__main__":
 
     if args.path is None:
         out_path = Path.cwd() / "adjacency.zarr"
+        out_path.parent.mkdir(exist_ok=True)
     else:
         out_path = Path(args.path)
     if out_path.exists():

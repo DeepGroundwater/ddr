@@ -10,7 +10,7 @@ import polars as pl
 import pytest
 
 from ddr.dataset import Gauge
-from engine.gages_adjacency import find_origin, preprocess_river_network, subset
+from engine.hydrofabric.v2_2.gages_adjacency import find_origin, preprocess_river_network, subset
 
 
 def test_simple_subset(

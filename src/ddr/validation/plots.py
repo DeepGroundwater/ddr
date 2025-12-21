@@ -632,7 +632,7 @@ def plot_gauge_map(
             for attr in basemap_source.split(".")[1:]:
                 provider = getattr(provider, attr)
         ctx.add_basemap(ax, crs="EPSG:4326", source=provider)
-    except (AttributeError, Exception):
+    except AttributeError:
         # Fallback to default provider if specified one doesn't work
         ctx.add_basemap(ax, crs="EPSG:4326", source=ctx.providers.CartoDB.Positron)
 

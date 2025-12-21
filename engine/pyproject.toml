@@ -1,0 +1,28 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.hatch.version]
+path = "src/ddr_engine/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ddr_engine"]
+
+[project]
+name = "ddr-engine"
+dynamic = ["version"]
+description = "Data preparation engine for DDR"
+readme = "README.md"
+requires-python = ">=3.11.0"
+license = {file = "../LICENSE"}
+authors = [
+    {name = "Tadd Bindas"},
+    {name = "Nels Frazier"},
+]
+
+dependencies = [
+  "adbc-driver-sqlite>=1.6.0",
+  "polars>=1.31.0",
+  "pyarrow>=20.0.0",
+  "rustworkx>=0.16.0",
+]

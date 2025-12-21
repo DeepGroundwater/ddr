@@ -4,14 +4,13 @@
 @author Nels Frazier
 @author Tadd Bindas
 
-@date June 19 2025
+@date Dec 21 2025
 @version 1.1
 
-An introduction script for building a lower triangular adjancency matrix
+Functions for building a lower triangular adjancency matrix
 from a NextGen hydrofabric and writing a sparse zarr group
 """
 
-import sqlite3
 from pathlib import Path
 
 import numpy as np
@@ -187,57 +186,3 @@ def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> 
         "values": coo.data.dtype.__str__(),
     }
     print(f"CONUS Hydrofabric adjacency written to zarr at {out_path}")
-
-
-if __name__ == "__main__":
-    import argparse
-
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description="Create a lower triangular adjacency matrix from hydrofabric data."
-    )
-    parser.add_argument(
-        "pkg",
-        type=Path,
-        help="Path to the hydrofabric geopackage.",
-    )
-    parser.add_argument(
-        "path",
-        nargs="?",
-        type=Path,
-        default=None,
-        help="Path to save the zarr group. Defaults to current working directory with name appended.",
-    )
-    args = parser.parse_args()
-
-    if args.path is None:
-        out_path = Path.cwd() / "adjacency.zarr"
-        out_path.parent.mkdir(exist_ok=True)
-    else:
-        out_path = Path(args.path)
-    if out_path.exists():
-        print(f"Cannot create zarr store {args.path}. One already exists")
-        exit(1)
-
-    # Read hydrofabric geopackage using sqlite
-    uri = "sqlite://" + str(args.pkg)
-    query = "SELECT id,toid FROM flowpaths"
-    # fp = pl.read_database_uri(query=query, uri=uri, engine="adbc")
-    # Using adbc is about 2 seconds faster than using the sqlite3 connection
-    conn = sqlite3.connect(args.pkg)
-    fp = pl.read_database(query=query, connection=conn)
-
-    # Make sure wb-0 exists as a flowpath -- this is effectively
-    # the terminal node of all hydrofabric terminals -- use this if not using ghosts
-    # If you want to have each independent network have its own terminal ghost-N
-    # identifier, then you would need to actually drop all wb-0 instances in
-    # the network table toid column and replace them with null values...
-    fp = fp.extend(pl.DataFrame({"id": ["wb-0"], "toid": [None]})).lazy()
-    # build the network table
-    query = "SELECT id,toid FROM network"
-    # network = pl.read_database_uri(query=query, uri=uri, engine="adbc").lazy()
-    network = pl.read_database(query=query, connection=conn).lazy()
-    network = network.filter(pl.col("id").str.starts_with("wb-").not_())
-    matrix, ts_order = create_matrix(fp, network)
-    coo_to_zarr(matrix, ts_order, out_path)
-    conn.close()

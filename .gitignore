@@ -173,6 +173,7 @@ cython_debug/
 
 # Versioning
 src/ddr/_version.py
+engine/src/ddr_engine/_version.py
 
 # Large data files
 data/

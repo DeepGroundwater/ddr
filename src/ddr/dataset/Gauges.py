@@ -29,13 +29,22 @@ class Gauge(BaseModel):
     DRAIN_SQKM: PositiveFloat
 
 
+class MERITGauge(BaseModel):
+    """A pydantic object for managing properties for a Gauge and validating incoming CSV files"""
+
+    model_config = ConfigDict(extra="ignore")
+    STAID: Annotated[str, AfterValidator(zfill_usgs_id)]
+    COMID: int
+    DRAIN_SQKM: PositiveFloat
+
+
 class GaugeSet(BaseModel):
     """A pydantic object for storing a list of Gauges"""
 
-    gauges: list[Gauge]
+    gauges: list[Gauge] | list[MERITGauge]
 
 
-def validate_gages(file_path: Path) -> GaugeSet:
+def validate_gages(file_path: Path, type: MERITGauge | Gauge = Gauge) -> GaugeSet:
     """A function to read the training gauges file and validate based on a pydantic schema
 
     Parameters
@@ -50,5 +59,5 @@ def validate_gages(file_path: Path) -> GaugeSet:
     """
     with file_path.open() as f:
         reader = csv.DictReader(f)
-        gauges = [Gauge.model_validate(row) for row in reader]
+        gauges = [type.model_validate(row) for row in reader]
         return GaugeSet(gauges=gauges)

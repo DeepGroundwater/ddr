@@ -7,7 +7,8 @@ import rustworkx as rx
 import zarr
 from scipy import sparse
 from tqdm import tqdm
-from utils import _build_rustworkx_object, _build_upstream_dict_from_merit
+
+from .utils import _build_rustworkx_object, _build_upstream_dict_from_merit
 
 
 def create_matrix(fp: gpd.GeoDataFrame) -> tuple[sparse.coo_matrix, list[int]]:
@@ -138,43 +139,3 @@ def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[int], out_path: Path) -> 
     }
 
     print(f"MERIT Hydrofabric adjacency written to zarr at {out_path}")
-
-
-if __name__ == "__main__":
-    import argparse
-
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description="Create a lower triangular adjacency matrix from MERIT hydrofabric data."
-    )
-    parser.add_argument(
-        "pkg",
-        type=Path,
-        help="Path to the MERIT shapefile.",
-    )
-    parser.add_argument(
-        "--path",
-        type=Path,
-        default=None,
-        help="Path to save the zarr group. Defaults to current working directory with name appended.",
-    )
-    args = parser.parse_args()
-
-    if args.path is None:
-        out_path = Path.cwd() / "data/merit_adjacency.zarr"
-        out_path.parent.mkdir(exist_ok=True)
-    else:
-        out_path = args.path
-
-    if out_path.exists():
-        print(f"Cannot create zarr store {out_path}. One already exists")
-        exit(1)
-
-    print(f"Reading MERIT data from {args.pkg}")
-    fp = gpd.read_file(args.pkg)
-
-    print(f"Creating adjacency matrix for {len(fp)} flowpaths")
-    matrix, ts_order = create_matrix(fp)
-
-    print(f"Matrix shape: {matrix.shape}, nnz: {matrix.nnz}")
-    coo_to_zarr(matrix, ts_order, out_path)

@@ -1,6 +1,6 @@
 from .attributes import AttributesReader
 from .Dates import Dates
-from .Gauges import Gauge, GaugeSet, validate_gages
+from .Gauges import Gauge, GaugeSet, MERITGauge, validate_gages
 from .large_scale_dataset import LargeScaleDataset
 from .observations import IcechunkUSGSReader
 from .streamflow import StreamflowReader
@@ -12,6 +12,7 @@ __all__ = [
     "AttributesReader",
     "Dates",
     "TestDataset",
+    "MERITGauge",
     "Gauge",
     "GaugeSet",
     "LargeScaleDataset",

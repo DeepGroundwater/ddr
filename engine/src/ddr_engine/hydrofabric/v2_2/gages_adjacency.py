@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """
 @author Tadd Bindas
 
@@ -9,17 +7,12 @@
 A script to build subset COO matrices from the conus_adjacency.zarr
 """
 
-import argparse
-import sqlite3
-from pathlib import Path
-
 import numpy as np
 import polars as pl
 import zarr
 from scipy import sparse
-from tqdm import tqdm
 
-from ddr.dataset import Gauge, GaugeSet, validate_gages
+from ddr.dataset import Gauge
 
 
 def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.ndarray:
@@ -257,125 +250,3 @@ def coo_to_zarr_group(
         "indices_1": coo.col.dtype.__str__(),
         "values": coo.data.dtype.__str__(),
     }
-
-
-if __name__ == "__main__":
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description="Create a lower triangular adjacency matrix from hydrofabric data."
-    )
-    parser.add_argument(
-        "pkg",
-        type=Path,
-        help="Path to the hydrofabric geopackage.",
-    )
-    parser.add_argument(
-        "gages",
-        type=Path,
-        help="The gauges CSV file containing the training locations",
-    )
-    parser.add_argument(
-        "path",
-        nargs="?",
-        type=Path,
-        default=None,
-        help="Path to save the gages group. Defaults to current working directory",
-    )
-    parser.add_argument(
-        "--conus-adj",
-        type=Path,
-        required=True,
-        default=None,
-        help="Path where the conus adjacency matrix is stored. If non existent, please run `adjacency.py`",
-    )
-    args = parser.parse_args()
-
-    if args.path is None:
-        out_path = Path.cwd() / "data/v2.2_gages_adjacency.zarr"
-        out_path.parent.mkdir(exist_ok=True)
-    else:
-        out_path = Path(args.path)
-
-    if args.conus_adj is None:
-        conus_path = Path.cwd() / "data/v2.2_conus_adjacency.zarr"
-    else:
-        conus_path = Path(args.conus_adj)
-    if conus_path.exists() is False:
-        raise FileNotFoundError(f"Cannot find {conus_path}")
-
-    gage_path = Path(args.gages)
-    if gage_path.exists():
-        gauge_set: GaugeSet = validate_gages(gage_path)
-    else:
-        raise FileNotFoundError("Can't find the Gauge Information file")
-
-    # Read hydrofabric geopackage using sqlite
-    # uri = "sqlite://" + str(args.pkg)
-    query = "SELECT id,toid,tot_drainage_areasqkm FROM flowpaths"
-    # fp = pl.read_database_uri(query=query, uri=uri, engine="adbc")
-    # Using adbc is about 2 seconds faster than using the sqlite3 connection
-    conn = sqlite3.connect(args.pkg)
-    flowpaths_schema = {
-        "id": pl.String,  # String type for IDs
-        "toid": pl.String,  # String type for downstream IDs (can be null)
-        "tot_drainage_areasqkm": pl.Float64,  # the total drainage area for a flowpath
-    }
-    fp = pl.read_database(query=query, connection=conn, schema_overrides=flowpaths_schema).lazy()
-
-    # build the network table
-    query = "SELECT id,toid,hl_uri FROM network"
-    network_schema = {
-        "id": pl.String,  # String type for IDs
-        "toid": pl.String,  # String type for downstream IDs
-        "hl_uri": pl.String,  # String type for URIs (handles mixed content)
-    }
-    # network = pl.read_database_uri(query=query, uri=uri, engine="adbc").lazy()
-    network = pl.read_database(query=query, connection=conn, schema_overrides=network_schema).lazy()
-
-    print("Preprocessing network Table")
-    wb_network_dict = preprocess_river_network(network)
-
-    # Read in conus_adjacency.zarr
-    print("Read CONUS zarr store")
-    conus_root = zarr.open_group(store=conus_path)
-    ts_order = conus_root["order"][:]
-    ts_order = np.array([f"wb-{_id}" for _id in ts_order])
-    ts_order_dict = {wb_id: idx for idx, wb_id in enumerate(ts_order)}
-
-    # Create local zarr store
-    store = zarr.storage.LocalStore(root=out_path)
-    if out_path.exists():
-        root = zarr.open_group(store=store)
-    else:
-        root = zarr.create_group(store=store)
-
-    for gauge in tqdm(gauge_set.gauges, desc="Creating Gauge COO matrices"):
-        try:
-            gauge_root = root.create_group(gauge.STAID)
-        except zarr.errors.ContainsGroupError:
-            print(f"Zarr Group exists for: {gauge.STAID}. Skipping write")
-            continue
-        try:
-            origin = find_origin(gauge, fp, network)
-        except ValueError:
-            print(f"Cannot find gauge: {gauge.STAID}. Skipping write")
-            root.__delitem__(gauge.STAID)
-            continue
-        connections = subset(origin, wb_network_dict)
-        if len(connections) == 0:
-            print(
-                f"Gauge: {gauge.STAID} is a headwater catchment with no upstream catchments. Skipping write"
-            )
-            root.__delitem__(gauge.STAID)
-            continue
-        coo, subset_flowpaths = create_coo(connections, ts_order_dict)
-        coo_to_zarr_group(
-            coo=coo,
-            ts_order=subset_flowpaths,
-            origin=origin,
-            gauge_root=gauge_root,
-            conus_mapping=ts_order_dict,
-        )
-    conn.close()
-
-    print(f"Gage Adjacency matrices for v2.2 were created at: {out_path}")

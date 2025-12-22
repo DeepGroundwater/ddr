@@ -8,9 +8,9 @@ Tests for functionality of the subset adjacency module
 
 import polars as pl
 import pytest
+from ddr_engine.hydrofabric import find_origin, preprocess_river_network, subset
 
 from ddr.dataset import Gauge
-from engine.hydrofabric.v2_2.gages_adjacency import find_origin, preprocess_river_network, subset
 
 
 def test_simple_subset(

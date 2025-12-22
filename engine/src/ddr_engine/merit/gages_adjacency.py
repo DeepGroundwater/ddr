@@ -19,7 +19,8 @@ import rustworkx as rx
 import zarr
 from scipy import sparse
 from tqdm import tqdm
-from utils import _build_rustworkx_object, _build_upstream_dict_from_merit
+
+from .utils import _build_rustworkx_object, _build_upstream_dict_from_merit
 
 
 def subset(origin_comid: int, graph: rx.PyDiGraph, node_indices: dict[int, int]) -> list[int]:
@@ -169,12 +170,7 @@ if __name__ == "__main__":
         default="/Users/taddbindas/projects/forks/taddyb/ddr/data/merit/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp",
         help="Path to the MERIT shapefile.",
     )
-    parser.add_argument(
-        "--gages",
-        default="/Users/taddbindas/projects/forks/taddyb/datasets/mhpi/dHBV2.0UH/training_gauges.csv",
-        type=Path,
-        help="The gauges CSV file containing the training locations with COMID column.",
-    )
+
     parser.add_argument(
         "path",
         nargs="?",

@@ -11,36 +11,51 @@ An implementation of differentiable river routing methods for the NextGen Framew
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-### How to run locally
+### Dependencies
+
+The following commands will allow you to install all required dependencies for DDR
+
 ```sh
 # CPU
-uv synv
+uv sync --all-packages
 . .venv/bin/activate
 
 # or GPU
-uv sync --extra cu124
+uv sync --all-packages --extra cu124
 . .venv/bin/activate
-
 ```
 
-Create the necessary data files:
+### Data Engine
+
+Next, you need to create the necessary data files for running a routing across your domain.
+- The example below is for the NOAA-OWP Hydrofabric v2.2 (Dataset is not included in the repo)
+- This requires the `ddr-engine` local package to be installed (which is done automatically through the above `uv sync`)
+- The gauges.csv can be found [here](https://github.com/DeepGroundwater/datasets/tree/master/mhpi/dHBV2.0UH)
+
 ```sh
-# Create CONUS adjacency
-python engine/adjacency.py PATH/TO/conus_nextgen.gpkg data/conus_adjacency.zarr
+uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py <PATH/TO/conus_nextgen.gpkg> data/ --gages datasets/mhpi/dHBV2.0UH/training_gauges.csv
+```
 
-# Create gauges adjacency
-python engine/gages_adjacency.py PATH/TO/conus_nextgen.gpkg PATH/TO/TRAINING_GAUGES.csv data/gages_adjacency.zarr --conus-adj data/conus_adjacency.zarr
+This will create two files used for routing
+- `hydrofabric_v2.2_conus_adjacency.zarr`
+  - a sparse COO matrix containing the whole river network for Hydrofabric v2.2 across CONUS
+- `hydrofabric_v2.2_gages_conus_adjacency.zarr`
+  - a zarr.Group of sparse coo matrices for river networks upstream of USGS Gauges
 
+### Model Train
+
+All that's left is to train a routing model
+```sh
 # Train a model using the MHPI S3 defaults
 python scripts/train.py --config-name example_config.yaml
 ```
 
 ### How to build docs locally
-The mkdocs-material documentation can be built/verified locally through installing the optional `docs` dependencies and serving through localhost:
+The zensical documentation can be built/verified locally through installing the optional `docs` dependencies and serving through localhost:
 
 ```sh
 uv pip install -e ".[docs]"
-mkdocs serve
+uv run zensical serve
 ```
 
 #### Previous Work and Citations

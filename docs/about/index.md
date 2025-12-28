@@ -1,13 +1,40 @@
-# What is DDR?
-Distributed Differentiable Routing (DDR) is a end-to-end differentiable Muskingum Cunge flow router (`src/ddr`) + geospatial scaffolding/wrapper (`/engine`) for building graphs from geospatial fabrics. This work is brought to you by contributers/developers of the $\delta$MC, [$\delta$MC-Juniata-hydroDL2](https://github.com/mhpi/dMC-Juniata-hydroDL2), and [T-Route](https://github.com/NOAA-OWP/t-route). The goal of this project is to provide an open-sourced, easy to follow, routing module that can be applied to a wide variety of geospatial flow networks and input lateral flow datasets.
+---
+icon: lucide/dam
+---
 
-[Get started](../index.md) or learn more about DDR:
+# Geospatial Engine
 
-<div class="grid cards" markdown>
+# DDR Engine
 
-- :fontawesome-solid-microchip: [__Model Training__](../usage/train.md) for how to create your own weights/states
-- :fontawesome-solid-laptop-code: [__Model Testing__](../usage/test.md) for evaluating your trained weights
-- :fontawesome-solid-terminal: [__Routing__](../usage/routing.md) for how to route flow anywhere with trained weights
-- :fontawesome-solid-gears: [__Summed Q_Prime__](../usage/train.md) for determining how well your unit catchment predictions are (pre-routing)
+This folder contains scripts and tools meant to format geospatial datasets and create objects which help our routing. Examples include:
+- Creaing adjacency matrices for implicit muskingum cunge routing
+- Creating adjacency matrices for mapping gauge locations within geospatial datasets
 
-</div>
+To install these dependencies, please run the following command from the project root
+```sh
+uv sync
+```
+
+## Why have an `engine/` folder?
+
+## Why use a COO matrix?
+
+## Examples:
+
+### CONUS v2.2 Hydrofabric
+
+!!! warning
+    Dataset is not included in the repo and needs to be downloaded
+
+```sh
+uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py <PATH/TO/conus_nextgen.gpkg> data/ --gages datasets/mhpi/dHBV2.0UH/training_gauges.csv
+```
+
+### MERIT Flowlines
+
+!!! note
+    Dataset is not included in the repo and can be downloded from the [following location](https://drive.google.com/drive/folders/1DhLXCdMYVkRtlgHBHkiFmpPjTQJX5k1g?usp=sharing)
+
+```sh
+uv run python engine/scripts/build_merit_matrices.py <PATH/TO/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp> data/ --gages datasets/mhpi/dHBV2.0UH/training_gauges.csv
+```

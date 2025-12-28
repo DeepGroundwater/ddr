@@ -1,40 +1,13 @@
----
-icon: lucide/rocket
----
+# What is DDR?
+Distributed Differentiable Routing (DDR) is a end-to-end differentiable Muskingum Cunge flow router (`src/ddr`) + geospatial scaffolding/wrapper (`/engine`) for building graphs from geospatial fabrics. This work is brought to you by contributers/developers of the $\delta$MC, [$\delta$MC-Juniata-hydroDL2](https://github.com/mhpi/dMC-Juniata-hydroDL2), and [T-Route](https://github.com/NOAA-OWP/t-route). The goal of this project is to provide an open-sourced, easy to follow, routing module that can be applied to a wide variety of geospatial flow networks and input lateral flow datasets.
 
-!!! note
-    This repo is a work in progress and will be updating frequently. Be sure to be using the most recent release version.
+[Get started](../index.md) or learn more about DDR:
 
-    These docs were made with love and no AI
+<div class="grid cards" markdown>
 
-<p align="center">
-  <img src="images/ddr_logo.png" width="40%"/>
-</p>
+- :fontawesome-solid-microchip: [__Model Training__](../usage/train.md) for how to create your own weights/states
+- :fontawesome-solid-laptop-code: [__Model Testing__](../usage/test.md) for evaluating your trained weights
+- :fontawesome-solid-terminal: [__Routing__](../usage/routing.md) for how to route flow anywhere with trained weights
+- :fontawesome-solid-gears: [__Summed Q_Prime__](../usage/train.md) for determining how well your unit catchment predictions are (pre-routing)
 
-
-# Getting started
-
-The following commands will allow you to install all required dependencies for DDR
-
-```sh
-# CPU
-uv synv
-. .venv/bin/activate
-
-# or GPU
-uv sync --extra cu124
-. .venv/bin/activate
-
-```
-
-Now, you can create the necessary data files for running on the NOAA-OWP Hydrofabric v2.2 (Dataset is not included in the repo):
-```sh
-# Create CONUS adjacency
-python engine/adjacency.py PATH/TO/conus_nextgen.gpkg data/conus_adjacency.zarr
-
-# Create gauges adjacency
-python engine/gages_adjacency.py PATH/TO/conus_nextgen.gpkg PATH/TO/TRAINING_GAUGES.csv data/gages_adjacency.zarr --conus-adj data/conus_adjacency.zarr
-
-# Train a model using the MHPI S3 defaults
-python scripts/train.py --config-name example_config.yaml
-```
+</div>

@@ -9,13 +9,16 @@ Copyright &copy; 2025 DeepGroundwater
 repo_url = "https://github.com/DeepGroundwater/ddr"
 repo_name = "deepgroundwater/ddr"
 nav = [
-  {"Home" = "index.md"},
-  {"About" = [
+  {"Home" = [
+    "index.md",
+    "startup.md",
+    "datasets.md",
+    "references.md",
+  ]},
+  {"Engine" = [
      "about/index.md",
-     "about/datasets.md",
-     "about/engine.md",
      "about/gpu.md",
-     "about/references.md",
+
   ]},
   {"Usage" = [
      "usage/index.md",

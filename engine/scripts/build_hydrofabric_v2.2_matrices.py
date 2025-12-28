@@ -55,7 +55,7 @@ if __name__ == "__main__":
         if args.gages is not None:
             gage_path = Path(args.gages)
             gauge_set: GaugeSet = validate_gages(gage_path)
-            gages_out_path = Path(args.path) / "hydrofabric_v2.2_gages_conu_adjacency.zarr"
+            gages_out_path = Path(args.path) / "hydrofabric_v2.2_gages_conus_adjacency.zarr"
             if gages_out_path.exists():
                 print(f"Cannot create zarr store {gages_out_path}. One already exists")
                 exit(1)

@@ -13,12 +13,11 @@ nav = [
     "index.md",
     "startup.md",
     "datasets.md",
+    "gpu.md",
     "references.md",
   ]},
   {"Engine" = [
-     "about/index.md",
-     "about/gpu.md",
-
+     "engine/index.md",
   ]},
   {"Usage" = [
      "usage/index.md",

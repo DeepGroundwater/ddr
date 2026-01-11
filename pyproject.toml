@@ -27,24 +27,25 @@ maintainers = [
 ]
 
 dependencies = [
-    "colormaps>=0.4.2",
-    "contextily>=1.6.2",
-    "geopandas>=1.1.1",
-    "hatch>=1.14.1",
-    "hydra-core>=1.3.2",
-    "icechunk>=1.0.3",
-    "matplotlib>=3.10.3",
-    "numpy>=2.2.6",
-    "pandas>=2.3.1",
-    "pre-commit>=4.2.0",
-    "pydantic>=2.11.7",
-    "pykan>=0.2.8",
-    "scikit-learn>=1.7.0",
-    "scipy>=1.16.0",
-    "torch>=2.7.1",
-    "tqdm>=4.67.1",
-    "xarray>=2025.7.1",
-    "zarr>=3.0.9",
+    "colormaps",
+    "cubed",
+    "contextily",
+    "geopandas",
+    "hatch",
+    "hydra-core",
+    "icechunk",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pre-commit",
+    "pydantic",
+    "pykan",
+    "scikit-learn",
+    "scipy",
+    "torch",
+    "tqdm",
+    "xarray",
+    "zarr",
 ]
 
 [project.optional-dependencies]
@@ -54,11 +55,11 @@ docs = [
   "zensical>=0.0.11",
 ]
 cuda = [
-  "cupy-cuda12x==13.4.1",
+  "cupy-cuda12x==13.6.0",
 ]
 jupyter = [
-  "ipykernel>=6.30.0",
-  "jupyterlab>=4.4.4",
+  "ipykernel",
+  "jupyterlab",
 ]
 
 [dependency-groups]
@@ -70,7 +71,6 @@ tests = [
     "pytest-cov>=6.1.1",
     "ruff>=0.12.2",
     "nbstripout>=0.8.1",
-    "boto3>=1.39.14",
 ]
 
 # Add workspace configuration

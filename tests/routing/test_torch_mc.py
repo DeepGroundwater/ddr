@@ -195,13 +195,13 @@ class TestTorchMCForwardPass:
 
         # Mock the routing engine forward method
         with patch.object(model.routing_engine, "forward") as mock_forward:
-            mock_forward.return_value = torch.ones(2, 24) * 5.0  # 2 gauges, 24 timesteps
+            mock_forward.return_value = torch.ones(1, 24) * 5.0  # 1 gauge, 24 timesteps
 
             output = model(**kwargs)
 
         assert isinstance(output, dict)
         assert "runoff" in output
-        assert_tensor_properties(output["runoff"], (2, 24))
+        assert_tensor_properties(output["runoff"], (1, 24))
         assert_no_nan_or_inf(output["runoff"], "runoff")
 
     def test_forward_routing_engine_setup(self, setup_model_and_data):
@@ -214,7 +214,7 @@ class TestTorchMCForwardPass:
             patch.object(model.routing_engine, "setup_inputs") as mock_setup,
             patch.object(model.routing_engine, "forward") as mock_forward,
         ):
-            mock_forward.return_value = torch.ones(2, 24) * 5.0
+            mock_forward.return_value = torch.ones(1, 24) * 5.0
 
             model(**kwargs)
 
@@ -240,7 +240,7 @@ class TestTorchMCForwardPass:
             model.routing_engine.q_spatial = torch.ones(10) * 0.5
             model.routing_engine._discharge_t = torch.ones(10) * 2.0
 
-            mock_forward.return_value = torch.ones(2, 24) * 5.0
+            mock_forward.return_value = torch.ones(1, 24) * 5.0
 
             model(**kwargs)
 
@@ -272,7 +272,7 @@ class TestTorchMCForwardPass:
             patch.object(model.routing_engine, "setup_inputs") as mock_setup,
             patch.object(model.routing_engine, "forward") as mock_forward,
         ):
-            mock_forward.return_value = torch.ones(2, 24) * 5.0
+            mock_forward.return_value = torch.ones(1, 24) * 5.0
 
             model(**kwargs)
 

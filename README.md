@@ -48,6 +48,9 @@ All that's left is to train a routing model
 ```sh
 # Train a model using the MHPI S3 defaults
 python scripts/train.py --config-name example_config.yaml
+
+#Test the model
+python scripts/test.py --config-name example_test_config.yaml
 ```
 
 ### How to build docs locally

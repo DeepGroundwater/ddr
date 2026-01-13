@@ -48,9 +48,6 @@ class DataSources(BaseModel):
     conus_adjacency: str = Field(
         description="Path to the CONUS adjacency matrix created by engine/adjacency.py"
     )
-    gages_adjacency: str = Field(
-        description="Path to the gages adjacency matrix created by engine/gages_adjacency.py"
-    )
     statistics: str = Field(
         default="./data/", description="Path to the folder where normalization statistics files are saved"
     )
@@ -62,7 +59,15 @@ class DataSources(BaseModel):
         default="s3://mhpi-spatial/usgs_streamflow_observations/",  # MHPI versioned USGS data
         description="Path to the USGS streamflow observations for model validation",
     )
-    gages: str = Field(description="Path to CSV file containing gauge metadata and identifiers")
+    gages: str | None = Field(
+        default=None, description="Path to CSV file containing gauge metadata, or None to use all segments"
+    )
+    gages_adjacency: str | None = Field(
+        default=None, description="Path to the gages adjacency matrix (required if gages is provided)"
+    )
+    target_catchments: list[str] | None = Field(
+        default=None, description="Optional list of specific catchment IDs to route to (overrides gages)"
+    )
 
 
 class Params(BaseModel):

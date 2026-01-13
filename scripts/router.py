@@ -1,4 +1,4 @@
-"""A function which takes a trained model, then evaluates performance on a single, or many, basins"""
+"""A function which takes a trained model, then runs forward simulation at catchment scale."""
 
 import logging
 import os
@@ -20,13 +20,13 @@ from ddr.dataset import TestDataset
 from ddr.dataset import utils as ds_utils
 from ddr.nn import kan
 from ddr.routing.torch_mc import dmc
-from ddr.validation import Config, Metrics, utils, validate_config
+from ddr.validation import Config, validate_config
 
 log = logging.getLogger(__name__)
 
 
-def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
-    """Do model evaluation and get performance metrics."""
+def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
+    """Route a trained model over a specific amount of defined catchments"""
     dataset = TestDataset(cfg=cfg)
 
     if cfg.experiment.checkpoint:
@@ -55,16 +55,23 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
         drop_last=False,  # Cannot drop last as it's needed for eval
     )
 
-    warmup = cfg.experiment.warmup
-    all_gage_ids = [str(gid).zfill(8) for gid in dataset.gage_ids]
-    observations = dataset.hydrofabric.observations.streamflow.values
-
     # Create time ranges
     date_time_format = "%Y/%m/%d"
     start_time = datetime.strptime(cfg.experiment.start_time, date_time_format).strftime("%Y-%m-%d")
     end_time = datetime.strptime(cfg.experiment.end_time, date_time_format).strftime("%Y-%m-%d")
 
-    predictions = np.zeros([len(all_gage_ids), len(dataset.dates.hourly_time_range)])
+    if cfg.data_sources.target_catchments is not None:
+        num_outputs = len(dataset.hydrofabric.outflow_idx)
+        log.info(f"Routing for {num_outputs} target catchments")
+    elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
+        num_outputs = len(dataset.hydrofabric.outflow_idx)
+        log.info(f"Routing for {num_outputs} gages")
+    else:
+        num_outputs = dataset.hydrofabric.adjacency_matrix.shape[0]
+        log.info(f"Routing for {num_outputs} segments (all)")
+
+    num_timesteps = len(dataset.dates.hourly_time_range)
+    predictions = np.zeros((num_outputs, num_timesteps), dtype=np.float32)
 
     with torch.no_grad():  # Disable gradient calculations during evaluation
         for i, hydrofabric in enumerate(dataloader, start=0):
@@ -85,45 +92,37 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
         torch.tensor(predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
         rho=num_days,
     ).numpy()
-    daily_obs = observations[:, 1:-1]
     time_range = dataset.dates.daily_time_range[1:-1]
 
     pred_da = xr.DataArray(
         data=daily_runoff,
-        dims=["gage_ids", "time"],
-        coords={"gage_ids": all_gage_ids, "time": time_range},
+        dims=["catchment_ids", "time"],
+        coords={"catchment_ids": dataset.hydrofabric.divide_ids, "time": time_range},
         attrs={"units": "m3/s", "long_name": "Streamflow"},
     )
-    obs_da = xr.DataArray(
-        data=daily_obs,
-        dims=["gage_ids", "time"],
-        coords={"gage_ids": all_gage_ids, "time": time_range},
-        attrs={"units": "m3/s", "long_name": "Observed Streamflow"},
-    )
+    attrs = {
+        "description": "Predictions and obs for time period",
+        "start time": start_time,
+        "end time": end_time,
+        "version": __version__,
+        "model": str(cfg.experiment.checkpoint) if cfg.experiment.checkpoint else "No Trained Model",
+    }
+    if cfg.data_sources.target_catchments is not None:
+        attrs["target catchments"] = str(cfg.data_sources.target_catchments)
+    elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
+        attrs["evaluation basins file"] = str(cfg.data_sources.gages)
+    else:
+        attrs["large scale simulation"] = str(True)
     ds = xr.Dataset(
-        data_vars={"predictions": pred_da, "observations": obs_da},
-        attrs={
-            "description": "Predictions and obs for time period",
-            "start time": start_time,
-            "end time": end_time,
-            "version": __version__,
-            "evaluation basins file": str(cfg.data_sources.gages),
-            "model": str(cfg.experiment.checkpoint) if cfg.experiment.checkpoint else "No Trained Model",
-        },
+        data_vars={"predictions": pred_da},
+        attrs=attrs,
     )
     ds.to_zarr(
-        cfg.params.save_path / "model_test.zarr",
+        cfg.params.save_path / "chrout.zarr",
         mode="w",
     )
-    metrics = Metrics(pred=ds.predictions.values[:, warmup:], target=ds.observations.values[:, warmup:])
-    _nse = metrics.nse
-    nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
-    rmse = metrics.rmse
-    kge = metrics.kge
-    utils.log_metrics(nse, rmse, kge)
-    log.info(
-        "Test run complete. Please run examples/eval/evaluate.ipynb to generate performance plots / metrics"
-    )
+
+    log.info("Routing complete.")
 
 
 @hydra.main(
@@ -150,7 +149,7 @@ def main(cfg: DictConfig) -> None:
         )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        test(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
+        route_trained_model(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
@@ -163,6 +162,6 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    print(f"Evaluating DDR with version: {__version__}")
+    print(f"Forward simulation with DDR version: {__version__}")
     os.environ["DDR_VERSION"] = __version__
     main()

@@ -81,7 +81,7 @@ def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> Any:
 
     class MockObservations:
         def __init__(self):
-            self.gage_id = torch.tensor([1, 2], device=device)
+            self.gage_id = torch.tensor([1], device=device)
 
     class MockHydrofabric:
         def __init__(self):
@@ -127,7 +127,7 @@ def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> Any:
             self.normalized_spatial_attributes = self.spatial_attributes.sub(self.means).div(self.stds).T
 
             # mock gauge outflows
-            self.gage_idx = [np.array([-1])]  # assuming the last values in the array
+            self.outflow_idx = [np.array([-1])]  # Picking two values as there are two gages in obs
             self.gage_wb = ["wb-1"]
 
     return MockHydrofabric()

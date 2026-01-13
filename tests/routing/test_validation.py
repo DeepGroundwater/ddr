@@ -265,7 +265,7 @@ class TestCoreMuskingumCungeValidation:
             output = core_model.forward()
 
         # Check output
-        expected_shape = (2, 12)  # 2 gauges, 12 timesteps
+        expected_shape = (1, 12)  # 1 gauge, 12 timesteps
         assert_tensor_properties(output, expected_shape)
         assert_no_nan_or_inf(output, "core_forward_output")
 
@@ -376,14 +376,14 @@ class TestBackwardCompatibilityValidation:
         }
 
         with patch.object(routing_model.routing_engine, "forward") as mock_forward:
-            mock_forward.return_value = torch.ones(2, 24) * 3.5
+            mock_forward.return_value = torch.ones(1, 24) * 3.5
 
             dmc_output = routing_model(**dmc_kwargs)
 
         # Same output format expected
         assert isinstance(dmc_output, dict)
         assert "runoff" in dmc_output
-        assert_tensor_properties(dmc_output["runoff"], (2, 24))
+        assert_tensor_properties(dmc_output["runoff"], (1, 24))
 
     def test_import_compatibility(self):
         """Test that imports work as expected."""

@@ -220,11 +220,13 @@ def eval(
         data=preds,
         dims=["gage_ids", "time"],
         coords={"gage_ids": valid_gauges, "time": eval_daily_time_range.values},
+        attrs={"units": "m3/s", "long_name": "Streamflow"},
     )
     obs_da = xr.DataArray(
         data=target,
         dims=["gage_ids", "time"],
         coords={"gage_ids": valid_gauges, "time": eval_daily_time_range},
+        attrs={"units": "m3/s", "long_name": "Observed Streamflow"},
     )
     ds = xr.Dataset(
         data_vars={"predictions": pred_da, "observations": obs_da},

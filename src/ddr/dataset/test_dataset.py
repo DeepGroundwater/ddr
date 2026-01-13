@@ -3,6 +3,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import rustworkx as rx
 import torch
 from scipy import sparse
 from torch.utils.data import Dataset as TorchDataset
@@ -13,6 +14,7 @@ from ddr.dataset.observations import IcechunkUSGSReader
 from ddr.dataset.statistics import set_statistics
 from ddr.dataset.utils import (
     Hydrofabric,
+    _build_network_graph,
     construct_network_matrix,
     create_hydrofabric_observations,
     fill_nans,
@@ -33,21 +35,17 @@ class TestDataset(TorchDataset):
 
         self.attr_reader = AttributesReader(cfg=self.cfg)
         self.attr_stats = set_statistics(self.cfg, self.attr_reader.ds)
-        # Convert to tensor after collecting all valid data
+
         self.means = torch.tensor(
             [self.attr_stats[attr].iloc[2] for attr in self.cfg.kan.input_var_names],
             device=self.cfg.device,
             dtype=torch.float32,
-        ).unsqueeze(1)  # Mean is always idx 2
+        ).unsqueeze(1)
         self.stds = torch.tensor(
             [self.attr_stats[attr].iloc[3] for attr in self.cfg.kan.input_var_names],
             device=self.cfg.device,
             dtype=torch.float32,
-        ).unsqueeze(1)  # Mean is always idx 3
-
-        self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
-        self.observations = self.obs_reader.read_data(dates=self.dates)
-        self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+        ).unsqueeze(1)
 
         _flowpath_attr = gpd.read_file(
             self.cfg.data_sources.hydrofabric_gpkg, layer="flowpath-attributes-ml"
@@ -61,22 +59,62 @@ class TestDataset(TorchDataset):
             ],
             device=self.cfg.device,
             dtype=torch.float32,
-        ).unsqueeze(1)  # Creating mean values for physical parameters within the HF
+        ).unsqueeze(1)
 
         self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
-        self.hf_ids = self.conus_adjacency["order"][:]  # type: ignore
-        self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
+        self.hf_ids = self.conus_adjacency["order"][:]
 
-        # Filter observations based on batch and what gauges exist in the zarr store/HF
+        # Determine mode and build hydrofabric
+        if cfg.data_sources.target_catchments is not None:
+            self.mode = "target_catchments"
+            self.target_catchments = cfg.data_sources.target_catchments
+            self.network_graph, self.hf_id_to_node = _build_network_graph(self.conus_adjacency)
+            self.gage_ids = None
+            self.observations = None
+            self.gages_adjacency = None
+            log.info(f"Target catchments mode: routing flow upstream of the {self.target_catchments} outlets")
+            self.hydrofabric = self._build_target_catchments_hydrofabric()
+
+        elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
+            self.mode = "gages"
+            self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
+            self.observations = self.obs_reader.read_data(dates=self.dates)
+            self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+            self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
+            log.info(f"Gages mode: {len(self.gage_ids)} gauged locations")
+            self.hydrofabric = self._build_gages_hydrofabric()
+
+        else:
+            self.mode = "all"
+            self.gage_ids = None
+            self.observations = None
+            self.gages_adjacency = None
+            log.info("All segments mode")
+            self.hydrofabric = self._build_all_segments_hydrofabric()
+
+    def __len__(self) -> int:
+        """Returns the total number of days that we're evaluating over"""
+        return len(self.dates.daily_time_range)
+
+    def __getitem__(self, idx) -> int:
+        return idx
+
+    def collate_fn(self, *args, **kwargs) -> Hydrofabric:
+        """Batching by timesteps, not gauge IDs"""
+        indices = list(args[0])
+        if 0 not in indices:
+            prev_day = indices[0] - 1
+            indices.insert(0, prev_day)
+
+        self.dates.set_date_range(indices)
+        return self.hydrofabric
+
+    def _build_gages_hydrofabric(self) -> Hydrofabric:
+        """Build hydrofabric for all gages."""
         valid_gauges_mask = np.isin(self.gage_ids, list(self.gages_adjacency.keys()))
-        self.gage_ids = self.gage_ids[valid_gauges_mask].tolist()  # batch is all gauges
+        batch = self.gage_ids[valid_gauges_mask].tolist()
 
-        coo, _gage_idx, gage_wb = construct_network_matrix(self.gage_ids, self.gages_adjacency)
-        local_col_idx = []
-        for _i, _idx in enumerate(_gage_idx):
-            mask = np.isin(coo.row, _idx)
-            local_gage_inflow_idx = np.where(mask)[0]
-            local_col_idx.append(coo.col[local_gage_inflow_idx])
+        coo, _gage_idx, gage_wb = construct_network_matrix(batch, self.gages_adjacency)
 
         active_indices = np.unique(np.concatenate([coo.row, coo.col]))
         index_mapping = {orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(active_indices)}
@@ -91,44 +129,169 @@ class TestDataset(TorchDataset):
         compressed_csr = compressed_coo.tocsr()
         compressed_hf_ids = self.hf_ids[active_indices]
 
-        # Create waterbody and divide IDs for the compressed matrix
         wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
         divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
-
-        # Get subset of flowpath attributes for this batch
         compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
-        # Update local_col_idx to use compressed indices
         outflow_idx = []
         for _idx in _gage_idx:
             mask = np.isin(coo.row, _idx)
             local_gage_inflow_idx = np.where(mask)[0]
-            # Map original column indices to compressed indices
             original_col_indices = coo.col[local_gage_inflow_idx]
             compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
             outflow_idx.append(compressed_col_indices)
 
-        # NOTE: You can check the accuracy of the CSR compression through the following lines. The "to" should be the same number as gage_wb
-        assert (
-            np.array(
-                [
-                    _id.split("-")[1]
-                    for _id in compressed_flowpath_attr.iloc[np.concatenate(outflow_idx)]["to"]
-                    .drop_duplicates(keep="first")
-                    .values
-                ]
-            )
-            == np.array([_id.split("-")[1] for _id in gage_wb])
-        ).all(), (
-            "Gage WB don't match up with indices. There is something wrong with your batching and how it's loading in sparse matrices from the engine"
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
+            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
         )
 
-        # Create PyTorch sparse tensor with compressed 135x135 matrix
+        hydrofabric_observations = create_hydrofabric_observations(
+            dates=self.dates,
+            gage_ids=np.array(batch),
+            observations=self.observations,
+        )
+
+        log.info(f"Created gages adjacency matrix of shape: {adjacency_matrix.shape}")
+        return Hydrofabric(
+            spatial_attributes=spatial_attributes,
+            length=flowpath_tensors["length"],
+            slope=flowpath_tensors["slope"],
+            side_slope=flowpath_tensors["side_slope"],
+            top_width=flowpath_tensors["top_width"],
+            x=flowpath_tensors["x"],
+            dates=self.dates,
+            adjacency_matrix=adjacency_matrix,
+            normalized_spatial_attributes=normalized_spatial_attributes,
+            observations=hydrofabric_observations,
+            divide_ids=divide_ids,
+            outflow_idx=outflow_idx,
+            gage_wb=gage_wb,
+        )
+
+    def _build_target_catchments_hydrofabric(self) -> Hydrofabric:
+        """Build hydrofabric for target catchments by finding all upstream segments."""
+        all_ancestor_indices = set()
+        target_node_groups = []
+
+        for target in self.target_catchments:
+            target_id = int(target.split("-")[1])
+
+            assert target_id in self.hf_id_to_node, (
+                f"{target_id} not found in Hydrofabric graph. Use a different target ID"
+            )
+
+            target_node = self.hf_id_to_node[target_id]
+            ancestors = rx.ancestors(self.network_graph, target_node)
+            ancestors.add(target_node)
+
+            all_ancestor_indices.update(ancestors)
+            target_node_groups.append((target_node, ancestors))
+
+        if not all_ancestor_indices:
+            raise ValueError("No valid target catchments found in hydrofabric")
+
+        rows = self.conus_adjacency["indices_0"][:]
+        cols = self.conus_adjacency["indices_1"][:]
+        data = self.conus_adjacency["values"][:]
+
+        active_set = all_ancestor_indices
+        mask = np.array([r in active_set and c in active_set for r, c in zip(rows, cols, strict=False)])
+        filtered_rows = rows[mask]
+        filtered_cols = cols[mask]
+        filtered_data = data[mask]
+
+        coo = sparse.coo_matrix(
+            (filtered_data, (filtered_rows, filtered_cols)), shape=(len(self.hf_ids), len(self.hf_ids))
+        )
+
+        active_indices = np.unique(np.concatenate([coo.row, coo.col]))
+        index_mapping = {orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(active_indices)}
+
+        compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
+        compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
+
+        compressed_size = len(active_indices)
+        compressed_coo = sparse.coo_matrix(
+            (coo.data, (compressed_rows, compressed_cols)), shape=(compressed_size, compressed_size)
+        )
+        compressed_csr = compressed_coo.tocsr()
+        compressed_hf_ids = self.hf_ids[active_indices]
+
+        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
+        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+
+        outflow_idx = [np.array([i]) for i in range(compressed_size)]
+
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
+            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+        )
+
+        log.info(f"Created target catchments adjacency matrix of shape: {adjacency_matrix.shape}")
+        return Hydrofabric(
+            spatial_attributes=spatial_attributes,
+            length=flowpath_tensors["length"],
+            slope=flowpath_tensors["slope"],
+            side_slope=flowpath_tensors["side_slope"],
+            top_width=flowpath_tensors["top_width"],
+            x=flowpath_tensors["x"],
+            dates=self.dates,
+            adjacency_matrix=adjacency_matrix,
+            normalized_spatial_attributes=normalized_spatial_attributes,
+            observations=None,
+            divide_ids=divide_ids,
+            outflow_idx=outflow_idx,
+            gage_wb=None,
+        )
+
+    def _build_all_segments_hydrofabric(self) -> Hydrofabric:
+        """Build hydrofabric for all segments."""
+        csr_matrix = sparse.csr_matrix(
+            (
+                self.conus_adjacency["data"][:],
+                self.conus_adjacency["indices"][:],
+                self.conus_adjacency["indptr"][:],
+            ),
+            shape=(len(self.hf_ids), len(self.hf_ids)),
+        )
+
+        wb_ids = np.array([f"wb-{_id}" for _id in self.hf_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in self.hf_ids])
+        flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
+            self._build_common_tensors(csr_matrix, divide_ids, flowpath_attr)
+        )
+
+        log.info(f"Created all segments adjacency matrix of shape: {adjacency_matrix.shape}")
+        return Hydrofabric(
+            spatial_attributes=spatial_attributes,
+            length=flowpath_tensors["length"],
+            slope=flowpath_tensors["slope"],
+            side_slope=flowpath_tensors["side_slope"],
+            top_width=flowpath_tensors["top_width"],
+            x=flowpath_tensors["x"],
+            dates=self.dates,
+            adjacency_matrix=adjacency_matrix,
+            normalized_spatial_attributes=normalized_spatial_attributes,
+            observations=None,
+            divide_ids=divide_ids,
+            outflow_idx=None,
+            gage_wb=None,
+        )
+
+    def _build_common_tensors(
+        self,
+        csr_matrix: sparse.csr_matrix,
+        divide_ids: np.ndarray,
+        flowpath_attr: gpd.GeoDataFrame,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        """Build tensors common to all modes."""
         adjacency_matrix = torch.sparse_csr_tensor(
-            crow_indices=compressed_csr.indptr,
-            col_indices=compressed_csr.indices,
-            values=compressed_csr.data,
-            size=compressed_csr.shape,
+            crow_indices=csr_matrix.indptr,
+            col_indices=csr_matrix.indices,
+            values=csr_matrix.data,
+            size=csr_matrix.shape,
             device=self.cfg.device,
             dtype=torch.float32,
         )
@@ -146,66 +309,29 @@ class TestDataset(TorchDataset):
             spatial_attributes[r, nan_mask] = row_means
 
         normalized_spatial_attributes = (spatial_attributes - self.means) / self.stds
-        normalized_spatial_attributes = normalized_spatial_attributes.T  # transposing for NN inputs
+        normalized_spatial_attributes = normalized_spatial_attributes.T
 
-        length = fill_nans(
-            torch.tensor(compressed_flowpath_attr["Length_m"].values, dtype=torch.float32),
-            row_means=self.phys_means[0],
-        )
-        slope = fill_nans(
-            torch.tensor(compressed_flowpath_attr["So"].values, dtype=torch.float32),
-            row_means=self.phys_means[1],
-        )
-        top_width = fill_nans(
-            torch.tensor(compressed_flowpath_attr["TopWdth"].values, dtype=torch.float32),
-            row_means=self.phys_means[2],
-        )
-        side_slope = fill_nans(
-            torch.tensor(compressed_flowpath_attr["ChSlp"].values, dtype=torch.float32),
-            row_means=self.phys_means[3],
-        )
-        x = fill_nans(
-            torch.tensor(compressed_flowpath_attr["MusX"].values, dtype=torch.float32),
-            row_means=self.phys_means[4],
-        )
+        flowpath_tensors = {
+            "length": fill_nans(
+                torch.tensor(flowpath_attr["Length_m"].values, dtype=torch.float32),
+                row_means=self.phys_means[0],
+            ),
+            "slope": fill_nans(
+                torch.tensor(flowpath_attr["So"].values, dtype=torch.float32),
+                row_means=self.phys_means[1],
+            ),
+            "top_width": fill_nans(
+                torch.tensor(flowpath_attr["TopWdth"].values, dtype=torch.float32),
+                row_means=self.phys_means[2],
+            ),
+            "side_slope": fill_nans(
+                torch.tensor(flowpath_attr["ChSlp"].values, dtype=torch.float32),
+                row_means=self.phys_means[3],
+            ),
+            "x": fill_nans(
+                torch.tensor(flowpath_attr["MusX"].values, dtype=torch.float32),
+                row_means=self.phys_means[4],
+            ),
+        }
 
-        # Create hydrofabric observations for this batch
-        hydrofabric_observations = create_hydrofabric_observations(
-            dates=self.dates,
-            gage_ids=self.gage_ids,
-            observations=self.observations,
-        )
-
-        self.hydrofabric = Hydrofabric(
-            spatial_attributes=spatial_attributes,
-            length=length,
-            slope=slope,
-            side_slope=side_slope,
-            top_width=top_width,
-            x=x,
-            dates=self.dates,
-            adjacency_matrix=adjacency_matrix,
-            normalized_spatial_attributes=normalized_spatial_attributes,
-            observations=hydrofabric_observations,
-            divide_ids=divide_ids,
-            gage_idx=outflow_idx,
-            gage_wb=gage_wb,
-        )
-
-    def __len__(self) -> int:
-        """Returns the total number of days that we're evaluating over"""
-        return len(self.dates.daily_time_range)
-
-    def __getitem__(self, idx) -> tuple[int, str, str]:
-        return idx
-
-    def collate_fn(self, *args, **kwargs) -> Hydrofabric:
-        """The batching collate_fn. This collate will batch from timesteps and NOT gauge IDs"""
-        indices = args[0]
-        if 0 not in indices:
-            # interpolation requires the previous day's value in order to correctly run
-            prev_day = indices[0] - 1
-            indices.insert(0, prev_day)
-
-        self.dates.set_date_range(indices)
-        return self.hydrofabric
+        return adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors

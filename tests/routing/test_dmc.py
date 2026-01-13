@@ -226,7 +226,7 @@ class TestDMCForwardPass:
 
         assert isinstance(output, dict)
         assert "runoff" in output
-        assert_tensor_properties(output["runoff"], (2, 24))  # 2 gauges, 24 timesteps
+        assert_tensor_properties(output["runoff"], (1, 24))  # 1 gauge, 24 timesteps
         assert_no_nan_or_inf(output["runoff"], "runoff")
 
     def test_forward_parameter_setup(self, setup_model_and_data):
@@ -368,7 +368,7 @@ class TestDMCIntegration:
             output = model(**kwargs)
 
         # Check output properties
-        expected_shape = (2, scenario["num_timesteps"])  # 2 gauges
+        expected_shape = (1, scenario["num_timesteps"])  # 1 gauge
         assert_tensor_properties(output["runoff"], expected_shape)
         assert_no_nan_or_inf(output["runoff"], f"runoff_{scenario['name']}")
 

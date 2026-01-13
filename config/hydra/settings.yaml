@@ -14,7 +14,7 @@ job:
   name: ${name}
   chdir: True
 run:
-  dir: ${hydra:runtime.cwd}/runs/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S}
+  dir: ${hydra:runtime.cwd}/output/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S}
 sweep:
   dir: multirun
   subdir: ${hydra.job.override_dirname}

@@ -387,7 +387,7 @@ class TestMuskingumCungeForward:
             output = mc.forward()
 
         # Check output properties
-        expected_shape = (2, 24)  # 2 gauges, 24 timesteps
+        expected_shape = (1, 24)  # 1 gauge, 24 timesteps
         assert_tensor_properties(output, expected_shape)
         assert_no_nan_or_inf(output, "forward_output")
 
@@ -468,7 +468,7 @@ class TestMuskingumCungeIntegration:
             output = mc.forward()
 
         # Check output properties
-        expected_shape = (2, scenario["num_timesteps"])  # 2 gauges
+        expected_shape = (1, scenario["num_timesteps"])  # 1 gauge
         assert_tensor_properties(output, expected_shape)
         assert_no_nan_or_inf(output, f"forward_{scenario['name']}")
 
@@ -542,7 +542,7 @@ class TestMuskingumCungeIntegration:
             output = mc.forward()
 
         # Verify output
-        assert_tensor_properties(output, (2, 36))  # 2 gauges, 36 timesteps
+        assert_tensor_properties(output, (1, 36))  # 1 gauge, 36 timesteps
         assert_no_nan_or_inf(output, "full_workflow_output")
 
 

@@ -5,6 +5,7 @@ from typing import Any
 
 import icechunk as ic
 import numpy as np
+import rustworkx as rx
 import torch
 import torch.nn.functional as F
 import xarray as xr
@@ -32,7 +33,7 @@ class Hydrofabric:
     normalized_spatial_attributes: torch.Tensor | None = field(default=None)
     observations: xr.Dataset | None = field(default=None)
     divide_ids: np.ndarray | None = field(default=None)
-    gage_idx: list[np.ndarray] | None = field(
+    outflow_idx: list[np.ndarray] | None = field(
         default=None
     )  # Has to be list[np.ndarray] since idx are ragged arrays
     gage_wb: list[str] | None = field(default=None)
@@ -264,3 +265,40 @@ def read_ic(store: str, region="us-east-2") -> xr.Dataset:
     repo = ic.Repository.open(storage_config)
     session = repo.readonly_session("main")
     return xr.open_zarr(session.store, consolidated=False)
+
+
+def _build_network_graph(conus_adjacency: dict) -> tuple[rx.PyDiGraph, dict[int, int], np.ndarray]:
+    """Build a rustworkx directed graph from the CONUS adjacency matrix.
+
+    Parameters
+    ----------
+    conus_adjacency : dict
+        Zarr group containing COO matrix data (indices_0, indices_1, values, order)
+
+    Returns
+    -------
+    tuple[rx.PyDiGraph, dict[int, int], np.ndarray]
+        graph : The directed graph where edges point downstream
+        hf_id_to_node : Mapping from hydrofabric ID to graph node index
+        hf_ids : Array of hydrofabric IDs in topological order
+    """
+    hf_ids = conus_adjacency["order"][:]
+    rows = conus_adjacency["indices_0"][:]
+    cols = conus_adjacency["indices_1"][:]
+    n = len(hf_ids)
+
+    # Create graph - edges go from col (upstream) to row (downstream)
+    graph = rx.PyDiGraph(check_cycle=False, node_count_hint=n, edge_count_hint=len(rows))
+
+    # Add all nodes
+    graph.add_nodes_from(list(range(n)))
+
+    # Create mapping from hf_id to node index
+    hf_id_to_node = {int(hf_id): idx for idx, hf_id in enumerate(hf_ids)}
+
+    # Add edges (upstream -> downstream)
+    # In lower triangular matrix: row >= col, so col is upstream of row
+    edges = [(int(col), int(row)) for col, row in zip(cols, rows, strict=False)]
+    graph.add_edges_from_no_data(edges)
+
+    return graph, hf_id_to_node

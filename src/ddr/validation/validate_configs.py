@@ -1,5 +1,6 @@
 import logging
 import random
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,14 @@ def check_path(v: str) -> Path:
         log.exception(f"Path {v} does not exist")
         raise ValueError(f"Path {v} does not exist")
     return path
+
+
+class Mode(str, Enum):
+    """Operating mode for the DDR model."""
+
+    TRAINING = "training"
+    TESTING = "testing"
+    ROUTING = "routing"
 
 
 class AttributeMinimums(BaseModel):
@@ -183,6 +192,7 @@ class Config(BaseModel):
         default_factory=ExperimentConfig,
         description="Experiment settings controlling training behavior and data selection",
     )
+    mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
     np_seed: int = Field(default=1, description="Random seed for NumPy operations to ensure reproducibility")

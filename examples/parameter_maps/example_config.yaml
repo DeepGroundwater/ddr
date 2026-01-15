@@ -1,11 +1,10 @@
 name: ddr-v${oc.env:DDR_VERSION,dev}-plots
-
+mode: routing
+geodataset: lynker_hydrofabric
 data_sources:
-  hydrofabric_gpkg: ./../../data/conus_nextgen.gpkg
+  geospatial_fabric_gpkg: ./../../data/conus_nextgen.gpkg
   conus_adjacency: ./../../data/conus_adjacency.zarr
-  gages_adjacency: ./../../data/gages_adjacency.zarr
   statistics: ./../../data/
-  gages: ./sample_gauge.csv
 
 np_seed: 1
 seed: 0

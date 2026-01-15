@@ -10,11 +10,11 @@ from ddr.routing.dmc import dmc as original_dmc
 from ddr.routing.mmc import MuskingumCunge
 from ddr.routing.torch_mc import dmc
 from tests.routing.test_utils import (
-    MockHydrofabric,
+    MockRoutingDataclass,
     assert_no_nan_or_inf,
     assert_tensor_properties,
     create_mock_config,
-    create_mock_hydrofabric,
+    create_mock_routing_dataclass,
     create_mock_spatial_parameters,
     create_mock_streamflow,
 )
@@ -34,7 +34,7 @@ class TestRefactoredVsOriginalValidation:
         core_model = MuskingumCunge(cfg, device="cpu")
 
         # Create test data
-        hydrofabric = create_mock_hydrofabric(num_reaches=10)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
         spatial_params = create_mock_spatial_parameters(num_reaches=10)
 
@@ -237,12 +237,12 @@ class TestCoreMuskingumCungeValidation:
     @pytest.fixture
     def setup_core_test(
         self,
-    ) -> tuple[MuskingumCunge, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]]:
+    ) -> tuple[MuskingumCunge, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]]:
         """Setup core model test."""
         cfg = create_mock_config()
         core_model = MuskingumCunge(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=8)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=8)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=8)
         spatial_params = create_mock_spatial_parameters(num_reaches=8)
 
@@ -250,7 +250,7 @@ class TestCoreMuskingumCungeValidation:
 
     def test_core_setup_and_forward(
         self,
-        setup_core_test: tuple[MuskingumCunge, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]],
+        setup_core_test: tuple[MuskingumCunge, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test core model setup and forward pass."""
         core_model, hydrofabric, streamflow, spatial_params = setup_core_test
@@ -260,7 +260,7 @@ class TestCoreMuskingumCungeValidation:
         core_model.set_progress_info(1, 0)
 
         # Verify setup worked
-        assert core_model.hydrofabric is not None
+        assert core_model.routing_dataclass is not None
         assert core_model.n is not None
         assert core_model.q_spatial is not None
         assert core_model._discharge_t is not None
@@ -278,7 +278,7 @@ class TestCoreMuskingumCungeValidation:
 
     def test_core_encapsulation(
         self,
-        setup_core_test: tuple[MuskingumCunge, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]],
+        setup_core_test: tuple[MuskingumCunge, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test that core model properly encapsulates data."""
         core_model, hydrofabric, streamflow, spatial_params = setup_core_test
@@ -340,7 +340,7 @@ class TestBackwardCompatibilityValidation:
         assert routing_model.mini_batch == 0
 
         # Test forward pass with kwargs (from train.py)
-        hydrofabric = create_mock_hydrofabric(num_reaches=5)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
 
@@ -380,7 +380,7 @@ class TestBackwardCompatibilityValidation:
         assert routing_model.epoch == 5
 
         # Test the same forward pass pattern as training
-        hydrofabric = create_mock_hydrofabric(num_reaches=3)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=3)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=3)
         spatial_params = create_mock_spatial_parameters(num_reaches=3)
 
@@ -469,7 +469,7 @@ class TestPerformanceValidation:
         cfg = create_mock_config()
         refactored = dmc(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=100)  # Larger network
+        hydrofabric = create_mock_routing_dataclass(num_reaches=100)  # Larger network
         streamflow = create_mock_streamflow(num_timesteps=72, num_reaches=100)
         spatial_params = create_mock_spatial_parameters(num_reaches=100)
 

@@ -68,8 +68,8 @@ class DataSources(BaseModel):
         default="s3://mhpi-spatial/hydrofabric_v2.2_attributes/",  # MHPI extracted spatial attributes for HF v2.2
         description="Path to the icechunk store containing catchment attribute data",
     )
-    hydrofabric_gpkg: str = Field(
-        description="Path to the CONUS hydrofabric geopackage containing network topology"
+    geospatial_fabric_gpkg: str = Field(
+        description="Path to the geospatial fabric geopackage containing network topology"
     )
     conus_adjacency: str = Field(
         description="Path to the CONUS adjacency matrix created by engine/adjacency.py"

@@ -36,7 +36,7 @@ class LynkerHydrofabric(BaseDataset):
         self.observations: Any = None
         self.gages_adjacency: Any = None
         self.target_catchments: list[str] | None = None
-        self.hydrofabric: RoutingDataclass | None = None
+        self.routing_dataclass: RoutingDataclass | None = None
         self.mode: str = ""
 
         self.attr_reader = AttributesReader(cfg=self.cfg)
@@ -53,7 +53,7 @@ class LynkerHydrofabric(BaseDataset):
         ).unsqueeze(1)  # Std is always idx 3
 
         _flowpath_attr = gpd.read_file(
-            self.cfg.data_sources.hydrofabric_gpkg, layer="flowpath-attributes-ml"
+            self.cfg.data_sources.geospatial_fabric_gpkg, layer="flowpath-attributes-ml"
         ).set_index("id")
         self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
 
@@ -97,7 +97,7 @@ class LynkerHydrofabric(BaseDataset):
             self.target_catchments = cfg.data_sources.target_catchments
             self.network_graph, self.hf_id_to_node, _ = _build_network_graph(self.conus_adjacency)
             log.info(f"Target catchments mode: routing flow upstream of the {self.target_catchments} outlets")
-            self.hydrofabric = self._build_routing_data_target_catchments()
+            self.routing_dataclass = self._build_routing_data_target_catchments()
 
         elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
             self.mode = "gages"
@@ -106,12 +106,12 @@ class LynkerHydrofabric(BaseDataset):
             self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
             self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
             log.info(f"Gages mode: {len(self.gage_ids)} gauged locations")
-            self.hydrofabric = self._build_routing_data_gages()
+            self.routing_dataclass = self._build_routing_data_gages()
 
         else:
             self.mode = "all"
             log.info("All segments mode")
-            self.hydrofabric = self._build_routing_data_all_catchments()
+            self.routing_dataclass = self._build_routing_data_all_catchments()
 
     def __len__(self) -> int:
         if self.cfg.mode == Mode.TRAINING:
@@ -146,18 +146,18 @@ class LynkerHydrofabric(BaseDataset):
                 indices.insert(0, prev_day)
 
             self.dates.set_date_range(np.array(indices))
-            if self.hydrofabric is None:
+            if self.routing_dataclass is None:
                 raise ValueError("Hydrofabric not initialized for testing/routing mode")
-            return self.hydrofabric
+            return self.routing_dataclass
         else:
             raise NotImplementedError(f"Cannot batch data for unknown mode: {self.cfg.mode}")
 
     @property
     def routing_data(self) -> RoutingDataclass:
         """Property to access hydrofabric for backward compatibility."""
-        if self.hydrofabric is None:
+        if self.routing_dataclass is None:
             raise ValueError("Hydrofabric not initialized")
-        return self.hydrofabric
+        return self.routing_dataclass
 
     def _collate_gages(self, batch: np.ndarray) -> RoutingDataclass:
         """Route to gauge locations with observations"""

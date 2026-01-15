@@ -139,7 +139,7 @@ class MuskingumCunge:
         )
 
         # Hydrofabric data - managed internally
-        self.hydrofabric: Any = None
+        self.routing_dataclass: Any = None
         self.length: torch.Tensor | None = None
         self.slope: torch.Tensor | None = None
         self.top_width: torch.Tensor | None = None
@@ -181,7 +181,7 @@ class MuskingumCunge:
     ) -> None:
         """Setup all inputs for routing including hydrofabric, streamflow, and parameters."""
         # Store hydrofabric
-        self.hydrofabric = hydrofabric
+        self.routing_dataclass = hydrofabric
         self.output_indices = hydrofabric.outflow_idx
         self.gage_wb = hydrofabric.gage_wb
 
@@ -239,7 +239,7 @@ class MuskingumCunge:
 
     def forward(self) -> torch.Tensor:
         """Perform forward routing calculation."""
-        if self.hydrofabric is None:
+        if self.routing_dataclass is None:
             raise ValueError("Hydrofabric not set. Call setup_inputs() first.")
         if self.q_prime is None or self._discharge_t is None:
             raise ValueError("Streamflow not set. Call setup_inputs() first.")

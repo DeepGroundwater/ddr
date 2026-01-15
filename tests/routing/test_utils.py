@@ -33,7 +33,7 @@ def create_mock_config() -> Config:
     cfg = {
         "name": "mock",
         "data_sources": {
-            "hydrofabric_gpkg": "mock.gpkg",
+            "geospatial_fabric_gpkg": "mock.gpkg",
             "streamflow": "mock://streamflow/store",
             "conus_adjacency": "mock.zarr",
             "gages_adjacency": "mock.zarr",
@@ -70,7 +70,7 @@ class MockObservations:
         self.gage_id = torch.tensor([1], device=device)
 
 
-class MockHydrofabric:
+class MockRoutingDataclass:
     """Mock hydrofabric class for testing."""
 
     def __init__(self, num_reaches: int = 10, device: str = "cpu") -> None:
@@ -120,7 +120,7 @@ class MockHydrofabric:
         self.gage_wb = ["wb-1"]
 
 
-def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> MockHydrofabric:
+def create_mock_routing_dataclass(num_reaches: int = 10, device: str = "cpu") -> MockRoutingDataclass:
     """Create a mock hydrofabric object for testing.
 
     Parameters
@@ -132,10 +132,10 @@ def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> MockH
 
     Returns
     -------
-    MockHydrofabric
+    MockRoutingDataclass
         Mock hydrofabric object
     """
-    return MockHydrofabric(num_reaches=num_reaches, device=device)
+    return MockRoutingDataclass(num_reaches=num_reaches, device=device)
 
 
 def create_mock_streamflow(num_timesteps: int, num_reaches: int, device: str = "cpu") -> torch.Tensor:

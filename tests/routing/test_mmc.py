@@ -1,5 +1,6 @@
 """Comprehensive tests for the refactored mmc.py module."""
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -10,7 +11,7 @@ from tests.routing.test_utils import (
     assert_no_nan_or_inf,
     assert_tensor_properties,
     create_mock_config,
-    create_mock_hydrofabric,
+    create_mock_routing_dataclass,
     create_mock_spatial_parameters,
     create_mock_streamflow,
     create_test_scenarios,
@@ -20,7 +21,7 @@ from tests.routing.test_utils import (
 class TestMuskingumCungeInitialization:
     """Test MuskingumCunge class initialization."""
 
-    def test_init_cpu(self):
+    def test_init_cpu(self) -> None:
         """Test initialization with CPU device."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -42,16 +43,16 @@ class TestMuskingumCungeInitialization:
         assert mc.q_spatial is None
         assert mc._discharge_t is None
         assert mc.network is None
-        assert mc.hydrofabric is None
+        assert mc.routing_dataclass is None
 
-    def test_init_default_device(self):
+    def test_init_default_device(self) -> None:
         """Test initialization with default device."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg)
 
         assert mc.device == "cpu"
 
-    def test_parameter_bounds_setup(self):
+    def test_parameter_bounds_setup(self) -> None:
         """Test that parameter bounds are correctly set up."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -67,7 +68,7 @@ class TestMuskingumCungeInitialization:
 class TestMuskingumCungeProgressTracking:
     """Test progress tracking functionality."""
 
-    def test_set_progress_info(self):
+    def test_set_progress_info(self) -> None:
         """Test setting progress information."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -81,27 +82,34 @@ class TestMuskingumCungeProgressTracking:
 class TestMuskingumCungeInputSetup:
     """Test input setup functionality."""
 
-    def test_setup_inputs_basic(self):
+    def test_setup_inputs_basic(self) -> None:
         """Test basic input setup."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=10)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
         spatial_params = create_mock_spatial_parameters(num_reaches=10)
 
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
         # Check that all inputs were stored
-        assert mc.hydrofabric is hydrofabric
+        assert mc.routing_dataclass is hydrofabric
+        assert mc.q_prime is not None
         assert torch.equal(mc.q_prime, streamflow)
         assert mc.spatial_parameters == spatial_params
 
         # Check network setup
+        assert mc.network is not None
         assert torch.equal(mc.network, hydrofabric.adjacency_matrix)
-        assert torch.equal(mc.observations, hydrofabric.observations.gage_id)
+        assert mc.observations == hydrofabric.observations.gage_id
 
         # Check spatial attributes
+        assert mc.length is not None
+        assert mc.slope is not None
+        assert mc.top_width is not None
+        assert mc.side_slope is not None
+        assert mc.x_storage is not None
         assert_tensor_properties(mc.length, (10,))
         assert_tensor_properties(mc.slope, (10,))
         assert_tensor_properties(mc.top_width, (10,))
@@ -115,14 +123,15 @@ class TestMuskingumCungeInputSetup:
         assert_tensor_properties(mc.q_spatial, (10,))
 
         # Check discharge initialization
+        assert mc._discharge_t is not None
         assert torch.equal(mc._discharge_t, streamflow[0])
 
-    def test_setup_inputs_slope_clamping(self):
+    def test_setup_inputs_slope_clamping(self) -> None:
         """Test that slope is properly clamped during setup."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=5)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
         # Set some slopes below minimum
         hydrofabric.slope = torch.tensor([0.00001, 0.001, 0.00005, 0.002, 0.00003])
 
@@ -132,20 +141,27 @@ class TestMuskingumCungeInputSetup:
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
         min_slope = cfg.params.attribute_minimums["slope"]
+        assert mc.slope is not None
         assert (mc.slope >= min_slope).all(), "All slopes should be >= minimum"
 
-    def test_setup_inputs_device_conversion(self):
+    def test_setup_inputs_device_conversion(self) -> None:
         """Test that tensors are moved to correct device during setup."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=5, device="cpu")
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5, device="cpu")
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5, device="cpu")
         spatial_params = create_mock_spatial_parameters(num_reaches=5, device="cpu")
 
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
         # Check that all tensors are on correct device
+        assert mc.length is not None
+        assert mc.slope is not None
+        assert mc.top_width is not None
+        assert mc.side_slope is not None
+        assert mc.x_storage is not None
+        assert mc.q_prime is not None
         assert mc.length.device.type == "cpu"
         assert mc.slope.device.type == "cpu"
         assert mc.top_width.device.type == "cpu"
@@ -157,7 +173,7 @@ class TestMuskingumCungeInputSetup:
 class TestMuskingumCungeSparseOperations:
     """Test sparse matrix operations."""
 
-    def test_sparse_eye(self):
+    def test_sparse_eye(self) -> None:
         """Test _sparse_eye method."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -175,7 +191,7 @@ class TestMuskingumCungeSparseOperations:
         expected = torch.eye(n)
         assert torch.allclose(dense_identity, expected)
 
-    def test_sparse_diag(self):
+    def test_sparse_diag(self) -> None:
         """Test _sparse_diag method."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -193,13 +209,13 @@ class TestMuskingumCungeSparseOperations:
         expected = torch.diag(data)
         assert torch.allclose(dense_diag, expected)
 
-    def test_fill_op(self):
+    def test_fill_op(self) -> None:
         """Test fill_op method."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs first
-        hydrofabric = create_mock_hydrofabric(num_reaches=3)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=3)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=3)
         spatial_params = create_mock_spatial_parameters(num_reaches=3)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
@@ -217,7 +233,7 @@ class TestMuskingumCungeSparseOperations:
 class TestMuskingumCungeCoefficients:
     """Test Muskingum coefficient calculations."""
 
-    def test_calculate_muskingum_coefficients(self):
+    def test_calculate_muskingum_coefficients(self) -> None:
         """Test calculation of Muskingum coefficients."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -243,7 +259,7 @@ class TestMuskingumCungeCoefficients:
         # Basic sanity checks
         assert (c_4 > 0).all(), "c_4 should be positive"
 
-    def test_calculate_muskingum_coefficients_edge_cases(self):
+    def test_calculate_muskingum_coefficients_edge_cases(self) -> None:
         """Test coefficient calculation with edge cases."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -264,13 +280,13 @@ class TestMuskingumCungeCoefficients:
 class TestMuskingumCungePatternMapper:
     """Test pattern mapper creation."""
 
-    def test_create_pattern_mapper(self):
+    def test_create_pattern_mapper(self) -> None:
         """Test pattern mapper creation."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs first
-        hydrofabric = create_mock_hydrofabric(num_reaches=5)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
@@ -291,13 +307,13 @@ class TestMuskingumCungePatternMapper:
 class TestMuskingumCungeRouteTimestep:
     """Test single timestep routing."""
 
-    def test_route_timestep(self):
+    def test_route_timestep(self) -> None:
         """Test routing for a single timestep."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs
-        hydrofabric = create_mock_hydrofabric(num_reaches=5)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
@@ -317,13 +333,13 @@ class TestMuskingumCungeRouteTimestep:
         assert_no_nan_or_inf(result, "route_timestep_result")
         assert (result >= mc.discharge_lb).all(), "Result should be >= discharge lower bound"
 
-    def test_route_timestep_discharge_clamping(self):
+    def test_route_timestep_discharge_clamping(self) -> None:
         """Test that timestep routing properly clamps discharge."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs
-        hydrofabric = create_mock_hydrofabric(num_reaches=5)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
@@ -346,7 +362,7 @@ class TestMuskingumCungeRouteTimestep:
 class TestMuskingumCungeForward:
     """Test the forward pass."""
 
-    def test_forward_without_setup_raises_error(self):
+    def test_forward_without_setup_raises_error(self) -> None:
         """Test that forward raises error without setup."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -354,13 +370,13 @@ class TestMuskingumCungeForward:
         with pytest.raises(ValueError, match="Hydrofabric not set"):
             mc.forward()
 
-    def test_forward_basic(self):
+    def test_forward_basic(self) -> None:
         """Test basic forward pass."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs
-        hydrofabric = create_mock_hydrofabric(num_reaches=10)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
         spatial_params = create_mock_spatial_parameters(num_reaches=10)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
@@ -372,7 +388,7 @@ class TestMuskingumCungeForward:
             # Return values that include some below minimum discharge to test clamping
             call_count = 0
 
-            def mock_solver(*args, **kwargs):
+            def mock_solver(*args: Any, **kwargs: Any) -> torch.Tensor:
                 nonlocal call_count
                 call_count += 1
                 # Return mix of values including some below minimum discharge
@@ -419,19 +435,20 @@ class TestMuskingumCungeForward:
             f"but max value is {output.max().item()}"
         )
 
-    def test_forward_discharge_state_updates(self):
+    def test_forward_discharge_state_updates(self) -> None:
         """Test that discharge state is updated during forward pass."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
         # Setup inputs
-        hydrofabric = create_mock_hydrofabric(num_reaches=5)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
         mc.set_progress_info(1, 0)
 
+        assert mc._discharge_t is not None
         initial_discharge = mc._discharge_t.clone()
 
         with patch("ddr.routing.mmc.triangular_sparse_solve") as mock_solve:
@@ -440,6 +457,7 @@ class TestMuskingumCungeForward:
             mc.forward()
 
         # Discharge should have been updated
+        assert mc._discharge_t is not None
         assert not torch.equal(mc._discharge_t, initial_discharge)
         assert torch.allclose(mc._discharge_t, torch.ones(5) * 10.0)
 
@@ -448,12 +466,12 @@ class TestMuskingumCungeIntegration:
     """Integration tests for MuskingumCunge."""
 
     @pytest.mark.parametrize("scenario", create_test_scenarios())
-    def test_different_network_sizes(self, scenario):
+    def test_different_network_sizes(self, scenario: dict[str, Any]) -> None:
         """Test MuskingumCunge with different network sizes."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=scenario["num_reaches"])
+        hydrofabric = create_mock_routing_dataclass(num_reaches=scenario["num_reaches"])
         streamflow = create_mock_streamflow(
             num_timesteps=scenario["num_timesteps"], num_reaches=scenario["num_reaches"]
         )
@@ -472,7 +490,7 @@ class TestMuskingumCungeIntegration:
         assert_tensor_properties(output, expected_shape)
         assert_no_nan_or_inf(output, f"forward_{scenario['name']}")
 
-    def test_reproducibility(self):
+    def test_reproducibility(self) -> None:
         """Test that results are reproducible with same inputs."""
         cfg = create_mock_config()
 
@@ -482,7 +500,7 @@ class TestMuskingumCungeIntegration:
         mc1 = MuskingumCunge(cfg, device="cpu")
         mc2 = MuskingumCunge(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=10)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
         spatial_params = create_mock_spatial_parameters(num_reaches=10)
 
@@ -507,25 +525,25 @@ class TestMuskingumCungeIntegration:
         # Results should be identical
         assert torch.allclose(output1, output2)
 
-    def test_full_workflow(self):
+    def test_full_workflow(self) -> None:
         """Test complete workflow from initialization to forward pass."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
         # Test initial state
-        assert mc.hydrofabric is None
+        assert mc.routing_dataclass is None
         assert mc.n is None
         assert mc.q_spatial is None
 
         # Setup inputs
-        hydrofabric = create_mock_hydrofabric(num_reaches=8)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=8)
         streamflow = create_mock_streamflow(num_timesteps=36, num_reaches=8)
         spatial_params = create_mock_spatial_parameters(num_reaches=8)
 
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
         # Test state after setup
-        assert mc.hydrofabric is not None
+        assert mc.routing_dataclass is not None
         assert mc.n is not None
         assert mc.q_spatial is not None
         assert mc._discharge_t is not None
@@ -549,7 +567,7 @@ class TestMuskingumCungeIntegration:
 class TestMuskingumCungeErrorHandling:
     """Test error handling in MuskingumCunge."""
 
-    def test_setup_inputs_validation(self):
+    def test_setup_inputs_validation(self) -> None:
         """Test input validation in setup_inputs."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
@@ -568,7 +586,7 @@ class TestMuskingumCungeErrorHandling:
             # Expected when hydrofabric is None
             pass
 
-    def test_forward_with_invalid_state(self):
+    def test_forward_with_invalid_state(self) -> None:
         """Test forward method with invalid state."""
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")

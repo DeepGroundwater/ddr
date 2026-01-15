@@ -14,12 +14,12 @@ from tests.routing.gradient_utils import (
     get_tensor_names,
 )
 from tests.routing.test_utils import (
-    MockHydrofabric,
+    MockRoutingDataclass,
     assert_no_nan_or_inf,
     assert_tensor_properties,
     create_mock_config,
-    create_mock_hydrofabric,
     create_mock_nn,
+    create_mock_routing_dataclass,
     create_mock_spatial_parameters,
     create_mock_streamflow,
     create_test_scenarios,
@@ -178,12 +178,12 @@ class TestdmcForwardPass:
     @pytest.fixture
     def setup_model_and_data(
         self,
-    ) -> tuple[dmc, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]]:
+    ) -> tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]]:
         """Setup model and test data."""
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=10)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
         spatial_params = create_mock_spatial_parameters(num_reaches=10)
 
@@ -191,7 +191,7 @@ class TestdmcForwardPass:
 
     def test_forward_basic(
         self,
-        setup_model_and_data: tuple[dmc, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]],
+        setup_model_and_data: tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test basic forward pass."""
         model, hydrofabric, streamflow, spatial_params = setup_model_and_data
@@ -213,7 +213,7 @@ class TestdmcForwardPass:
 
     def test_forward_routing_engine_setup(
         self,
-        setup_model_and_data: tuple[dmc, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]],
+        setup_model_and_data: tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test that routing engine is properly set up during forward pass."""
         model, hydrofabric, streamflow, spatial_params = setup_model_and_data
@@ -235,7 +235,7 @@ class TestdmcForwardPass:
 
     def test_forward_compatibility_attributes_update(
         self,
-        setup_model_and_data: tuple[dmc, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]],
+        setup_model_and_data: tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test that compatibility attributes are updated during forward pass."""
         model, hydrofabric, streamflow, spatial_params = setup_model_and_data
@@ -270,7 +270,7 @@ class TestdmcForwardPass:
 
     def test_forward_device_handling(
         self,
-        setup_model_and_data: tuple[dmc, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]],
+        setup_model_and_data: tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test device handling in forward pass."""
         model, hydrofabric, streamflow, spatial_params = setup_model_and_data
@@ -451,7 +451,7 @@ class TestdmcPyTorchIntegration:
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=5)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
 
         # Create spatial parameters that require gradients
@@ -510,7 +510,7 @@ class TestdmcIntegration:
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
-        hydrofabric = create_mock_hydrofabric(num_reaches=scenario["num_reaches"])
+        hydrofabric = create_mock_routing_dataclass(num_reaches=scenario["num_reaches"])
         streamflow = create_mock_streamflow(
             num_timesteps=scenario["num_timesteps"], num_reaches=scenario["num_reaches"]
         )
@@ -540,7 +540,7 @@ class TestdmcIntegration:
         assert model_cpu.device_num == "cpu"
 
         # Setup data
-        hydrofabric = create_mock_hydrofabric(num_reaches=8)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=8)
         streamflow = create_mock_streamflow(num_timesteps=36, num_reaches=8)
         spatial_params = create_mock_spatial_parameters(num_reaches=8)
 
@@ -650,7 +650,7 @@ class TestdmcBackwardCompatibility:
         assert routing_model.mini_batch == 0
 
         # Test forward pass interface
-        hydrofabric = create_mock_hydrofabric(num_reaches=5)
+        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
 
@@ -683,7 +683,7 @@ class TestParameterTraining:
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
         # Create mock hydrofabric and streamflow
-        hydrofabric = create_mock_hydrofabric(num_reaches=scenario["num_reaches"])
+        hydrofabric = create_mock_routing_dataclass(num_reaches=scenario["num_reaches"])
         streamflow = create_mock_streamflow(
             num_timesteps=scenario["num_timesteps"], num_reaches=scenario["num_reaches"]
         )

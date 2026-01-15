@@ -14,20 +14,16 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, SequentialSampler
 
+from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.dataset import StreamflowReader as streamflow
-from ddr.dataset import TestDataset
-from ddr.dataset import utils as ds_utils
-from ddr.nn import kan
-from ddr.routing.torch_mc import dmc
 from ddr.validation import Config, Metrics, utils, validate_config
 
 log = logging.getLogger(__name__)
 
 
-def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
+def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     """Do model evaluation and get performance metrics."""
-    dataset = TestDataset(cfg=cfg)
+    dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
         file_path = Path(cfg.experiment.checkpoint)
@@ -56,14 +52,13 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
     )
 
     warmup = cfg.experiment.warmup
-    all_gage_ids = [str(gid).zfill(8) for gid in dataset.gage_ids]
-    observations = dataset.hydrofabric.observations.streamflow.values
+    observations = dataset.routing_dataclass.observations.streamflow.values
 
     # Create time ranges
     date_time_format = "%Y/%m/%d"
     start_time = datetime.strptime(cfg.experiment.start_time, date_time_format).strftime("%Y-%m-%d")
     end_time = datetime.strptime(cfg.experiment.end_time, date_time_format).strftime("%Y-%m-%d")
-
+    all_gage_ids = dataset.routing_dataclass.observations.gage_id.values
     predictions = np.zeros([len(all_gage_ids), len(dataset.dates.hourly_time_range)])
 
     with torch.no_grad():  # Disable gradient calculations during evaluation
@@ -81,7 +76,7 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
     num_days = len(predictions[0][13 : (-11 + cfg.params.tau)]) // 24
-    daily_runoff = ds_utils.downsample(
+    daily_runoff = ddr_functions.downsample(
         torch.tensor(predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
         rho=num_days,
     ).numpy()
@@ -112,7 +107,7 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
         },
     )
     ds.to_zarr(
-        cfg.params.save_path / "model_test.zarr",
+        Path(cfg.params.save_path) / "model_test.zarr",
         mode="w",
     )
     metrics = Metrics(pred=ds.predictions.values[:, warmup:], target=ds.observations.values[:, warmup:])

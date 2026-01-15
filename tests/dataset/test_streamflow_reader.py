@@ -10,12 +10,12 @@
 # from ddr.dataset import StreamflowReader
 # from tests.routing.test_utils import (
 #     create_mock_config,
-#     create_mock_hydrofabric,
+#     create_mock_routing_dataclass,
 # )
 
 # @pytest.fixture
-# def mock_hydrofabric():
-#     return create_mock_hydrofabric()
+# def mock_routing_dataclass():
+#     return create_mock_routing_dataclass()
 
 # class TestStreamflowReader:
 #     """Test suite for StreamflowReader class."""
@@ -135,17 +135,17 @@
 #         # Check that it's a proper PyTorch module
 #         assert isinstance(reader, torch.nn.Module)
 
-#     def test_forward_all_valid_divide_ids(self, mock_hydrofabric, streamflow_reader):
+#     def test_forward_all_valid_divide_ids(self, mock_routing_dataclass, streamflow_reader):
 #         """Test forward method with all valid divide IDs."""
 #         result = streamflow_reader(
-#             hydrofabric=mock_hydrofabric,
+#             hydrofabric=mock_routing_dataclass,
 #             device="cpu",
 #             dtype=torch.float32,
 #             use_hourly=False
 #         )
 
 #         # Check output properties
-#         expected_shape = (48, len(mock_hydrofabric.divide_ids))  # 48 timesteps, 3 divides
+#         expected_shape = (48, len(mock_routing_dataclass.divide_ids))  # 48 timesteps, 3 divides
 #         assert result.shape == expected_shape
 #         assert result.dtype == torch.float32
 #         assert result.device.type == "cpu"
@@ -157,11 +157,11 @@
 #         assert result.min() > 0.0
 #         assert result.max() < 1000.0  # Reasonable upper bound
 
-#     def test_forward_mixed_valid_invalid_divide_ids(self, mock_hydrofabric, streamflow_reader, caplog):
+#     def test_forward_mixed_valid_invalid_divide_ids(self, mock_routing_dataclass, streamflow_reader, caplog):
 #         """Test forward method with mix of valid and invalid divide IDs."""
-#         mock_hydrofabric[0] = "cat-010"
+#         mock_routing_dataclass[0] = "cat-010"
 #         result = streamflow_reader(
-#             hydrofabric=mock_hydrofabric,
+#             hydrofabric=mock_routing_dataclass,
 #             device="cpu",
 #             dtype=torch.float32,
 #             use_hourly=False
@@ -184,20 +184,20 @@
 #         assert "invalid-001 missing from the loaded attributes" in caplog.text
 #         assert "invalid-002 missing from the loaded attributes" in caplog.text
 
-#     def test_forward_no_valid_divide_ids(self, mock_hydrofabric, streamflow_reader):
+#     def test_forward_no_valid_divide_ids(self, mock_routing_dataclass, streamflow_reader):
 #         """Test forward method with no valid divide IDs raises assertion error."""
-#         mock_hydrofabric.divide_ids = np.array([f"wb-{i}"] for i in range(len(mock_hydrofabric.divide_ids)))
+#         mock_routing_dataclass.divide_ids = np.array([f"wb-{i}"] for i in range(len(mock_routing_dataclass.divide_ids)))
 #         with pytest.raises(AssertionError, match="No valid divide IDs found"):
 #             streamflow_reader(
-#                 hydrofabric=mock_hydrofabric,
+#                 hydrofabric=mock_routing_dataclass,
 #                 device="cpu",
 #                 dtype=torch.float32,
 #                 use_hourly=False
 #             )
 
-#     def test_forward_use_hourly_false(self, mock_hydrofabric, streamflow_reader):
+#     def test_forward_use_hourly_false(self, mock_routing_dataclass, streamflow_reader):
 #         """Test forward method with use_hourly=False (with interpolation)."""
-#         hydrofabric = mock_hydrofabric(
+#         hydrofabric = mock_routing_dataclass(
 #             divide_ids=["wb-001", "wb-002"]
 #         )
 
@@ -212,9 +212,9 @@
 #         assert result.shape == (48, 2)
 #         assert (result > 0).all()
 
-#     def test_forward_single_divide_id(self, mock_hydrofabric, streamflow_reader):
+#     def test_forward_single_divide_id(self, mock_routing_dataclass, streamflow_reader):
 #         """Test forward method with single divide ID."""
-#         hydrofabric = mock_hydrofabric(divide_ids=["wb-001"])
+#         hydrofabric = mock_routing_dataclass(divide_ids=["wb-001"])
 
 #         result = streamflow_reader(
 #             hydrofabric=hydrofabric,
@@ -228,9 +228,9 @@
 #         assert (result > 0).all()
 
 
-#     def test_empty_divide_ids_list(self, mock_hydrofabric, streamflow_reader):
+#     def test_empty_divide_ids_list(self, mock_routing_dataclass, streamflow_reader):
 #         """Test forward method with empty divide_ids list."""
-#         hydrofabric = mock_hydrofabric(divide_ids=[])
+#         hydrofabric = mock_routing_dataclass(divide_ids=[])
 
 #         with pytest.raises(AssertionError, match="No valid divide IDs found"):
 #             streamflow_reader(

@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -44,7 +45,7 @@ class kan(torch.nn.Module):
         torch.nn.init.xavier_normal_(self.output.weight)
         torch.nn.init.zeros_(self.input.bias)
 
-    def forward(self, *args, **kwargs) -> dict[str, torch.Tensor]:
+    def forward(self, *args: Any, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass of the neural network"""
         _x: torch.Tensor = kwargs["inputs"]
         outputs = {}

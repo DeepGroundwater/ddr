@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -35,7 +36,7 @@ def save_state(
         The name of the file we're saving
     """
     mlp_state_dict = {key: value.cpu() for key, value in mlp.state_dict().items()}
-    cpu_optimizer_state_dict = {}
+    cpu_optimizer_state_dict: dict[str, Any] = {}
     for key, value in optimizer.state_dict().items():
         if key == "state":
             cpu_optimizer_state_dict[key] = {}
@@ -77,7 +78,13 @@ def save_state(
     )
 
 
-def log_metrics(nse, rmse, kge, epoch=None, mini_batch=None):
+def log_metrics(
+    nse: np.ndarray,
+    rmse: np.ndarray,
+    kge: np.ndarray,
+    epoch: int | None = None,
+    mini_batch: int | None = None,
+) -> None:
     """
     Logs evaluation metrics in a formatted and readable way.
 

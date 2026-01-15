@@ -10,12 +10,12 @@ from typing import Any
 import torch
 
 from ddr.routing.mmc import MuskingumCunge
-from ddr.validation.validate_configs import Config
+from ddr.validation.configs import Config
 
 log = logging.getLogger(__name__)
 
 
-class TorchMC(torch.nn.Module):
+class dmc(torch.nn.Module):
     """PyTorch nn.Module for differentiable Muskingum-Cunge routing.
 
     This class wraps the core MuskingumCunge implementation in a PyTorch module,
@@ -24,19 +24,19 @@ class TorchMC(torch.nn.Module):
     replacement for the original dmc implementation.
     """
 
-    def __init__(self, cfg: dict[str, Any] | Config, device: str | None = "cpu"):
+    def __init__(self, cfg: Config, device: str | torch.device | None = "cpu") -> None:
         """Initialize the PyTorch Muskingum-Cunge module.
 
         Parameters
         ----------
-        cfg : Dict[str, Any] | DictConfig
-            Configuration dictionary containing routing parameters
-        device : str | None, optional
+        cfg : Config
+            Configuration object containing routing parameters
+        device : str | torch.device | None, optional
             Device to use for computations ("cpu", "cuda", etc.), by default "cpu"
         """
         super().__init__()
         self.cfg = cfg
-        self.device_num = device if device is not None else "cpu"
+        self.device_num: str | torch.device = device if device is not None else "cpu"
 
         # Initialize the core routing engine
         self.routing_engine = MuskingumCunge(cfg, self.device_num)
@@ -51,16 +51,16 @@ class TorchMC(torch.nn.Module):
         self.bottom_width_lb = self.routing_engine.bottom_width_lb
 
         # Routing state (for compatibility with original dmc)
-        self._discharge_t = None
-        self.network = None
-        self.n = None
-        self.q_spatial = None
+        self._discharge_t: torch.Tensor | None = None
+        self.network: torch.Tensor | None = None
+        self.n: torch.Tensor | None = None
+        self.q_spatial: torch.Tensor | None = None
 
         # Progress tracking (for tqdm display compatibility)
         self.epoch = 0
         self.mini_batch = 0
 
-    def to(self, device: torch.device | str) -> "TorchMC":
+    def to(self, device: torch.device | str) -> "dmc":
         """Move the module to the specified device.
 
         Parameters
@@ -70,7 +70,7 @@ class TorchMC(torch.nn.Module):
 
         Returns
         -------
-        TorchMC
+        dmc
             Self for method chaining
         """
         # Call parent to() method
@@ -95,7 +95,7 @@ class TorchMC(torch.nn.Module):
 
         return self
 
-    def cuda(self, device: int | torch.device | None = None) -> "TorchMC":
+    def cuda(self, device: int | torch.device | None = None) -> "dmc":
         """Move the module to CUDA device.
 
         Parameters
@@ -105,7 +105,7 @@ class TorchMC(torch.nn.Module):
 
         Returns
         -------
-        TorchMC
+        dmc
             Self for method chaining
         """
         if device is None:
@@ -117,12 +117,12 @@ class TorchMC(torch.nn.Module):
 
         return self.to(cuda_device)
 
-    def cpu(self) -> "TorchMC":
+    def cpu(self) -> "dmc":
         """Move the module to CPU.
 
         Returns
         -------
-        TorchMC
+        dmc
             Self for method chaining
         """
         return self.to("cpu")
@@ -141,7 +141,7 @@ class TorchMC(torch.nn.Module):
         self.mini_batch = mini_batch
         self.routing_engine.set_progress_info(epoch, mini_batch)
 
-    def forward(self, **kwargs) -> dict[str, torch.Tensor]:
+    def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass for the Muskingum-Cunge routing model.
 
         This method performs the complete routing calculation using the core
@@ -185,20 +185,27 @@ class TorchMC(torch.nn.Module):
         self._discharge_t = self.routing_engine._discharge_t
 
         if kwargs.get("retain_grads", False):
-            self.n.retain_grad()
-            self.q_spatial.retain_grad()
-            self._discharge_t.retain_grad()  # Retain gradients for the discharge tensor
+            if self.n is not None:
+                self.n.retain_grad()
+            if self.q_spatial is not None:
+                self.q_spatial.retain_grad()
+            if self._discharge_t is not None:
+                self._discharge_t.retain_grad()
+
             # Retain gradients for the original spatial parameters so they can be tested
-            if "n" in self.routing_engine.spatial_parameters:
-                self.routing_engine.spatial_parameters["n"].retain_grad()
-            if "q_spatial" in self.routing_engine.spatial_parameters:
-                self.routing_engine.spatial_parameters["q_spatial"].retain_grad()
-            if "p_spatial" in self.routing_engine.spatial_parameters:
-                self.routing_engine.spatial_parameters["p_spatial"].retain_grad()
+            spatial_params = self.routing_engine.spatial_parameters
+            if spatial_params is not None:
+                if "n" in spatial_params:
+                    spatial_params["n"].retain_grad()
+                if "q_spatial" in spatial_params:
+                    spatial_params["q_spatial"].retain_grad()
+                if "p_spatial" in spatial_params:
+                    spatial_params["p_spatial"].retain_grad()
+
             output.retain_grad()  # Retain gradients for the output tensor
 
         # Return in expected format
-        output_dict = {
+        output_dict: dict[str, torch.Tensor] = {
             "runoff": output,
         }
 
@@ -284,7 +291,7 @@ class TorchMC(torch.nn.Module):
         Dict[str, Any]
             State dictionary
         """
-        state = super().state_dict()
+        state: dict[str, Any] = super().state_dict()
         state["cfg"] = self.cfg
         state["device_num"] = self.device_num
         state["epoch"] = self.epoch
@@ -319,7 +326,3 @@ class TorchMC(torch.nn.Module):
         # Recreate routing engine
         self.routing_engine = MuskingumCunge(self.cfg, self.device_num)
         self.routing_engine.set_progress_info(self.epoch, self.mini_batch)
-
-
-# Alias for backward compatibility
-dmc = TorchMC

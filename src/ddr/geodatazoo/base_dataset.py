@@ -1,6 +1,5 @@
-"""A base ABC dataclass for other geospatial fabrics to replicate from for making routing datasets"""
-
 from abc import ABC, abstractmethod
+from typing import Any
 
 from torch.utils.data import Dataset
 
@@ -11,16 +10,16 @@ class BaseDataset(Dataset, ABC):
     """Abstract base class for PyTorch datasets."""
 
     @abstractmethod
-    def __len__(self):
+    def __len__(self) -> int:
         """Abstract __len__ function"""
         raise NotImplementedError
 
     @abstractmethod
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Any:
         """Abstract __getitem__ function"""
         raise NotImplementedError
 
     @abstractmethod
-    def collate_fn(self, *args, **kwargs) -> RoutingDataclass:
+    def collate_fn(self, *args: Any, **kwargs: Any) -> RoutingDataclass:
         """Abstract collate function"""
         raise NotImplementedError

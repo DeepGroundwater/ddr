@@ -1,5 +1,7 @@
 import logging
 import warnings
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 import scipy.sparse as sp
@@ -8,12 +10,12 @@ from scipy.sparse.linalg import spsolve_triangular
 
 log = logging.getLogger(__name__)
 
-# Try to import cupy - if not available, we'll handle gracefully during runtime
 try:
     import cupy as cp
     from cupyx.scipy.sparse import csr_matrix as cp_csr_matrix
     from cupyx.scipy.sparse.linalg import spsolve_triangular as cp_spsolve_triangular
 except ImportError:
+    cp = None
     log.warning("CuPy not available. GPU solver functionality will be disabled.")
 
 # Disable prototype warnings and such
@@ -29,14 +31,14 @@ class PatternMapper:
 
     def __init__(
         self,
-        fillOp,
-        matrix_dim,
-        constant_diags=None,
-        constant_offsets=None,
-        aux=None,
-        indShift=0,
-        device=None,
-    ):
+        fillOp: Callable[[torch.Tensor], torch.Tensor],
+        matrix_dim: int,
+        constant_diags: list[float] | None = None,
+        constant_offsets: list[int] | None = None,
+        aux: Any = None,
+        indShift: int = 0,
+        device: str | torch.device | None = None,
+    ) -> None:
         """Initialize the PatternMapper.
 
         Parameters
@@ -45,9 +47,9 @@ class PatternMapper:
             Function for filling the matrix.
         matrix_dim : int
             Dimension of the matrix.
-        constant_diags : array_like, optional
+        constant_diags : list[float], optional
             Constant diagonal values.
-        constant_offsets : array_like, optional
+        constant_offsets : list[int], optional
             Offset values for diagonals.
         aux : any, optional
             Auxiliary data.
@@ -99,83 +101,39 @@ class PatternMapper:
         """
         return torch.matmul(datvec, self.M_csr).to_dense()
 
-    def getSparseIndices(self):
-        """Retrieve sparse matrix indices.
-
-        Returns
-        -------
-        tuple
-            Compressed row indices and column indices.
-        """
+    def getSparseIndices(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Retrieve sparse matrix indices."""
         return self.crow_indices, self.col_indices
 
     @staticmethod
-    def inverse_diag_fill(data_vector):
-        """Fill matrix diagonally with inverse ordering of data vector.
-
-        Parameters
-        ----------
-        data_vector : torch.Tensor
-            Input vector for filling the matrix.
-
-        Returns
-        -------
-        torch.Tensor
-            Filled matrix.
-        """
-        # A = fillOp(vec) # A can be sparse in itself.
+    def inverse_diag_fill(data_vector: torch.Tensor) -> torch.Tensor:
+        """Fill matrix diagonally with inverse ordering of data vector."""
         n = data_vector.shape[0]
-        # a slow matrix filling operation
         A = torch.zeros([n, n], dtype=data_vector.dtype)
         for i in range(n):
             A[i, i] = data_vector[n - 1 - i]
         return A
 
     @staticmethod
-    def diag_aug(datvec, n, constant_diags, constant_offsets):
-        """Augment data vector with constant diagonals.
-
-        Parameters
-        ----------
-        datvec : torch.Tensor
-            Input data vector.
-        n : int
-            Dimension size.
-        constant_diags : array_like
-            Constant diagonal values.
-        constant_offsets : array_like
-            Offset values for diagonals.
-
-        Returns
-        -------
-        torch.Tensor
-            Augmented data vector.
-        """
+    def diag_aug(
+        datvec: torch.Tensor,
+        n: int,
+        constant_diags: list[float],
+        constant_offsets: list[int],
+    ) -> torch.Tensor:
+        """Augment data vector with constant diagonals."""
         datvec_aug = datvec.clone()
-        # constant_offsets = [0]
         for j in range(len(constant_diags)):
             d = torch.zeros([n]) + constant_diags[j]
             datvec_aug = torch.cat((datvec_aug, d), nsdim(datvec))
         return datvec_aug
 
 
-def nsdim(datvec):
-    """Find the first non-singleton dimension of the input tensor.
-
-    Parameters
-    ----------
-    datvec : torch.Tensor
-        Input tensor.
-
-    Returns
-    -------
-    int or None
-        Index of first non-singleton dimension.
-    """
+def nsdim(datvec: torch.Tensor) -> int | None:
+    """Find the first non-singleton dimension of the input tensor."""
     for i in range(datvec.ndim):
         if datvec[i] > 1:
-            ns = i
-            return ns
+            return i
     return None
 
 
@@ -573,7 +531,7 @@ class TriangularSparseSolver(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx,
+        ctx: Any,
         A_values: torch.Tensor,
         crow_indices: torch.Tensor,
         col_indices: torch.Tensor,
@@ -667,7 +625,7 @@ class TriangularSparseSolver(torch.autograd.Function):
 
     @staticmethod
     def backward(
-        ctx, grad_output: torch.Tensor
+        ctx: Any, grad_output: torch.Tensor
     ) -> tuple[torch.Tensor, None, None, torch.Tensor, None, None, None]:
         """
         Compute gradients for the sparse triangular linear system solve.

@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
 import numpy as np
@@ -9,21 +10,16 @@ import rustworkx as rx
 import torch
 from scipy import sparse
 
-from ddr.dataset.attributes import AttributesReader
-from ddr.dataset.Dates import Dates
-from ddr.dataset.observations import IcechunkUSGSReader
-from ddr.dataset.statistics import set_statistics
-from ddr.dataset.utils import (
+from ddr.geodatazoo.base_dataset import BaseDataset
+from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
+from ddr.io.builders import (
     _build_network_graph,
     construct_network_matrix,
     create_hydrofabric_observations,
-    fill_nans,
-    naninfmean,
-    read_zarr,
 )
-from ddr.geodatazoo.base_dataset import BaseDataset
-from ddr.geodatazoo.dataclasses import RoutingDataclass
-from ddr.validation.validate_configs import Config, Mode
+from ddr.io.readers import AttributesReader, IcechunkUSGSReader, fill_nans, naninfmean, read_zarr
+from ddr.io.statistics import set_statistics
+from ddr.validation.configs import Config, Mode
 
 log = logging.getLogger(__name__)
 
@@ -31,119 +27,91 @@ log = logging.getLogger(__name__)
 class LynkerHydrofabric(BaseDataset):
     """An implementation of the BaseDataset for the LynkerHydrofabric"""
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config) -> None:
+        self.cfg = cfg
+        self.dates = Dates(**self.cfg.experiment.model_dump())
+        self.network_graph: rx.PyDiGraph | None = None
+        self.hf_id_to_node: dict[int, int] | None = None
+        self.gage_ids: np.ndarray | None = None
+        self.observations: Any = None
+        self.gages_adjacency: Any = None
+        self.target_catchments: list[str] | None = None
+        self.hydrofabric: RoutingDataclass | None = None
+        self.mode: str = ""
+
+        self.attr_reader = AttributesReader(cfg=self.cfg)
+        self.attr_stats = set_statistics(self.cfg, self.attr_reader.ds)
+        self.means = torch.tensor(
+            [self.attr_stats[attr].iloc[2] for attr in self.cfg.kan.input_var_names],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)  # Mean is always idx 2
+        self.stds = torch.tensor(
+            [self.attr_stats[attr].iloc[3] for attr in self.cfg.kan.input_var_names],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)  # Std is always idx 3
+
+        _flowpath_attr = gpd.read_file(
+            self.cfg.data_sources.hydrofabric_gpkg, layer="flowpath-attributes-ml"
+        ).set_index("id")
+        self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
+
+        self.phys_means = torch.tensor(
+            [
+                naninfmean(self.flowpath_attr[attr].values)
+                for attr in ["Length_m", "So", "TopWdth", "ChSlp", "MusX"]
+            ],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)
+
+        self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
+        self.hf_ids = self.conus_adjacency["order"][:]
+
         if cfg.mode == Mode.TRAINING:
-            self.cfg = cfg
-            self.dates = Dates(**self.cfg.experiment.model_dump())
-
-            self.attr_reader = AttributesReader(cfg=self.cfg)
-            self.attr_stats = set_statistics(self.cfg, self.attr_reader.ds)
-            self.means = torch.tensor(
-                [self.attr_stats[attr].iloc[2] for attr in self.cfg.kan.input_var_names],
-                device=self.cfg.device,
-                dtype=torch.float32,
-            ).unsqueeze(1)  # Mean is always idx 2
-            self.stds = torch.tensor(
-                [self.attr_stats[attr].iloc[3] for attr in self.cfg.kan.input_var_names],
-                device=self.cfg.device,
-                dtype=torch.float32,
-            ).unsqueeze(1)  # Mean is always idx 3
-
-            _flowpath_attr = gpd.read_file(
-                self.cfg.data_sources.hydrofabric_gpkg, layer="flowpath-attributes-ml"
-            ).set_index("id")
-            self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
-
-            self.phys_means = torch.tensor(
-                [
-                    naninfmean(self.flowpath_attr[attr].values)
-                    for attr in ["Length_m", "So", "TopWdth", "ChSlp", "MusX"]
-                ],
-                device=self.cfg.device,
-                dtype=torch.float32,
-            ).unsqueeze(1)  # Creating mean values for physical parameters within the HF
-
-            self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
-            self.hf_ids = self.conus_adjacency["order"][:]  # type: ignore
-
-            if cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
-                # Gages mode: route to gauge locations with observations
-                self.mode = "gages"
-                self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
-                self.observations = self.obs_reader.read_data(dates=self.dates)
-                self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
-                self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
-                log.info(f"Gages mode: routing for {len(self.gage_ids)} gauged locations")
-            else:
-                raise NotImplementedError(
-                    "Cannot train on the current geospatial hydrofabric without gages or gage_adjacency defined"
-                )
+            self._init_training(cfg)
         elif cfg.mode == Mode.TESTING or cfg.mode == Mode.ROUTING:
-            self.cfg = cfg
-            self.dates = Dates(**self.cfg.experiment.model_dump())
-
-            self.attr_reader = AttributesReader(cfg=self.cfg)
-            self.attr_stats = set_statistics(self.cfg, self.attr_reader.ds)
-
-            self.means = torch.tensor(
-                [self.attr_stats[attr].iloc[2] for attr in self.cfg.kan.input_var_names],
-                device=self.cfg.device,
-                dtype=torch.float32,
-            ).unsqueeze(1)
-            self.stds = torch.tensor(
-                [self.attr_stats[attr].iloc[3] for attr in self.cfg.kan.input_var_names],
-                device=self.cfg.device,
-                dtype=torch.float32,
-            ).unsqueeze(1)
-
-            _flowpath_attr = gpd.read_file(
-                self.cfg.data_sources.hydrofabric_gpkg, layer="flowpath-attributes-ml"
-            ).set_index("id")
-            self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
-
-            self.phys_means = torch.tensor(
-                [
-                    naninfmean(self.flowpath_attr[attr].values)
-                    for attr in ["Length_m", "So", "TopWdth", "ChSlp", "MusX"]
-                ],
-                device=self.cfg.device,
-                dtype=torch.float32,
-            ).unsqueeze(1)
-
-            self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
-            self.hf_ids = self.conus_adjacency["order"][:]
-
-            # Determine mode and build hydrofabric
-            if cfg.data_sources.target_catchments is not None:
-                self.mode = "target_catchments"
-                self.target_catchments = cfg.data_sources.target_catchments
-                self.network_graph, self.hf_id_to_node = _build_network_graph(self.conus_adjacency)
-                self.gage_ids = None
-                self.observations = None
-                self.gages_adjacency = None
-                log.info(
-                    f"Target catchments mode: routing flow upstream of the {self.target_catchments} outlets"
-                )
-                self.hydrofabric = self._build_routing_data_target_catchments()
-
-            elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
-                self.mode = "gages"
-                self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
-                self.observations = self.obs_reader.read_data(dates=self.dates)
-                self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
-                self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
-                log.info(f"Gages mode: {len(self.gage_ids)} gauged locations")
-                self.hydrofabric = self._build_routing_data_gages()
-
-            else:
-                self.mode = "all"
-                self.gage_ids = None
-                self.observations = None
-                self.gages_adjacency = None
-                log.info("All segments mode")
-                self.hydrofabric = self._build_routing_data_all_catchments()
+            self._init_testing_routing(cfg)
         else:
             raise NotImplementedError(f"Cannot initialize geospatial dataset for unknown mode: {cfg.mode}")
+
+    def _init_training(self, cfg: Config) -> None:
+        """Initialize dataset for training mode."""
+        if cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
+            self.mode = "gages"
+            self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
+            self.observations = self.obs_reader.read_data(dates=self.dates)
+            self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+            self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
+            log.info(f"Gages mode: routing for {len(self.gage_ids)} gauged locations")
+        else:
+            raise NotImplementedError(
+                "Cannot train on the current geospatial hydrofabric without gages or gage_adjacency defined"
+            )
+
+    def _init_testing_routing(self, cfg: Config) -> None:
+        """Initialize dataset for testing or routing mode."""
+        if cfg.data_sources.target_catchments is not None:
+            self.mode = "target_catchments"
+            self.target_catchments = cfg.data_sources.target_catchments
+            self.network_graph, self.hf_id_to_node, _ = _build_network_graph(self.conus_adjacency)
+            log.info(f"Target catchments mode: routing flow upstream of the {self.target_catchments} outlets")
+            self.hydrofabric = self._build_routing_data_target_catchments()
+
+        elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
+            self.mode = "gages"
+            self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
+            self.observations = self.obs_reader.read_data(dates=self.dates)
+            self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+            self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
+            log.info(f"Gages mode: {len(self.gage_ids)} gauged locations")
+            self.hydrofabric = self._build_routing_data_gages()
+
+        else:
+            self.mode = "all"
+            log.info("All segments mode")
+            self.hydrofabric = self._build_routing_data_all_catchments()
 
     def __len__(self) -> int:
         if self.cfg.mode == Mode.TRAINING:
@@ -154,20 +122,17 @@ class LynkerHydrofabric(BaseDataset):
         else:
             raise NotImplementedError(f"Cannot set length for unknown mode: {self.cfg.mode}")
 
-    def __getitem__(self, idx) -> str:
+    def __getitem__(self, idx: int) -> str | int:
         if self.cfg.mode == Mode.TRAINING:
             assert self.gage_ids is not None, "Cannot train model if no Gage IDs"
-            return self.gage_ids[idx].item()
+            return str(self.gage_ids[idx])
         elif self.cfg.mode == Mode.TESTING or self.cfg.mode == Mode.ROUTING:
             return idx
         else:
             raise NotImplementedError(f"Cannot batch data for unknown mode: {self.cfg.mode}")
 
-    def collate_fn(self, *args, **kwargs) -> RoutingDataclass:
-        """
-        Collate function for the dataset.
-        Routes to appropriate collate method based on mode.
-        """
+    def collate_fn(self, *args: Any, **kwargs: Any) -> RoutingDataclass:
+        """Collate function for the dataset based on mode."""
         if self.cfg.mode == Mode.TRAINING:
             self.dates.calculate_time_period()
             if self.mode == "gages":
@@ -180,10 +145,19 @@ class LynkerHydrofabric(BaseDataset):
                 prev_day = indices[0] - 1
                 indices.insert(0, prev_day)
 
-            self.dates.set_date_range(indices)
-            return self.routing_data
+            self.dates.set_date_range(np.array(indices))
+            if self.hydrofabric is None:
+                raise ValueError("Hydrofabric not initialized for testing/routing mode")
+            return self.hydrofabric
         else:
             raise NotImplementedError(f"Cannot batch data for unknown mode: {self.cfg.mode}")
+
+    @property
+    def routing_data(self) -> RoutingDataclass:
+        """Property to access hydrofabric for backward compatibility."""
+        if self.hydrofabric is None:
+            raise ValueError("Hydrofabric not initialized")
+        return self.hydrofabric
 
     def _collate_gages(self, batch: np.ndarray) -> RoutingDataclass:
         """Route to gauge locations with observations"""
@@ -327,7 +301,12 @@ class LynkerHydrofabric(BaseDataset):
 
     def _build_routing_data_target_catchments(self) -> RoutingDataclass:
         """Build hydrofabric for target catchments by finding all upstream segments."""
-        all_ancestor_indices = set()
+        if self.target_catchments is None:
+            raise ValueError("target_catchments must be set")
+        if self.hf_id_to_node is None or self.network_graph is None:
+            raise ValueError("network_graph and hf_id_to_node must be initialized")
+
+        all_ancestor_indices: set[int] = set()
         target_node_groups = []
 
         for target in self.target_catchments:
@@ -439,6 +418,9 @@ class LynkerHydrofabric(BaseDataset):
 
     def _build_routing_data_gages(self) -> RoutingDataclass:
         """Build hydrofabric for all gages."""
+        if self.gage_ids is None:
+            raise ValueError("gage_ids must be set for gages mode")
+
         valid_gauges_mask = np.isin(self.gage_ids, list(self.gages_adjacency.keys()))
         batch = self.gage_ids[valid_gauges_mask].tolist()
 

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from ddr.validation.validate_configs import Config
+from ddr.validation.configs import Config
 
 log = logging.getLogger(__name__)
 

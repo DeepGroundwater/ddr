@@ -5,9 +5,20 @@ import contextily as ctx
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 
 
-def plot_time_series(prediction, observation, time_range, gage_id, name, metrics, path, warmup=3):
+def plot_time_series(
+    prediction: np.ndarray,
+    observation: np.ndarray,
+    time_range: np.ndarray,
+    gage_id: str,
+    name: str,
+    metrics: dict[str, float],
+    path: Path,
+    warmup: int = 3,
+) -> None:
     """Plot time series for a single prediction
 
     Parameters
@@ -61,16 +72,16 @@ def flatten_data(x: np.ndarray) -> np.ndarray:
 
 def plot_cdf(
     data_list: list[np.ndarray],
-    ax: plt.Axes | None = None,
+    ax: Axes | None = None,
     title: str | None = None,
     legend_labels: list[str] | None = None,
-    figsize: tuple = (8, 6),
+    figsize: tuple[int, int] = (8, 6),
     reference_line: str | None = "121",
     color_list: list[str] | None = None,
     xlabel: str | None = None,
     ylabel: str | None = None,
-    xlim: tuple | None = None,
-) -> tuple[plt.Figure | None, plt.Axes]:
+    xlim: tuple[float, float] | None = None,
+) -> tuple[Figure | None, Axes]:
     """Plot Cumulative Distribution Functions (CDFs) for a list of datasets.
 
     Parameters
@@ -179,19 +190,19 @@ def plot_cdf(
 
 
 def plot_box_fig(
-    data: list,
+    data: list[np.ndarray | list[np.ndarray]],
     xlabel_list: list[str] | None = None,
     legend_labels: list[str] | None = None,
     color_list: list[str] | None = None,
     title: str | None = None,
-    figsize: tuple = (10, 8),
+    figsize: tuple[int, int] = (10, 8),
     sharey: bool = True,
-    xticklabel: None = None,  # Parameter not used in this version, consider removing if not needed
+    xticklabel: None = None,
     edge_color_list: list[str] | None = None,
     legend_font_size: int = 15,
     xlabel_font_size: int = 17,
     tick_font_size: int = 26,
-) -> plt.Figure:
+) -> Figure:
     """Create box plots for multiple datasets with customizable styling.
 
     Parameters
@@ -337,7 +348,7 @@ def plot_drainage_area_boxplots(
     y_limits: tuple = (0.0, 1.0),
     path: Path | None = None,
     show_plot: bool = False,
-) -> plt.Figure:
+) -> Figure:
     """Create custom box plots of model performance metrics binned by drainage area.
 
     Parameters
@@ -554,7 +565,7 @@ def plot_gauge_map(
     colorbar_label: str = "NSE",
     path: Path | None = None,
     show_plot: bool = False,
-) -> plt.Figure:
+) -> Figure:
     """Create a map visualization of gauge locations colored by performance metrics.
 
     Parameters

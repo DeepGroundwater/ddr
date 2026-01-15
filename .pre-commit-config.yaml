@@ -3,20 +3,26 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        exclude: LICENSE|\.csv$
       - id: end-of-file-fixer
+        exclude: LICENSE|\.csv$
       - id: check-yaml
-        exclude: "mkdocs.*\\.yml$"
       - id: debug-statements
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.3
+    rev: v0.14.0
     hooks:
       - id: ruff-check
-        types_or: [python, pyi, jupyter]
-        args: [--fix, --config, pyproject.toml]
+        types_or: [ python, pyi ]
+        args: [ --fix ]
       - id: ruff-format
-        types_or: [python, pyi, jupyter]
-        args: [--config, pyproject.toml]
+        types_or: [ python, pyi ]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.17.0
+    hooks:
+      - id: mypy
+        additional_dependencies: ["types-PyYAML==6.0.12.20250516"]
 
   - repo: https://github.com/kynan/nbstripout
     rev: 0.8.1

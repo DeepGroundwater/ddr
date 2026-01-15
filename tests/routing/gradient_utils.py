@@ -18,7 +18,11 @@ import torch
 
 
 def find_gradient_tensors(
-    obj: Any, depth=0, max_depth=25, required=False, skip: list[str] | None = None
+    obj: Any,
+    depth: int = 0,
+    max_depth: int = 25,
+    required: bool = False,
+    skip: list[str] | None = None,
 ) -> Iterator[torch.Tensor]:
     """Generator to find tensors associated with object which could have gradients,
     i.e. tensor objects that contain floating point values.
@@ -58,7 +62,12 @@ def find_gradient_tensors(
         pass
 
 
-def find_and_retain_grad(obj: Any, max_depth=25, required=False, skip: list[str] | None = None) -> None:
+def find_and_retain_grad(
+    obj: Any,
+    max_depth: int = 25,
+    required: bool = False,
+    skip: list[str] | None = None,
+) -> None:
     """Find tensors in an object and ensure they retain gradients.
 
     Args:
@@ -78,7 +87,7 @@ def get_tensor_names(
     name: str = "Unknown",
     depth: int = 0,
     max_depth: int = 25,
-    parent_name: str = None,
+    parent_name: str | None = None,
     required: bool = False,
     skip: list[str] | None = None,
 ) -> Iterator[str]:
@@ -134,7 +143,7 @@ def print_grad_info(
     name: str = "Unknown",
     depth: int = 0,
     max_depth: int = 25,
-    parent_name: str = None,
+    parent_name: str | None = None,
     required: bool = False,
     skip: list[str] | None = None,
 ) -> None:

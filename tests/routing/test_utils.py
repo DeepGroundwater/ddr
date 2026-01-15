@@ -7,7 +7,7 @@ import torch
 from omegaconf import DictConfig
 
 from ddr.nn import kan
-from ddr.validation.validate_configs import Config, validate_config
+from ddr.validation.configs import Config, validate_config
 
 
 def create_mock_nn() -> kan:
@@ -63,7 +63,64 @@ def create_mock_config() -> Config:
     return config
 
 
-def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> Any:
+class MockObservations:
+    """Mock observations class for testing."""
+
+    def __init__(self, device: str = "cpu") -> None:
+        self.gage_id = torch.tensor([1], device=device)
+
+
+class MockHydrofabric:
+    """Mock hydrofabric class for testing."""
+
+    def __init__(self, num_reaches: int = 10, device: str = "cpu") -> None:
+        self.observations = MockObservations(device)
+        # Create a simple network with sequential connections
+        self.adjacency_matrix = torch.zeros(num_reaches, num_reaches, device=device)
+        for i in range(num_reaches - 1):
+            self.adjacency_matrix[i + 1, i] = 1.0  # i flows to i+1
+        self.divide_ids = [f"cat-{i}" for i in range(num_reaches)]
+
+        # Channel properties
+        self.length = torch.ones(num_reaches, device=device) * 1000.0
+        self.slope = torch.ones(num_reaches, device=device) * 0.001
+        self.top_width = torch.ones(num_reaches, device=device) * 10.0
+        self.side_slope = torch.ones(num_reaches, device=device) * 2.0
+        self.x = torch.ones(num_reaches, device=device) * 0.2
+
+        # Add some variability
+        self.length += torch.randn(num_reaches, device=device) * 100
+        self.slope += torch.randn(num_reaches, device=device) * 0.0001
+        self.top_width += torch.randn(num_reaches, device=device) * 2
+
+        # Ensure positive values
+        self.length = torch.clamp(self.length, min=100.0)
+        self.slope = torch.clamp(self.slope, min=0.0001)
+        self.top_width = torch.clamp(self.top_width, min=1.0)
+        self.side_slope = torch.clamp(self.side_slope, min=0.5)
+        self.x = torch.clamp(self.x, min=0.1, max=0.4)
+
+        # mock spatial attributes
+        attrs = [
+            "mean.impervious",
+            "mean.elevation",
+            "mean.smcmax_soil_layers_stag=1",
+        ]
+        self.spatial_attributes = torch.tensor(
+            np.array([np.random.rand(num_reaches) for _ in attrs]),
+            device=device,
+            dtype=torch.float32,
+        )
+        self.means = self.spatial_attributes.mean(dim=1, keepdim=True)
+        self.stds = self.spatial_attributes.std(dim=1, keepdim=True)
+        self.normalized_spatial_attributes = self.spatial_attributes.sub(self.means).div(self.stds).T
+
+        # mock gauge outflows
+        self.outflow_idx = [np.array([-1])]  # Picking two values as there are two gages in obs
+        self.gage_wb = ["wb-1"]
+
+
+def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> MockHydrofabric:
     """Create a mock hydrofabric object for testing.
 
     Parameters
@@ -75,62 +132,10 @@ def create_mock_hydrofabric(num_reaches: int = 10, device: str = "cpu") -> Any:
 
     Returns
     -------
-    Any
+    MockHydrofabric
         Mock hydrofabric object
     """
-
-    class MockObservations:
-        def __init__(self):
-            self.gage_id = torch.tensor([1], device=device)
-
-    class MockHydrofabric:
-        def __init__(self):
-            self.observations = MockObservations()
-            # Create a simple network with sequential connections
-            self.adjacency_matrix = torch.zeros(num_reaches, num_reaches, device=device)
-            for i in range(num_reaches - 1):
-                self.adjacency_matrix[i + 1, i] = 1.0  # i flows to i+1
-            self.divide_ids = [f"cat-{i}" for i in range(num_reaches)]
-
-            # Channel properties
-            self.length = torch.ones(num_reaches, device=device) * 1000.0
-            self.slope = torch.ones(num_reaches, device=device) * 0.001
-            self.top_width = torch.ones(num_reaches, device=device) * 10.0
-            self.side_slope = torch.ones(num_reaches, device=device) * 2.0
-            self.x = torch.ones(num_reaches, device=device) * 0.2
-
-            # Add some variability
-            self.length += torch.randn(num_reaches, device=device) * 100
-            self.slope += torch.randn(num_reaches, device=device) * 0.0001
-            self.top_width += torch.randn(num_reaches, device=device) * 2
-
-            # Ensure positive values
-            self.length = torch.clamp(self.length, min=100.0)
-            self.slope = torch.clamp(self.slope, min=0.0001)
-            self.top_width = torch.clamp(self.top_width, min=1.0)
-            self.side_slope = torch.clamp(self.side_slope, min=0.5)
-            self.x = torch.clamp(self.x, min=0.1, max=0.4)
-
-            # mock spatial attributes
-            attrs = [
-                "mean.impervious",
-                "mean.elevation",
-                "mean.smcmax_soil_layers_stag=1",
-            ]
-            self.spatial_attributes = torch.tensor(
-                np.array([np.random.rand(num_reaches) for _ in attrs]),
-                device=device,
-                dtype=torch.float32,
-            )
-            self.means = self.spatial_attributes.mean(dim=1, keepdim=True)
-            self.stds = self.spatial_attributes.std(dim=1, keepdim=True)
-            self.normalized_spatial_attributes = self.spatial_attributes.sub(self.means).div(self.stds).T
-
-            # mock gauge outflows
-            self.outflow_idx = [np.array([-1])]  # Picking two values as there are two gages in obs
-            self.gage_wb = ["wb-1"]
-
-    return MockHydrofabric()
+    return MockHydrofabric(num_reaches=num_reaches, device=device)
 
 
 def create_mock_streamflow(num_timesteps: int, num_reaches: int, device: str = "cpu") -> torch.Tensor:
@@ -188,10 +193,10 @@ def create_mock_spatial_parameters(num_reaches: int, device: str = "cpu") -> dic
 
 def assert_tensor_properties(
     tensor: torch.Tensor,
-    expected_shape: tuple,
+    expected_shape: tuple[int, ...],
     expected_dtype: torch.dtype = torch.float32,
-    min_val: float = None,
-    max_val: float = None,
+    min_val: float | None = None,
+    max_val: float | None = None,
 ) -> None:
     """Assert tensor has expected properties.
 
@@ -233,7 +238,7 @@ def assert_no_nan_or_inf(tensor: torch.Tensor, name: str = "tensor") -> None:
     assert not torch.isinf(tensor).any(), f"{name} contains Inf values"
 
 
-def create_test_scenarios() -> list:
+def create_test_scenarios() -> list[dict[str, Any]]:
     """Create various test scenarios for comprehensive testing.
 
     Returns

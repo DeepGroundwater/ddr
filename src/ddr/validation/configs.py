@@ -10,6 +10,8 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from ddr.geodatazoo.base_dataset import BaseDataset
+
 log = logging.getLogger(__name__)
 
 
@@ -28,6 +30,21 @@ class Mode(str, Enum):
     TRAINING = "training"
     TESTING = "testing"
     ROUTING = "routing"
+
+
+class GeoDataset(str, Enum):
+    """The geospatial dataset used for predictions and routing"""
+
+    LYNKER_HYDROFABRIC = "lynker_hydrofabric"
+
+    def get_dataset_class(self, cfg: "Config") -> BaseDataset:
+        """A factory pattern for instantiating TorchDatasets through config settings"""
+        from ddr.geodatazoo.lynker_hydrofabric import LynkerHydrofabric
+
+        mapping = {
+            GeoDataset.LYNKER_HYDROFABRIC: LynkerHydrofabric,
+        }
+        return mapping[self](cfg=cfg)
 
 
 class AttributeMinimums(BaseModel):
@@ -192,6 +209,7 @@ class Config(BaseModel):
         default_factory=ExperimentConfig,
         description="Experiment settings controlling training behavior and data selection",
     )
+    geodataset: GeoDataset = Field(description="The geospatial dataset used in predictions and routing")
     mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")

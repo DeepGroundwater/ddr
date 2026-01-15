@@ -1,14 +1,16 @@
 """Validation tests comparing refactored classes with original dmc behavior."""
 
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 import torch
-
 from ddr.routing.dmc import dmc as original_dmc
+
 from ddr.routing.mmc import MuskingumCunge
-from ddr.routing.torch_mc import TorchMC
+from ddr.routing.torch_mc import dmc
 from tests.routing.test_utils import (
+    MockHydrofabric,
     assert_no_nan_or_inf,
     assert_tensor_properties,
     create_mock_config,
@@ -22,13 +24,13 @@ class TestRefactoredVsOriginalValidation:
     """Validate that refactored classes behave the same as original dmc."""
 
     @pytest.fixture
-    def setup_models_and_data(self):
+    def setup_models_and_data(self) -> dict[str, Any]:
         """Setup both original and refactored models with test data."""
         cfg = create_mock_config()
 
         # Create models
         original_model = original_dmc(cfg, device="cpu")
-        refactored_model = TorchMC(cfg, device="cpu")
+        refactored_model = dmc(cfg, device="cpu")
         core_model = MuskingumCunge(cfg, device="cpu")
 
         # Create test data
@@ -45,7 +47,7 @@ class TestRefactoredVsOriginalValidation:
             "spatial_params": spatial_params,
         }
 
-    def test_initialization_parity(self, setup_models_and_data):
+    def test_initialization_parity(self, setup_models_and_data: dict[str, Any]) -> None:
         """Test that initialization produces equivalent models."""
         data = setup_models_and_data
         original = data["original"]
@@ -75,7 +77,7 @@ class TestRefactoredVsOriginalValidation:
         assert original.q_spatial is None
         assert refactored.q_spatial is None
 
-    def test_sparse_operations_parity(self, setup_models_and_data):
+    def test_sparse_operations_parity(self, setup_models_and_data: dict[str, Any]) -> None:
         """Test that sparse operations produce identical results."""
         data = setup_models_and_data
         original = data["original"]
@@ -95,7 +97,7 @@ class TestRefactoredVsOriginalValidation:
 
         assert torch.equal(orig_diag.to_dense(), refact_diag.to_dense())
 
-    def test_fill_op_parity(self, setup_models_and_data):
+    def test_fill_op_parity(self, setup_models_and_data: dict[str, Any]) -> None:
         """Test that fill_op produces identical results."""
         data = setup_models_and_data
         original = data["original"]
@@ -118,7 +120,7 @@ class TestRefactoredVsOriginalValidation:
         # Results should be identical (within floating point precision)
         assert torch.allclose(orig_result.to_dense(), refact_result.to_dense(), atol=1e-6)
 
-    def test_forward_pass_interface_parity(self, setup_models_and_data):
+    def test_forward_pass_interface_parity(self, setup_models_and_data: dict[str, Any]) -> None:
         """Test that forward pass interfaces are identical."""
         data = setup_models_and_data
         original = data["original"]
@@ -158,7 +160,7 @@ class TestRefactoredVsOriginalValidation:
         # Values should be very close (may have small numerical differences)
         assert torch.allclose(orig_output["runoff"], refact_output["runoff"], atol=1e-6)
 
-    def test_parameter_setup_parity(self, setup_models_and_data):
+    def test_parameter_setup_parity(self, setup_models_and_data: dict[str, Any]) -> None:
         """Test that parameter setup produces identical results."""
         data = setup_models_and_data
         original = data["original"]
@@ -190,7 +192,7 @@ class TestRefactoredVsOriginalValidation:
         assert torch.allclose(original.q_spatial, refactored.q_spatial, atol=1e-6)
         assert torch.allclose(original._discharge_t, refactored._discharge_t, atol=1e-6)
 
-    def test_state_management_parity(self, setup_models_and_data):
+    def test_state_management_parity(self, setup_models_and_data: dict[str, Any]) -> None:
         """Test that state management behaves identically."""
         data = setup_models_and_data
         original = data["original"]
@@ -208,7 +210,7 @@ class TestRefactoredVsOriginalValidation:
         # Track state changes through multiple calls to solver
         call_count = 0
 
-        def mock_solve(*args, **kwargs):
+        def mock_solve(*args: Any, **kwargs: Any) -> torch.Tensor:
             nonlocal call_count
             call_count += 1
             return torch.ones(10) * (5.0 + call_count * 0.1)  # Slightly different each time
@@ -233,7 +235,9 @@ class TestCoreMuskingumCungeValidation:
     """Test core MuskingumCunge class against original behavior."""
 
     @pytest.fixture
-    def setup_core_test(self):
+    def setup_core_test(
+        self,
+    ) -> tuple[MuskingumCunge, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]]:
         """Setup core model test."""
         cfg = create_mock_config()
         core_model = MuskingumCunge(cfg, device="cpu")
@@ -244,7 +248,10 @@ class TestCoreMuskingumCungeValidation:
 
         return core_model, hydrofabric, streamflow, spatial_params
 
-    def test_core_setup_and_forward(self, setup_core_test):
+    def test_core_setup_and_forward(
+        self,
+        setup_core_test: tuple[MuskingumCunge, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]],
+    ) -> None:
         """Test core model setup and forward pass."""
         core_model, hydrofabric, streamflow, spatial_params = setup_core_test
 
@@ -269,7 +276,10 @@ class TestCoreMuskingumCungeValidation:
         assert_tensor_properties(output, expected_shape)
         assert_no_nan_or_inf(output, "core_forward_output")
 
-    def test_core_encapsulation(self, setup_core_test):
+    def test_core_encapsulation(
+        self,
+        setup_core_test: tuple[MuskingumCunge, MockHydrofabric, torch.Tensor, dict[str, torch.Tensor]],
+    ) -> None:
         """Test that core model properly encapsulates data."""
         core_model, hydrofabric, streamflow, spatial_params = setup_core_test
 
@@ -277,11 +287,18 @@ class TestCoreMuskingumCungeValidation:
         core_model.setup_inputs(hydrofabric, streamflow, spatial_params)
 
         # Test that data is properly stored and accessible
+        assert core_model.network is not None
+        assert core_model.q_prime is not None
         assert torch.equal(core_model.network, hydrofabric.adjacency_matrix)
         assert torch.equal(core_model.q_prime, streamflow)
         assert core_model.spatial_parameters == spatial_params
 
         # Test that spatial attributes are properly extracted
+        assert core_model.length is not None
+        assert core_model.slope is not None
+        assert core_model.top_width is not None
+        assert core_model.side_slope is not None
+        assert core_model.x_storage is not None
         assert_tensor_properties(core_model.length, (8,))
         assert_tensor_properties(core_model.slope, (8,))
         assert_tensor_properties(core_model.top_width, (8,))
@@ -289,6 +306,8 @@ class TestCoreMuskingumCungeValidation:
         assert_tensor_properties(core_model.x_storage, (8,))
 
         # Test that parameters are properly denormalized
+        assert core_model.n is not None
+        assert core_model.q_spatial is not None
         assert_tensor_properties(core_model.n, (8,))
         assert_tensor_properties(core_model.q_spatial, (8,))
 
@@ -306,12 +325,12 @@ class TestCoreMuskingumCungeValidation:
 class TestBackwardCompatibilityValidation:
     """Test backward compatibility with existing training/evaluation scripts."""
 
-    def test_training_script_compatibility(self):
+    def test_training_script_compatibility(self) -> None:
         """Test compatibility with training script usage patterns."""
         cfg = create_mock_config()
 
         # This is how dmc is used in train.py
-        routing_model = TorchMC(cfg=cfg, device="cpu")  # Using TorchMC as dmc
+        routing_model = dmc(cfg=cfg, device="cpu")  # Using dmc as dmc
 
         # Test epoch and mini_batch assignment (from train.py)
         routing_model.epoch = 1
@@ -348,12 +367,12 @@ class TestBackwardCompatibilityValidation:
             n_detached = routing_model.n.detach().cpu()
             assert isinstance(n_detached, torch.Tensor)
 
-    def test_evaluation_script_compatibility(self):
+    def test_evaluation_script_compatibility(self) -> None:
         """Test compatibility with evaluation script usage patterns."""
         cfg = create_mock_config()
 
         # This is how dmc is used in eval.py
-        routing_model = TorchMC(cfg=cfg, device="cpu")
+        routing_model = dmc(cfg=cfg, device="cpu")
 
         # Test setting epoch (from eval.py)
         routing_model.epoch = 5  # cfg.eval.epoch
@@ -385,31 +404,31 @@ class TestBackwardCompatibilityValidation:
         assert "runoff" in dmc_output
         assert_tensor_properties(dmc_output["runoff"], (1, 24))
 
-    def test_import_compatibility(self):
+    def test_import_compatibility(self) -> None:
         """Test that imports work as expected."""
         # Test original import still works
         from ddr.routing.dmc import dmc as original_dmc_import
 
         assert original_dmc_import is original_dmc
 
-        # Test that new TorchMC can be imported as dmc alias
+        # Test that new dmc can be imported as dmc alias
         from ddr.routing.torch_mc import dmc as torch_mc_alias
 
-        assert torch_mc_alias is TorchMC
+        assert torch_mc_alias is dmc
 
         # Test that new classes can be imported directly
         from ddr.routing.mmc import MuskingumCunge as MC
-        from ddr.routing.torch_mc import TorchMC as TMC
+        from ddr.routing.torch_mc import dmc as TMC
 
         assert MC is MuskingumCunge
-        assert TMC is TorchMC
+        assert TMC is dmc
 
-    def test_device_management_compatibility(self):
+    def test_device_management_compatibility(self) -> None:
         """Test device management compatibility."""
         cfg = create_mock_config()
 
         # Test original usage pattern
-        routing_model = TorchMC(cfg=cfg, device="cpu")
+        routing_model = dmc(cfg=cfg, device="cpu")
         assert routing_model.device_num == "cpu"
 
         # Test PyTorch .to() method
@@ -430,13 +449,13 @@ class TestBackwardCompatibilityValidation:
 class TestPerformanceValidation:
     """Test that refactored version maintains performance characteristics."""
 
-    def test_memory_usage_comparable(self):
+    def test_memory_usage_comparable(self) -> None:
         """Test that memory usage is comparable."""
         cfg = create_mock_config()
 
         # Create both models
         _ = original_dmc(cfg, device="cpu")  # Original model for comparison
-        refactored = TorchMC(cfg, device="cpu")
+        refactored = dmc(cfg, device="cpu")
 
         # Both should have similar memory footprint
         # (This is a basic test - in practice you'd use memory profiling tools)
@@ -445,10 +464,10 @@ class TestPerformanceValidation:
         assert refactored.routing_engine is not None
         assert refactored.cfg is refactored.routing_engine.cfg  # Should share config
 
-    def test_forward_pass_efficiency(self):
+    def test_forward_pass_efficiency(self) -> None:
         """Test that forward pass is efficient."""
         cfg = create_mock_config()
-        refactored = TorchMC(cfg, device="cpu")
+        refactored = dmc(cfg, device="cpu")
 
         hydrofabric = create_mock_hydrofabric(num_reaches=100)  # Larger network
         streamflow = create_mock_streamflow(num_timesteps=72, num_reaches=100)

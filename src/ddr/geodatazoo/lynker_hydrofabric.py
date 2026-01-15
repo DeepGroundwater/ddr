@@ -381,14 +381,24 @@ class LynkerHydrofabric(BaseDataset):
 
     def _build_routing_data_all_catchments(self) -> RoutingDataclass:
         """Build hydrofabric for all segments."""
-        csr_matrix = sparse.csr_matrix(
-            (
-                self.conus_adjacency["data"][:],
-                self.conus_adjacency["indices"][:],
-                self.conus_adjacency["indptr"][:],
-            ),
-            shape=(len(self.hf_ids), len(self.hf_ids)),
-        )
+        self.hf_ids: list[int] = self.conus_adjacency["order"][:]  # type: ignore
+        coordinates = set()  # (indices_0, indices_1)
+        _r = self.conus_adjacency["indices_0"][:].tolist()
+        _c = self.conus_adjacency["indices_1"][:].tolist()
+        for row, col in zip(_r, _c, strict=False):
+            coordinates.add((row, col))
+        _attrs: dict[str, Any] = dict(self.conus_adjacency.attrs)
+        if coordinates:
+            rows, cols = zip(*coordinates, strict=False)
+            rows = list(rows)  # type: ignore
+            cols = list(cols)  # type: ignore
+        else:
+            raise ValueError("No coordinate-pairs found. Cannot construct a matrix")
+        shape = tuple(_attrs["shape"])
+        csr_matrix = sparse.coo_matrix(
+            (np.ones(len(rows)), (rows, cols)),
+            shape=shape,
+        ).tocsr()
 
         wb_ids = np.array([f"wb-{_id}" for _id in self.hf_ids])
         divide_ids = np.array([f"cat-{_id}" for _id in self.hf_ids])

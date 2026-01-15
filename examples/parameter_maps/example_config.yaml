@@ -1,14 +1,15 @@
 name: ddr-v${oc.env:DDR_VERSION,dev}-plots
 mode: routing
 geodataset: lynker_hydrofabric
+np_seed: 1
+seed: 0
+device: 0
+s3_region: us-east-2
+
 data_sources:
   geospatial_fabric_gpkg: ./../../data/conus_nextgen.gpkg
   conus_adjacency: ./../../data/conus_adjacency.zarr
   statistics: ./../../data/
-
-np_seed: 1
-seed: 0
-device: 0
 
 params:
   save_path: ./model

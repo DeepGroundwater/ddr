@@ -140,14 +140,13 @@ class LynkerHydrofabric(BaseDataset):
             else:
                 raise NotImplementedError("Cannot collate for training outside of using gages")
         elif self.cfg.mode == Mode.TESTING or self.cfg.mode == Mode.ROUTING:
+            if self.routing_dataclass is None:
+                raise ValueError("Hydrofabric not initialized for testing/routing mode")
             indices = list(args[0])
             if 0 not in indices:
                 prev_day = indices[0] - 1
                 indices.insert(0, prev_day)
-
             self.dates.set_date_range(np.array(indices))
-            if self.routing_dataclass is None:
-                raise ValueError("Hydrofabric not initialized for testing/routing mode")
             return self.routing_dataclass
         else:
             raise NotImplementedError(f"Cannot batch data for unknown mode: {self.cfg.mode}")

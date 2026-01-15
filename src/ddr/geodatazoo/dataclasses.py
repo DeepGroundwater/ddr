@@ -5,48 +5,35 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any, Self
 
 import numpy as np
 import pandas as pd
 import torch
 import xarray as xr
-from pydantic import AfterValidator, BaseModel, ConfigDict, PositiveFloat, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validator
 
 log = logging.getLogger(__name__)
-
-
-def zfill_usgs_id(STAID: str) -> str:
-    """Ensures all USGS gauge strings that are filled to 8 digits
-
-    Parameters
-    ----------
-    STAID: str
-        The USGS Station ID
-
-    Returns
-    -------
-    str
-        The eight-digit USGS Gauge ID
-    """
-    return STAID.zfill(8)
 
 
 class Gauge(BaseModel):
     """A pydantic object for managing properties for a Gauge and validating incoming CSV files"""
 
     model_config = ConfigDict(extra="ignore")
-    STAID: Annotated[str, AfterValidator(zfill_usgs_id)]
-    DRAIN_SQKM: PositiveFloat
+    STAID: str = Field(description="USGS Station ID, zero-padded to 8 digits")
+    DRAIN_SQKM: PositiveFloat = Field(description="Drainage area in square kilometers")
+
+    @model_validator(mode="after")
+    def zfill_staid(self) -> Self:
+        """A validator to ensure all USGS IDs are zfilled to include the prefix 0 (ex: '01563500' should be the ID and not 1563500)"""
+        self.STAID = self.STAID.zfill(8)
+        return self
 
 
-class MERITGauge(BaseModel):
-    """A pydantic object for managing properties for a Gauge and validating incoming CSV files"""
+class MERITGauge(Gauge):
+    """A pydantic object for MERIT-linked gauges with COMID mapping"""
 
-    model_config = ConfigDict(extra="ignore")
-    STAID: Annotated[str, AfterValidator(zfill_usgs_id)]
-    COMID: int
-    DRAIN_SQKM: PositiveFloat
+    COMID: int = Field(description="MERIT catchment identifier linked to this gauge")
 
 
 class GaugeSet(BaseModel):

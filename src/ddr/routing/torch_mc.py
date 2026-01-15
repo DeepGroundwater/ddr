@@ -50,13 +50,11 @@ class dmc(torch.nn.Module):
         self.discharge_lb = self.routing_engine.discharge_lb
         self.bottom_width_lb = self.routing_engine.bottom_width_lb
 
-        # Routing state (for compatibility with original dmc)
-        self._discharge_t: torch.Tensor | None = None
-        self.network: torch.Tensor | None = None
-        self.n: torch.Tensor | None = None
-        self.q_spatial: torch.Tensor | None = None
+        self._discharge_t: torch.Tensor = torch.empty(0)
+        self.network: torch.Tensor = torch.empty(0)
+        self.n: torch.Tensor = torch.empty(0)
+        self.q_spatial: torch.Tensor = torch.empty(0)
 
-        # Progress tracking (for tqdm display compatibility)
         self.epoch = 0
         self.mini_batch = 0
 

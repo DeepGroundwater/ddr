@@ -107,7 +107,7 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
         },
     )
     ds.to_zarr(
-        Path(cfg.params.save_path) / "model_test.zarr",
+        cfg.params.save_path / "model_test.zarr",
         mode="w",
     )
     metrics = Metrics(pred=ds.predictions.values[:, warmup:], target=ds.observations.values[:, warmup:])

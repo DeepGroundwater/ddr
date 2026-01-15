@@ -63,9 +63,6 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
         drop_last=True,
     )
 
-    # Ensure save_path is a Path object
-    save_path = Path(cfg.params.save_path) if isinstance(cfg.params.save_path, str) else cfg.params.save_path
-
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
         if epoch in cfg.experiment.learning_rate.keys():
             log.info(f"Setting learning rate: {cfg.experiment.learning_rate[epoch]}")
@@ -127,10 +124,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
                 log.info(f"Loss: {loss.item()}")
 
-                if routing_model.n is not None:
-                    log.info(
-                        f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}"
-                    )
+                log.info(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
 
                 random_gage = -1  # TODO: scale out when we have more gauges
                 plot_time_series(
@@ -140,7 +134,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                     hydrofabric.observations.gage_id.values[random_gage],
                     hydrofabric.observations.gage_id.values[random_gage],
                     metrics={"nse": nse[-1]},
-                    path=save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
+                    path=cfg.params.save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
                     warmup=cfg.experiment.warmup,
                 )
 
@@ -151,7 +145,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                     mlp=nn,
                     optimizer=optimizer,
                     name=cfg.name,
-                    saved_model_path=save_path / "saved_models",
+                    saved_model_path=cfg.params.save_path / "saved_models",
                 )
 
 

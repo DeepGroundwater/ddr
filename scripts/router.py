@@ -114,7 +114,7 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
         attrs=attrs,
     )
     ds.to_zarr(
-        Path(cfg.params.save_path) / "chrout.zarr",
+        cfg.params.save_path / "chrout.zarr",
         mode="w",
     )
 

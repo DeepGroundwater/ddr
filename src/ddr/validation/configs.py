@@ -68,14 +68,15 @@ class DataSources(BaseModel):
         default="s3://mhpi-spatial/hydrofabric_v2.2_attributes/",  # MHPI extracted spatial attributes for HF v2.2
         description="Path to the icechunk store containing catchment attribute data",
     )
-    geospatial_fabric_gpkg: str = Field(
+    geospatial_fabric_gpkg: Path = Field(
         description="Path to the geospatial fabric geopackage containing network topology"
     )
-    conus_adjacency: str = Field(
+    conus_adjacency: Path = Field(
         description="Path to the CONUS adjacency matrix created by engine/adjacency.py"
     )
-    statistics: str = Field(
-        default="./data/", description="Path to the folder where normalization statistics files are saved"
+    statistics: Path = Field(
+        default=Path("./data/"),
+        description="Path to the folder where normalization statistics files are saved",
     )
     streamflow: str = Field(
         default="s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective",  # MHPI dhbv v2.2 streamflow retrospective
@@ -128,8 +129,8 @@ class Params(BaseModel):
         default=3,
         description="Routing time step adjustment parameter to handle double routing and timezone differences",
     )
-    save_path: str | Path = Field(
-        default="./", description="Directory path where model outputs and checkpoints will be saved"
+    save_path: Path = Field(
+        default=Path("./"), description="Directory path where model outputs and checkpoints will be saved"
     )
 
 

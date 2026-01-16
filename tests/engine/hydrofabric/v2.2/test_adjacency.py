@@ -37,15 +37,15 @@ class TestIndexMatrix:
             ("complex_flowpaths", "complex_network", False),
         ],
     )
-    def test_index_matrix(self, fp, network, ghost, request):
+    def test_index_matrix(self, fp: str, network: str, ghost: bool, request: pytest.FixtureRequest) -> None:
         """Test basic functionality of index_matrix."""
-        fp = request.getfixturevalue(fp)
-        network = request.getfixturevalue(network)
-        coo, ts_order = create_matrix(fp, network, ghost)
+        fp_fixture = request.getfixturevalue(fp)
+        network_fixture = request.getfixturevalue(network)
+        coo, ts_order = create_matrix(fp_fixture, network_fixture, ghost)
         matrix = coo.toarray()
 
         # Convert original flowpaths for comparison, but only include original flowpaths (not ghost nodes)
-        fp_pandas = fp.collect().to_pandas().set_index("id")
+        fp_pandas = fp_fixture.collect().to_pandas().set_index("id")
 
         # Ghost nodes will be added to this new frame
         # if they exist in ts_order, and the will have NaN
@@ -88,15 +88,15 @@ class TestAdjanceyMatrix:
             ("complex_flowpaths", "complex_network", False),
         ],
     )
-    def test_create_matrix(self, fp, network, ghost, request):
+    def test_create_matrix(self, fp: str, network: str, ghost: bool, request: pytest.FixtureRequest) -> None:
         """Test basic functionality of create_matrix."""
-        fp = request.getfixturevalue(fp)
-        network = request.getfixturevalue(network)
-        coo, ts_order = create_matrix(fp, network, ghost)
+        fp_fixture = request.getfixturevalue(fp)
+        network_fixture = request.getfixturevalue(network)
+        coo, ts_order = create_matrix(fp_fixture, network_fixture, ghost)
         matrix = coo.toarray()
 
         # Convert to pandas for easier inspection
-        fp_pandas = fp.collect().to_pandas().set_index("id")
+        fp_pandas = fp_fixture.collect().to_pandas().set_index("id")
 
         # Validate matrix properties
         # Check that matrix is square and has correct dimensions
@@ -132,7 +132,7 @@ class TestAdjanceyMatrix:
             # Should exactly match original IDs
             assert original_ids == ts_order_set
 
-    def test_empty_dataframes(self):
+    def test_empty_dataframes(self) -> None:
         """Test behavior with empty dataframes."""
         empty_fp = pl.LazyFrame({"id": [], "toid": []}, schema=_table_schema)
         empty_network = pl.LazyFrame({"id": [], "toid": []}, schema=_table_schema)
@@ -143,7 +143,7 @@ class TestAdjanceyMatrix:
         assert len(ts_order) == 0
 
     @pytest.mark.parametrize("ghost", [True, False])
-    def test_single_flowpath(self, ghost):
+    def test_single_flowpath(self, ghost: bool) -> None:
         """Test with a single flowpath (terminal)."""
         single_fp = pl.LazyFrame({"id": ["wb-1"], "toid": ["nex-1"]}, schema=_table_schema)
         # Create network DataFrame properly
@@ -169,16 +169,16 @@ class TestAdjanceyMatrix:
             ("complex_flowpaths", "complex_network", False),
         ],
     )
-    def test_topology(self, fp, network, ghost, request):
+    def test_topology(self, fp: str, network: str, ghost: bool, request: pytest.FixtureRequest) -> None:
         """Test matrix topology."""
-        fp = request.getfixturevalue(fp)
-        network = request.getfixturevalue(network)
-        coo, ts_order = create_matrix(fp, network, ghost)
+        fp_fixture = request.getfixturevalue(fp)
+        network_fixture = request.getfixturevalue(network)
+        coo, ts_order = create_matrix(fp_fixture, network_fixture, ghost)
         matrix = coo.toarray()
 
         # Convert to pandas and reindex according to ts_order
-        fp_pandas = fp.collect().to_pandas().set_index("id").reindex(ts_order)
-        network_pandas = network.collect().to_pandas().set_index("id")
+        fp_pandas = fp_fixture.collect().to_pandas().set_index("id").reindex(ts_order)
+        network_pandas = network_fixture.collect().to_pandas().set_index("id")
 
         # Test the values in the matrix
         idx = fp_pandas.index
@@ -211,11 +211,13 @@ class TestAdjanceyMatrix:
 class TestMatrixToZarr:
     """Test cases for the coo_to_zarr function."""
 
-    def test_coo_to_zarr_basic(self, fp, network, ghost, request):
+    def test_coo_to_zarr_basic(
+        self, fp: str, network: str, ghost: bool, request: pytest.FixtureRequest
+    ) -> None:
         """Test basic zarr export functionality."""
-        fp = request.getfixturevalue(fp)
-        network = request.getfixturevalue(network)
-        coo, ts_order = create_matrix(fp, network, ghost)
+        fp_fixture = request.getfixturevalue(fp)
+        network_fixture = request.getfixturevalue(network)
+        coo, ts_order = create_matrix(fp_fixture, network_fixture, ghost)
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / "test_adjacency.zarr"
             coo_to_zarr(coo, ts_order, out_path)
@@ -232,11 +234,13 @@ class TestMatrixToZarr:
             assert "values" in root
             assert "order" in root
 
-    def test_zarr_attributes(self, fp, network, ghost, request):
+    def test_zarr_attributes(
+        self, fp: str, network: str, ghost: bool, request: pytest.FixtureRequest
+    ) -> None:
         """Test that zarr attributes are set correctly."""
-        fp = request.getfixturevalue(fp)
-        network = request.getfixturevalue(network)
-        coo, ts_order = create_matrix(fp, network, ghost)
+        fp_fixture = request.getfixturevalue(fp)
+        network_fixture = request.getfixturevalue(network)
+        coo, ts_order = create_matrix(fp_fixture, network_fixture, ghost)
 
         with tempfile.TemporaryDirectory() as temp_dir:
             out_path = Path(temp_dir) / "test_adjacency.zarr"

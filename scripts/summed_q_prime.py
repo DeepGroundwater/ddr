@@ -17,7 +17,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from ddr._version import __version__
-from ddr.dataset import utils
+from ddr.io.readers import read_ic
 from ddr.validation import Metrics
 
 daily_format: str = "%Y/%m/%d"
@@ -36,14 +36,14 @@ def print_metrics_summary(metrics: Metrics, save_path: Path, valid_gauges: np.nd
     """
 
     # Calculate summary statistics (removing NaN values)
-    def safe_percentile(arr, percentile):
+    def safe_percentile(arr: np.ndarray, percentile: float) -> np.ndarray:
         """Calculate percentile ignoring NaN values"""
         clean_arr = arr[~np.isnan(arr)]
         if len(clean_arr) == 0:
             return np.nan
         return np.percentile(clean_arr, percentile)
 
-    def safe_mean(arr):
+    def safe_mean(arr: np.ndarray) -> np.ndarray:
         """Calculate mean ignoring NaN values"""
         clean_arr = arr[~np.isnan(arr)]
         if len(clean_arr) == 0:
@@ -204,11 +204,11 @@ def eval(
     preds = np.zeros([len(valid_gauges), len(eval_daily_time_range)], dtype=np.float32)
     target: np.ndarray = observations.sel(
         time=eval_daily_time_range, gage_id=valid_gauges
-    ).streamflow.values.astype(np.float32)  # type: ignore
+    ).streamflow.values.astype(np.float32)
     for i, gauge in tqdm(
         enumerate(valid_gauges), total=len(valid_gauges), desc="Processing gauges", ncols=140
     ):
-        basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])  # type: ignore
+        basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])
         divide_indices = np.where(np.isin(conus_divide_ids, basins))[0]
         qr = streamflow.isel(time=time_indices, divide_id=divide_indices)["Qr"].values.astype(np.float32)
         preds[i] = qr.sum(axis=0)
@@ -259,8 +259,8 @@ def main(cfg: DictConfig) -> None:
     start_time = time.perf_counter()
     try:
         print(f"Checking Summed Q` NSE for streamflow predictions from: {cfg.data_sources.streamflow}")
-        streamflow = utils.read_ic(cfg.data_sources.streamflow, region=cfg.s3_region)
-        observations = utils.read_ic(cfg.data_sources.observations, region=cfg.s3_region)
+        streamflow = read_ic(cfg.data_sources.streamflow, region=cfg.s3_region)
+        observations = read_ic(cfg.data_sources.observations, region=cfg.s3_region)
         gages_adjacency = zarr.open_group(cfg.data_sources.gages_adjacency)
         basins_df = pd.read_csv(cfg.data_sources.gages)
         eval(

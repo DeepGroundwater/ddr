@@ -2,7 +2,6 @@ import logging
 from typing import Any
 
 import numpy as np
-import numpy.typing as npt
 import scipy.stats as stats
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -13,28 +12,28 @@ class Metrics(BaseModel):
     """Pydantic class for validating model performance"""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    pred: npt.NDArray[np.float32]
-    target: npt.NDArray[np.float32]
-    bias: npt.NDArray[np.float32] = np.ndarray([])
-    mae: npt.NDArray[np.float32] = np.ndarray([])
-    rmse: npt.NDArray[np.float32] = np.ndarray([])
-    ub_rmse: npt.NDArray[np.float32] = np.ndarray([])
-    fdc_rmse: npt.NDArray[np.float32] = np.ndarray([])
-    corr: npt.NDArray[np.float32] = np.ndarray([])
-    corr_spearman: npt.NDArray[np.float32] = np.ndarray([])
-    r2: npt.NDArray[np.float32] = np.ndarray([])
-    nse: npt.NDArray[np.float32] = np.ndarray([])
-    flv: npt.NDArray[np.float32] = np.ndarray([])
-    fhv: npt.NDArray[np.float32] = np.ndarray([])
-    pbias: npt.NDArray[np.float32] = np.ndarray([])
-    pbias_mid: npt.NDArray[np.float32] = np.ndarray([])
-    kge: npt.NDArray[np.float32] = np.ndarray([])
-    kge_12: npt.NDArray[np.float32] = np.ndarray([])
-    rmse_low: npt.NDArray[np.float32] = np.ndarray([])
-    rmse_high: npt.NDArray[np.float32] = np.ndarray([])
-    rmse_mid: npt.NDArray[np.float32] = np.ndarray([])
+    pred: np.ndarray
+    target: np.ndarray
+    bias: np.ndarray = np.ndarray([])
+    mae: np.ndarray = np.ndarray([])
+    rmse: np.ndarray = np.ndarray([])
+    ub_rmse: np.ndarray = np.ndarray([])
+    fdc_rmse: np.ndarray = np.ndarray([])
+    corr: np.ndarray = np.ndarray([])
+    corr_spearman: np.ndarray = np.ndarray([])
+    r2: np.ndarray = np.ndarray([])
+    nse: np.ndarray = np.ndarray([])
+    flv: np.ndarray = np.ndarray([])
+    fhv: np.ndarray = np.ndarray([])
+    pbias: np.ndarray = np.ndarray([])
+    pbias_mid: np.ndarray = np.ndarray([])
+    kge: np.ndarray = np.ndarray([])
+    kge_12: np.ndarray = np.ndarray([])
+    rmse_low: np.ndarray = np.ndarray([])
+    rmse_high: np.ndarray = np.ndarray([])
+    rmse_mid: np.ndarray = np.ndarray([])
 
-    def __init__(self, pred: npt.NDArray[np.float32], target: npt.NDArray[np.float32]):
+    def __init__(self, pred: np.ndarray, target: np.ndarray) -> None:
         if pred.ndim == 1:
             pred = np.expand_dims(pred, axis=0)
         if target.ndim == 1:
@@ -42,7 +41,7 @@ class Metrics(BaseModel):
 
         super().__init__(pred=pred, target=target)
 
-    def model_post_init(self, __context: Any):
+    def model_post_init(self, __context: Any) -> None:
         """Running the metrics functions"""
         self.bias = self._bias(self.pred, self.target)
         self.rmse = self._rmse(self.pred, self.target)
@@ -110,7 +109,6 @@ class Metrics(BaseModel):
                         _pred_mean, _target_mean, _pred_std, _target_std, self.corr[i]
                     )
                     self.nse[i], self.r2[i] = self._nse_r2(pred, target, _target_mean)
-        return super().model_post_init(__context)
 
     @model_validator(mode="after")
     @classmethod
@@ -123,7 +121,7 @@ class Metrics(BaseModel):
             raise ValueError(msg)
         return metrics
 
-    def _calc_fdc(self, data: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    def _calc_fdc(self, data: np.ndarray) -> np.ndarray:
         """Calculate flow duration curve for each grid"""
         fdc_100 = np.full([self.ngrid, 100], np.nan)
         for i in range(self.ngrid):
@@ -141,75 +139,75 @@ class Metrics(BaseModel):
                 fdc_100[i] = fdc_flow
         return fdc_100
 
-    def model_dump_json(self, *args, **kwargs) -> str:
+    def model_dump_json(self, *args: Any, **kwargs: Any) -> str:
         """Dump metrics to json"""
         model_dict = self.model_dump()
         for key, value in model_dict.items():
             if isinstance(value, np.ndarray):
                 setattr(self, key, value.tolist())
 
-        # I don't want these saved to disk as that's going to waste space
         if hasattr(self, "pred"):
             del self.pred
         if hasattr(self, "target"):
             del self.target
 
-        return super().model_dump_json(*args, **kwargs)
+        result: str = super().model_dump_json(*args, **kwargs)
+        return result
 
     @property
     def ngrid(self) -> int:
         """Calculate number of grids"""
-        return self.pred.shape[0]
+        return int(self.pred.shape[0])
 
     @property
     def nt(self) -> int:
         """Calculate number of time steps"""
-        return self.pred.shape[1]
+        return int(self.pred.shape[1])
 
-    def tile_mean(self, data: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    def tile_mean(self, data: np.ndarray) -> np.ndarray:
         """Calculate mean of target"""
         return np.tile(np.nanmean(data, axis=1), (self.nt, 1)).transpose()
 
     @staticmethod
     def _rmse(
-        pred: npt.NDArray[np.float32],
-        target: npt.NDArray[np.float32],
+        pred: np.ndarray,
+        target: np.ndarray,
         axis: int | None = 1,
-    ) -> npt.NDArray[np.float32]:
+    ) -> np.ndarray:
         """Calculate root mean square error"""
         return np.sqrt(np.nanmean((pred - target) ** 2, axis=axis))
 
     @staticmethod
     def _mae(
-        pred: npt.NDArray[np.float32],
-        target: npt.NDArray[np.float32],
+        pred: np.ndarray,
+        target: np.ndarray,
         axis: int | None = 1,
-    ) -> npt.NDArray[np.float32]:
+    ) -> np.ndarray:
         """Calculate mean absolute error"""
         return np.nanmean(np.abs(pred - target), axis=axis)
 
     @staticmethod
     def _bias(
-        pred: npt.NDArray[np.float32],
-        target: npt.NDArray[np.float32],
-    ) -> npt.NDArray[np.float32]:
+        pred: np.ndarray,
+        target: np.ndarray,
+    ) -> np.ndarray:
         """Calculate bias"""
         return np.nanmean((pred - target), axis=1)
 
     @staticmethod
-    def _p_bias(pred: npt.NDArray[np.float32], target: npt.NDArray[np.float32]) -> np.float32:
+    def _p_bias(pred: np.ndarray, target: np.ndarray) -> np.float32:
         """Calculate p bias"""
         p_bias = np.sum(pred - target) / np.sum(target) * 100
         return p_bias
 
     @staticmethod
-    def _corr(pred: npt.NDArray[np.float32], target: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
+    def _corr(pred: np.ndarray, target: np.ndarray) -> np.ndarray:
         """Calculate correlation"""
         corr = stats.pearsonr(pred, target)[0]
         return corr
 
     @staticmethod
-    def _corr_spearman(pred: npt.NDArray[np.float32], target: npt.NDArray[np.float32]) -> np.float32:
+    def _corr_spearman(pred: np.ndarray, target: np.ndarray) -> np.float32:
         """Calculate spearman r"""
         corr_spearman = stats.spearmanr(pred, target)[0]
         return corr_spearman
@@ -221,7 +219,7 @@ class Metrics(BaseModel):
         pred_std: np.float32,
         target_std: np.float32,
         corr: np.float32,
-    ) -> npt.NDArray[np.float32]:
+    ) -> np.ndarray:
         """Calculate KGE"""
         kge = 1 - np.sqrt(
             (corr - 1) ** 2 + (pred_std / target_std - 1) ** 2 + (pred_mean / target_mean - 1) ** 2
@@ -235,7 +233,7 @@ class Metrics(BaseModel):
         pred_std: np.float32,
         target_std: np.float32,
         corr: np.float32,
-    ) -> npt.NDArray[np.float32]:
+    ) -> np.ndarray:
         """Calculate KGE 1-2"""
         kge_12 = 1 - np.sqrt(
             (corr - 1) ** 2
@@ -246,8 +244,8 @@ class Metrics(BaseModel):
 
     @staticmethod
     def _nse_r2(
-        pred: npt.NDArray[np.float32],
-        target: npt.NDArray[np.float32],
+        pred: np.ndarray,
+        target: np.ndarray,
         target_mean: np.float32,
     ) -> tuple[np.float32, np.float32]:
         """Calculate NSE/R2"""

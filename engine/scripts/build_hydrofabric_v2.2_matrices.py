@@ -18,7 +18,7 @@ from ddr_engine.hydrofabric import (
 )
 from tqdm import tqdm
 
-from ddr.dataset import GaugeSet, validate_gages
+from ddr.geodatazoo.dataclasses import GaugeSet, validate_gages
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -59,8 +59,6 @@ if __name__ == "__main__":
             if gages_out_path.exists():
                 print(f"Cannot create zarr store {gages_out_path}. One already exists")
                 exit(1)
-        else:
-            gages_out_path = None
 
     if out_path.exists():
         print(f"Cannot create zarr store {args.path}. One already exists")

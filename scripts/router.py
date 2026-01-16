@@ -14,20 +14,16 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, SequentialSampler
 
+from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.dataset import StreamflowReader as streamflow
-from ddr.dataset import TestDataset
-from ddr.dataset import utils as ds_utils
-from ddr.nn import kan
-from ddr.routing.torch_mc import dmc
 from ddr.validation import Config, validate_config
 
 log = logging.getLogger(__name__)
 
 
-def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
+def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     """Route a trained model over a specific amount of defined catchments"""
-    dataset = TestDataset(cfg=cfg)
+    dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
         file_path = Path(cfg.experiment.checkpoint)
@@ -61,13 +57,13 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
     end_time = datetime.strptime(cfg.experiment.end_time, date_time_format).strftime("%Y-%m-%d")
 
     if cfg.data_sources.target_catchments is not None:
-        num_outputs = len(dataset.hydrofabric.outflow_idx)
+        num_outputs = len(dataset.routing_dataclass.outflow_idx)
         log.info(f"Routing for {num_outputs} target catchments")
     elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
-        num_outputs = len(dataset.hydrofabric.outflow_idx)
+        num_outputs = len(dataset.routing_dataclass.outflow_idx)
         log.info(f"Routing for {num_outputs} gages")
     else:
-        num_outputs = dataset.hydrofabric.adjacency_matrix.shape[0]
+        num_outputs = dataset.routing_dataclass.adjacency_matrix.shape[0]
         log.info(f"Routing for {num_outputs} segments (all)")
 
     num_timesteps = len(dataset.dates.hourly_time_range)
@@ -88,7 +84,7 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
     num_days = len(predictions[0][13 : (-11 + cfg.params.tau)]) // 24
-    daily_runoff = ds_utils.downsample(
+    daily_runoff = ddr_functions.downsample(
         torch.tensor(predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
         rho=num_days,
     ).numpy()
@@ -97,7 +93,7 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
     pred_da = xr.DataArray(
         data=daily_runoff,
         dims=["catchment_ids", "time"],
-        coords={"catchment_ids": dataset.hydrofabric.divide_ids, "time": time_range},
+        coords={"catchment_ids": dataset.routing_dataclass.divide_ids, "time": time_range},
         attrs={"units": "m3/s", "long_name": "Streamflow"},
     )
     attrs = {

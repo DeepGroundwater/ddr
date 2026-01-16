@@ -11,22 +11,18 @@ from omegaconf import DictConfig
 from torch.nn.functional import mse_loss
 from torch.utils.data import DataLoader, RandomSampler
 
+from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.dataset import StreamflowReader as streamflow
-from ddr.dataset import TrainDataset
-from ddr.dataset import utils as ds_utils
-from ddr.nn import kan
-from ddr.routing.torch_mc import dmc
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
 
 
-def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
+def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     """Do model training."""
     data_generator = torch.Generator()
     data_generator.manual_seed(cfg.seed)
-    dataset = TrainDataset(cfg=cfg)
+    dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
         file_path = Path(cfg.experiment.checkpoint)
@@ -66,6 +62,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
         collate_fn=dataset.collate_fn,
         drop_last=True,
     )
+
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
         if epoch in cfg.experiment.learning_rate.keys():
             log.info(f"Setting learning rate: {cfg.experiment.learning_rate[epoch]}")
@@ -89,7 +86,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
                 dmc_output = routing_model(**dmc_kwargs)
 
                 num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
-                daily_runoff = ds_utils.downsample(
+                daily_runoff = ddr_functions.downsample(
                     dmc_output["runoff"][:, 13 : (-11 + cfg.params.tau)],
                     rho=num_days,
                 )
@@ -117,7 +114,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
 
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()
-                plotted_dates = dataset.dates.batch_daily_time_range[1:-1]  # type: ignore
+                plotted_dates = dataset.dates.batch_daily_time_range[1:-1]
 
                 metrics = Metrics(pred=np_pred, target=np_target)
                 _nse = metrics.nse
@@ -126,6 +123,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan):
                 kge = metrics.kge
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
                 log.info(f"Loss: {loss.item()}")
+
                 log.info(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
 
                 random_gage = -1  # TODO: scale out when we have more gauges

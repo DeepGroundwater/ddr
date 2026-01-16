@@ -1,5 +1,6 @@
 import logging
 import random
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,8 @@ import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+
+from ddr.geodatazoo.base_dataset import BaseDataset
 
 log = logging.getLogger(__name__)
 
@@ -19,6 +22,29 @@ def check_path(v: str) -> Path:
         log.exception(f"Path {v} does not exist")
         raise ValueError(f"Path {v} does not exist")
     return path
+
+
+class Mode(str, Enum):
+    """Operating mode for the DDR model."""
+
+    TRAINING = "training"
+    TESTING = "testing"
+    ROUTING = "routing"
+
+
+class GeoDataset(str, Enum):
+    """The geospatial dataset used for predictions and routing"""
+
+    LYNKER_HYDROFABRIC = "lynker_hydrofabric"
+
+    def get_dataset_class(self, cfg: "Config") -> BaseDataset:
+        """A factory pattern for instantiating TorchDatasets through config settings"""
+        from ddr.geodatazoo.lynker_hydrofabric import LynkerHydrofabric
+
+        mapping = {
+            GeoDataset.LYNKER_HYDROFABRIC: LynkerHydrofabric,
+        }
+        return mapping[self](cfg=cfg)
 
 
 class AttributeMinimums(BaseModel):
@@ -42,14 +68,15 @@ class DataSources(BaseModel):
         default="s3://mhpi-spatial/hydrofabric_v2.2_attributes/",  # MHPI extracted spatial attributes for HF v2.2
         description="Path to the icechunk store containing catchment attribute data",
     )
-    hydrofabric_gpkg: str = Field(
-        description="Path to the CONUS hydrofabric geopackage containing network topology"
+    geospatial_fabric_gpkg: Path = Field(
+        description="Path to the geospatial fabric geopackage containing network topology"
     )
-    conus_adjacency: str = Field(
+    conus_adjacency: Path = Field(
         description="Path to the CONUS adjacency matrix created by engine/adjacency.py"
     )
-    statistics: str = Field(
-        default="./data/", description="Path to the folder where normalization statistics files are saved"
+    statistics: Path = Field(
+        default=Path("./data/"),
+        description="Path to the folder where normalization statistics files are saved",
     )
     streamflow: str = Field(
         default="s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective",  # MHPI dhbv v2.2 streamflow retrospective
@@ -102,8 +129,8 @@ class Params(BaseModel):
         default=3,
         description="Routing time step adjustment parameter to handle double routing and timezone differences",
     )
-    save_path: str | Path = Field(
-        default="./", description="Directory path where model outputs and checkpoints will be saved"
+    save_path: Path = Field(
+        default=Path("./"), description="Directory path where model outputs and checkpoints will be saved"
     )
 
 
@@ -183,6 +210,8 @@ class Config(BaseModel):
         default_factory=ExperimentConfig,
         description="Experiment settings controlling training behavior and data selection",
     )
+    geodataset: GeoDataset = Field(description="The geospatial dataset used in predictions and routing")
+    mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
     np_seed: int = Field(default=1, description="Random seed for NumPy operations to ensure reproducibility")

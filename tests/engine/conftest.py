@@ -12,7 +12,7 @@ import pytest
 from ddr_engine.merit import _build_rustworkx_object, _build_upstream_dict_from_merit, create_matrix
 from shapely.geometry import LineString
 
-from ddr.dataset import Gauge
+from ddr.geodatazoo.dataclasses import Gauge
 
 _flowpath_table_schema = {
     "id": pl.String,
@@ -332,7 +332,7 @@ def simple_merit_flowpaths() -> gpd.GeoDataFrame:
         "up4": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     }
 
-    n = len(data["COMID"])
+    n = len(data["COMID"])  # type: ignore[arg-type]
     geometries = [LineString([(i, 0), (i, 1)]) for i in range(n)]
 
     gdf = gpd.GeoDataFrame(data, geometry=geometries, crs="EPSG:4326")
@@ -515,7 +515,7 @@ def merit_flowpaths_with_cycles() -> gpd.GeoDataFrame:
         "up4": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     }
 
-    n = len(data["COMID"])
+    n = len(data["COMID"])  # type: ignore[arg-type]
     geometries = [LineString([(i, 0), (i, 1)]) for i in range(n)]
 
     gdf = gpd.GeoDataFrame(data, geometry=geometries, crs="EPSG:4326")
@@ -628,6 +628,6 @@ def complex_river_network_dictionary() -> dict[str, list[str]]:
 
 
 @pytest.fixture
-def complex_connections() -> list[tuple[str]]:
-    """Creates a list of list of strings (Or tuples) where"""
+def complex_connections() -> list[tuple[str, str]]:
+    """Creates a list of tuples of string pairs representing connections."""
     return [("wb-14", "wb-13"), ("wb-13", "wb-10"), ("wb-13", "wb-11"), ("wb-13", "wb-12")]

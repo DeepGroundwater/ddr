@@ -1,0 +1,488 @@
+"""A file to have all train/test geospatial datasets for the NOAA-OWP/Lynker Hydrofabric v2.2"""
+
+import logging
+from pathlib import Path
+from typing import Any
+
+import geopandas as gpd
+import numpy as np
+import rustworkx as rx
+import torch
+from scipy import sparse
+
+from ddr.geodatazoo.base_dataset import BaseDataset
+from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
+from ddr.io.builders import (
+    _build_network_graph,
+    construct_network_matrix,
+    create_hydrofabric_observations,
+)
+from ddr.io.readers import AttributesReader, IcechunkUSGSReader, fill_nans, naninfmean, read_zarr
+from ddr.io.statistics import set_statistics
+from ddr.validation.configs import Config, Mode
+
+log = logging.getLogger(__name__)
+
+
+class LynkerHydrofabric(BaseDataset):
+    """An implementation of the BaseDataset for the LynkerHydrofabric"""
+
+    def __init__(self, cfg: Config) -> None:
+        self.cfg = cfg
+        self.dates = Dates(**self.cfg.experiment.model_dump())
+        self.network_graph: rx.PyDiGraph | None = None
+        self.hf_id_to_node: dict[int, int] | None = None
+        self.gage_ids: np.ndarray | None = None
+        self.observations: Any = None
+        self.gages_adjacency: Any = None
+        self.target_catchments: list[str] | None = None
+        self.routing_dataclass: RoutingDataclass | None = None
+        self.mode: str = ""
+
+        self.attr_reader = AttributesReader(cfg=self.cfg)
+        self.attr_stats = set_statistics(self.cfg, self.attr_reader.ds)
+        self.means = torch.tensor(
+            [self.attr_stats[attr].iloc[2] for attr in self.cfg.kan.input_var_names],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)  # Mean is always idx 2
+        self.stds = torch.tensor(
+            [self.attr_stats[attr].iloc[3] for attr in self.cfg.kan.input_var_names],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)  # Std is always idx 3
+
+        _flowpath_attr = gpd.read_file(
+            self.cfg.data_sources.geospatial_fabric_gpkg, layer="flowpath-attributes-ml"
+        ).set_index("id")
+        self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
+
+        self.phys_means = torch.tensor(
+            [
+                naninfmean(self.flowpath_attr[attr].values)
+                for attr in ["Length_m", "So", "TopWdth", "ChSlp", "MusX"]
+            ],
+            device=self.cfg.device,
+            dtype=torch.float32,
+        ).unsqueeze(1)
+
+        self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
+        self.hf_ids = self.conus_adjacency["order"][:]
+
+        if cfg.mode == Mode.TRAINING:
+            self._init_training(cfg)
+        elif cfg.mode == Mode.TESTING or cfg.mode == Mode.ROUTING:
+            self._init_testing_routing(cfg)
+        else:
+            raise NotImplementedError(f"Cannot initialize geospatial dataset for unknown mode: {cfg.mode}")
+
+    def _init_training(self, cfg: Config) -> None:
+        """Initialize dataset for training mode."""
+        if cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
+            self.mode = "gages"
+            self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
+            self.observations = self.obs_reader.read_data(dates=self.dates)
+            self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+            self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
+            log.info(f"Gages mode: routing for {len(self.gage_ids)} gauged locations")
+        else:
+            raise NotImplementedError(
+                "Cannot train on the current geospatial hydrofabric without gages or gage_adjacency defined"
+            )
+
+    def _init_testing_routing(self, cfg: Config) -> None:
+        """Initialize dataset for testing or routing mode."""
+        if cfg.data_sources.target_catchments is not None:
+            self.mode = "target_catchments"
+            self.target_catchments = cfg.data_sources.target_catchments
+            self.network_graph, self.hf_id_to_node, _ = _build_network_graph(self.conus_adjacency)
+            log.info(f"Target catchments mode: routing flow upstream of the {self.target_catchments} outlets")
+            self.routing_dataclass = self._build_routing_data_target_catchments()
+
+        elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
+            self.mode = "gages"
+            self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
+            self.observations = self.obs_reader.read_data(dates=self.dates)
+            self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+            self.gages_adjacency = read_zarr(Path(cfg.data_sources.gages_adjacency))
+            log.info(f"Gages mode: {len(self.gage_ids)} gauged locations")
+            self.routing_dataclass = self._build_routing_data_gages()
+
+        else:
+            self.mode = "all"
+            log.info("All segments mode")
+            self.routing_dataclass = self._build_routing_data_all_catchments()
+
+    def __len__(self) -> int:
+        if self.cfg.mode == Mode.TRAINING:
+            assert self.gage_ids is not None, "Cannot train model if no Gage IDs"
+            return len(self.gage_ids)
+        elif self.cfg.mode == Mode.TESTING or self.cfg.mode == Mode.ROUTING:
+            return len(self.dates.daily_time_range)
+        else:
+            raise NotImplementedError(f"Cannot set length for unknown mode: {self.cfg.mode}")
+
+    def __getitem__(self, idx: int) -> str | int:
+        if self.cfg.mode == Mode.TRAINING:
+            assert self.gage_ids is not None, "Cannot train model if no Gage IDs"
+            return str(self.gage_ids[idx])
+        elif self.cfg.mode == Mode.TESTING or self.cfg.mode == Mode.ROUTING:
+            return idx
+        else:
+            raise NotImplementedError(f"Cannot batch data for unknown mode: {self.cfg.mode}")
+
+    def collate_fn(self, *args: Any, **kwargs: Any) -> RoutingDataclass:
+        """Collate function for the dataset based on mode."""
+        if self.cfg.mode == Mode.TRAINING:
+            self.dates.calculate_time_period()
+            if self.mode == "gages":
+                return self._collate_gages(np.array(args[0]))
+            else:
+                raise NotImplementedError("Cannot collate for training outside of using gages")
+        elif self.cfg.mode == Mode.TESTING or self.cfg.mode == Mode.ROUTING:
+            if self.routing_dataclass is None:
+                raise ValueError("Hydrofabric not initialized for testing/routing mode")
+            indices = list(args[0])
+            if 0 not in indices:
+                prev_day = indices[0] - 1
+                indices.insert(0, prev_day)
+            self.dates.set_date_range(np.array(indices))
+            return self.routing_dataclass
+        else:
+            raise NotImplementedError(f"Cannot batch data for unknown mode: {self.cfg.mode}")
+
+    @property
+    def routing_data(self) -> RoutingDataclass:
+        """Property to access hydrofabric for backward compatibility."""
+        if self.routing_dataclass is None:
+            raise ValueError("Hydrofabric not initialized")
+        return self.routing_dataclass
+
+    def _collate_gages(self, batch: np.ndarray) -> RoutingDataclass:
+        """Route to gauge locations with observations"""
+        # Filter observations based on batch and what gauges exist in the zarr store/HF
+        valid_gauges_mask = np.isin(batch, list(self.gages_adjacency.keys()))
+        batch = batch[valid_gauges_mask].tolist()
+
+        # Combines all gauge information together into one large matrix where the CONUS hydrofabric is the indexing
+        coo, _gage_idx, gage_wb = construct_network_matrix(batch, self.gages_adjacency)
+        local_col_idx = []
+        for _i, _idx in enumerate(_gage_idx):
+            mask = np.isin(coo.row, _idx)
+            local_gage_inflow_idx = np.where(mask)[0]
+            local_col_idx.append(coo.col[local_gage_inflow_idx])
+
+        active_indices = np.unique(np.concatenate([coo.row, coo.col]))
+        index_mapping = {orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(active_indices)}
+
+        compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
+        compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
+
+        compressed_size = len(active_indices)
+        compressed_coo = sparse.coo_matrix(
+            (coo.data, (compressed_rows, compressed_cols)), shape=(compressed_size, compressed_size)
+        )
+        compressed_csr = compressed_coo.tocsr()
+        compressed_hf_ids = self.hf_ids[active_indices]
+
+        # Create waterbody and divide IDs for the compressed matrix
+        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
+
+        # Get subset of flowpath attributes for this batch
+        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+
+        # Update local_col_idx to use compressed indices
+        outflow_idx = []
+        for _idx in _gage_idx:
+            mask = np.isin(coo.row, _idx)
+            local_gage_inflow_idx = np.where(mask)[0]
+            original_col_indices = coo.col[local_gage_inflow_idx]
+            compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
+            outflow_idx.append(compressed_col_indices)
+
+        assert (
+            np.array(
+                [
+                    _id.split("-")[1]
+                    for _id in compressed_flowpath_attr.iloc[np.concatenate(outflow_idx)]["to"]
+                    .drop_duplicates(keep="first")
+                    .values
+                ]
+            )
+            == np.array([_id.split("-")[1] for _id in gage_wb])
+        ).all(), (
+            "Gage WB don't match up with indices. There is something wrong with your batching and how it's loading in sparse matrices from the engine"
+        )
+
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
+            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+        )
+
+        hydrofabric_observations = create_hydrofabric_observations(
+            dates=self.dates,
+            gage_ids=np.array(batch),
+            observations=self.observations,
+        )
+
+        log.info(f"Created an adjacency matrix of shape: {adjacency_matrix.shape}")
+        return RoutingDataclass(
+            spatial_attributes=spatial_attributes,
+            length=flowpath_tensors["length"],
+            slope=flowpath_tensors["slope"],
+            side_slope=flowpath_tensors["side_slope"],
+            top_width=flowpath_tensors["top_width"],
+            x=flowpath_tensors["x"],
+            dates=self.dates,
+            adjacency_matrix=adjacency_matrix,
+            normalized_spatial_attributes=normalized_spatial_attributes,
+            observations=hydrofabric_observations,
+            divide_ids=divide_ids,
+            outflow_idx=outflow_idx,
+            gage_wb=gage_wb,
+        )
+
+    def _build_common_tensors(
+        self,
+        csr_matrix: sparse.csr_matrix,
+        divide_ids: np.ndarray,
+        flowpath_attr: gpd.GeoDataFrame,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        """Build tensors common to all collate methods"""
+        adjacency_matrix = torch.sparse_csr_tensor(
+            crow_indices=csr_matrix.indptr,
+            col_indices=csr_matrix.indices,
+            values=csr_matrix.data,
+            size=csr_matrix.shape,
+            device=self.cfg.device,
+            dtype=torch.float32,
+        )
+
+        spatial_attributes = self.attr_reader(
+            divide_ids=divide_ids,
+            attr_means=self.means,
+            device=self.cfg.device,
+            dtype=torch.float32,
+        )
+
+        for r in range(spatial_attributes.shape[0]):
+            row_means = torch.nanmean(spatial_attributes[r])
+            nan_mask = torch.isnan(spatial_attributes[r])
+            spatial_attributes[r, nan_mask] = row_means
+
+        normalized_spatial_attributes = (spatial_attributes - self.means) / self.stds
+        normalized_spatial_attributes = normalized_spatial_attributes.T
+
+        flowpath_tensors = {
+            "length": fill_nans(
+                torch.tensor(flowpath_attr["Length_m"].values, dtype=torch.float32),
+                row_means=self.phys_means[0],
+            ),
+            "slope": fill_nans(
+                torch.tensor(flowpath_attr["So"].values, dtype=torch.float32),
+                row_means=self.phys_means[1],
+            ),
+            "top_width": fill_nans(
+                torch.tensor(flowpath_attr["TopWdth"].values, dtype=torch.float32),
+                row_means=self.phys_means[2],
+            ),
+            "side_slope": fill_nans(
+                torch.tensor(flowpath_attr["ChSlp"].values, dtype=torch.float32),
+                row_means=self.phys_means[3],
+            ),
+            "x": fill_nans(
+                torch.tensor(flowpath_attr["MusX"].values, dtype=torch.float32),
+                row_means=self.phys_means[4],
+            ),
+        }
+
+        return adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors
+
+    def _build_routing_data_target_catchments(self) -> RoutingDataclass:
+        """Build hydrofabric for target catchments by finding all upstream segments."""
+        if self.target_catchments is None:
+            raise ValueError("target_catchments must be set")
+        if self.hf_id_to_node is None or self.network_graph is None:
+            raise ValueError("network_graph and hf_id_to_node must be initialized")
+
+        all_ancestor_indices: set[int] = set()
+        target_node_groups = []
+
+        for target in self.target_catchments:
+            target_id = int(target.split("-")[1])
+
+            assert target_id in self.hf_id_to_node, (
+                f"{target_id} not found in Hydrofabric graph. Use a different target ID"
+            )
+
+            target_node = self.hf_id_to_node[target_id]
+            ancestors = rx.ancestors(self.network_graph, target_node)
+            ancestors.add(target_node)
+
+            all_ancestor_indices.update(ancestors)
+            target_node_groups.append((target_node, ancestors))
+
+        if not all_ancestor_indices:
+            raise ValueError("No valid target catchments found in hydrofabric")
+
+        rows = self.conus_adjacency["indices_0"][:]
+        cols = self.conus_adjacency["indices_1"][:]
+        data = self.conus_adjacency["values"][:]
+
+        active_set = all_ancestor_indices
+        mask = np.array([r in active_set and c in active_set for r, c in zip(rows, cols, strict=False)])
+        filtered_rows = rows[mask]
+        filtered_cols = cols[mask]
+        filtered_data = data[mask]
+
+        coo = sparse.coo_matrix(
+            (filtered_data, (filtered_rows, filtered_cols)), shape=(len(self.hf_ids), len(self.hf_ids))
+        )
+
+        active_indices = np.unique(np.concatenate([coo.row, coo.col]))
+        index_mapping = {orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(active_indices)}
+
+        compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
+        compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
+
+        compressed_size = len(active_indices)
+        compressed_coo = sparse.coo_matrix(
+            (coo.data, (compressed_rows, compressed_cols)), shape=(compressed_size, compressed_size)
+        )
+        compressed_csr = compressed_coo.tocsr()
+        compressed_hf_ids = self.hf_ids[active_indices]
+
+        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
+        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+
+        outflow_idx = [np.array([i]) for i in range(compressed_size)]
+
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
+            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+        )
+
+        log.info(f"Created target catchments adjacency matrix of shape: {adjacency_matrix.shape}")
+        return RoutingDataclass(
+            spatial_attributes=spatial_attributes,
+            length=flowpath_tensors["length"],
+            slope=flowpath_tensors["slope"],
+            side_slope=flowpath_tensors["side_slope"],
+            top_width=flowpath_tensors["top_width"],
+            x=flowpath_tensors["x"],
+            dates=self.dates,
+            adjacency_matrix=adjacency_matrix,
+            normalized_spatial_attributes=normalized_spatial_attributes,
+            observations=None,
+            divide_ids=divide_ids,
+            outflow_idx=outflow_idx,
+            gage_wb=None,
+        )
+
+    def _build_routing_data_all_catchments(self) -> RoutingDataclass:
+        """Build hydrofabric for all segments."""
+        self.hf_ids: list[int] = self.conus_adjacency["order"][:]  # type: ignore
+        coordinates = set()  # (indices_0, indices_1)
+        _r = self.conus_adjacency["indices_0"][:].tolist()
+        _c = self.conus_adjacency["indices_1"][:].tolist()
+        for row, col in zip(_r, _c, strict=False):
+            coordinates.add((row, col))
+        _attrs: dict[str, Any] = dict(self.conus_adjacency.attrs)
+        if coordinates:
+            rows, cols = zip(*coordinates, strict=False)
+            rows = list(rows)  # type: ignore
+            cols = list(cols)  # type: ignore
+        else:
+            raise ValueError("No coordinate-pairs found. Cannot construct a matrix")
+        shape = tuple(_attrs["shape"])
+        csr_matrix = sparse.coo_matrix(
+            (np.ones(len(rows)), (rows, cols)),
+            shape=shape,
+        ).tocsr()
+
+        wb_ids = np.array([f"wb-{_id}" for _id in self.hf_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in self.hf_ids])
+        flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
+            self._build_common_tensors(csr_matrix, divide_ids, flowpath_attr)
+        )
+
+        log.info(f"Created all segments adjacency matrix of shape: {adjacency_matrix.shape}")
+        return RoutingDataclass(
+            spatial_attributes=spatial_attributes,
+            length=flowpath_tensors["length"],
+            slope=flowpath_tensors["slope"],
+            side_slope=flowpath_tensors["side_slope"],
+            top_width=flowpath_tensors["top_width"],
+            x=flowpath_tensors["x"],
+            dates=self.dates,
+            adjacency_matrix=adjacency_matrix,
+            normalized_spatial_attributes=normalized_spatial_attributes,
+            observations=None,
+            divide_ids=divide_ids,
+            outflow_idx=None,
+            gage_wb=None,
+        )
+
+    def _build_routing_data_gages(self) -> RoutingDataclass:
+        """Build hydrofabric for all gages."""
+        if self.gage_ids is None:
+            raise ValueError("gage_ids must be set for gages mode")
+
+        valid_gauges_mask = np.isin(self.gage_ids, list(self.gages_adjacency.keys()))
+        batch = self.gage_ids[valid_gauges_mask].tolist()
+
+        coo, _gage_idx, gage_wb = construct_network_matrix(batch, self.gages_adjacency)
+
+        active_indices = np.unique(np.concatenate([coo.row, coo.col]))
+        index_mapping = {orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(active_indices)}
+
+        compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
+        compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
+
+        compressed_size = len(active_indices)
+        compressed_coo = sparse.coo_matrix(
+            (coo.data, (compressed_rows, compressed_cols)), shape=(compressed_size, compressed_size)
+        )
+        compressed_csr = compressed_coo.tocsr()
+        compressed_hf_ids = self.hf_ids[active_indices]
+
+        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
+        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+
+        outflow_idx = []
+        for _idx in _gage_idx:
+            mask = np.isin(coo.row, _idx)
+            local_gage_inflow_idx = np.where(mask)[0]
+            original_col_indices = coo.col[local_gage_inflow_idx]
+            compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
+            outflow_idx.append(compressed_col_indices)
+
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
+            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+        )
+
+        hydrofabric_observations = create_hydrofabric_observations(
+            dates=self.dates,
+            gage_ids=np.array(batch),
+            observations=self.observations,
+        )
+
+        log.info(f"Created gages adjacency matrix of shape: {adjacency_matrix.shape}")
+        return RoutingDataclass(
+            spatial_attributes=spatial_attributes,
+            length=flowpath_tensors["length"],
+            slope=flowpath_tensors["slope"],
+            side_slope=flowpath_tensors["side_slope"],
+            top_width=flowpath_tensors["top_width"],
+            x=flowpath_tensors["x"],
+            dates=self.dates,
+            adjacency_matrix=adjacency_matrix,
+            normalized_spatial_attributes=normalized_spatial_attributes,
+            observations=hydrofabric_observations,
+            divide_ids=divide_ids,
+            outflow_idx=outflow_idx,
+            gage_wb=gage_wb,
+        )

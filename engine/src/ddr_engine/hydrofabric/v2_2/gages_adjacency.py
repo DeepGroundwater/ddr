@@ -7,12 +7,14 @@
 A script to build subset COO matrices from the conus_adjacency.zarr
 """
 
+from typing import Any
+
 import numpy as np
 import polars as pl
 import zarr
 from scipy import sparse
 
-from ddr.dataset import Gauge
+from ddr.geodatazoo.dataclasses import Gauge
 
 
 def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.ndarray:
@@ -103,9 +105,7 @@ def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[tuple[str
     return connections
 
 
-def create_coo(
-    connections: list[tuple[str, str]], conus_mapping: dict[str, int]
-) -> tuple[sparse.coo_matrix, list[str]]:
+def create_coo(connections: list[tuple[str, str]], conus_mapping: dict[str, int]) -> tuple[Any, set[str]]:
     """A function to create a coo matrix out of the ts_ordering from the conus_adjacency matrix indices
 
     Parameters
@@ -117,9 +117,9 @@ def create_coo(
 
     Returns
     -------
-    sparse.coo
+    Any
         The sparse coo matrix from subset indexed from the CONUS adjacency matrix
-    list[str]
+    set[str]
         The topological sorted ordering from the subset
     """
     row_idx = []

@@ -15,7 +15,7 @@ from ddr_engine.merit import (
 )
 from tqdm import tqdm
 
-from ddr.dataset import GaugeSet, MERITGauge, validate_gages
+from ddr.geodatazoo.dataclasses import GaugeSet, MERITGauge, validate_gages
 
 if __name__ == "__main__":
     import argparse
@@ -49,23 +49,21 @@ if __name__ == "__main__":
 
     if args.path is None:
         raise FileNotFoundError("Path not provided for zarr group outputs")
-    else:
-        out_path = Path(args.path) / "merit_conus_adjacency.zarr"
-        out_path.parent.mkdir(exist_ok=True)
 
-        if args.gages is not None:
-            gage_path = Path(args.gages)
-            gauge_set: GaugeSet = validate_gages(gage_path, type=MERITGauge)
-            gages_out_path = Path(args.path) / "merit_gages_conus_adjacency.zarr"
-            if gages_out_path.exists():
-                print(f"Cannot create zarr store {gages_out_path}. One already exists")
-                exit(1)
-        else:
-            gages_out_path = None
-
+    out_path = Path(args.path) / "merit_conus_adjacency.zarr"
+    out_path.parent.mkdir(exist_ok=True)
     if out_path.exists():
         print(f"Cannot create zarr store {out_path}. One already exists")
         exit(1)
+
+    gages_out_path: Path | None = None
+    if args.gages is not None:
+        gage_path = Path(args.gages)
+        gauge_set: GaugeSet = validate_gages(gage_path, type=MERITGauge)
+        gages_out_path = Path(args.path) / "merit_gages_conus_adjacency.zarr"
+        if gages_out_path.exists():
+            print(f"Cannot create zarr store {gages_out_path}. One already exists")
+            exit(1)
 
     print(f"Reading MERIT data from {args.pkg}")
     fp = gpd.read_file(args.pkg)

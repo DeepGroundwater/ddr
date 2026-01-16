@@ -17,7 +17,7 @@ from ddr.routing.utils import (
     get_network_idx,
     triangular_sparse_solve,
 )
-from ddr.validation.validate_configs import Config
+from ddr.validation.configs import Config
 
 log = logging.getLogger(__name__)
 
@@ -106,14 +106,14 @@ class MuskingumCunge:
     algorithm, managing all hydrofabric data, parameters, and routing calculations.
     """
 
-    def __init__(self, cfg: dict[str, Any] | Config, device: str = "cpu"):
+    def __init__(self, cfg: Config, device: str | torch.device = "cpu") -> None:
         """Initialize the Muskingum-Cunge router.
 
         Parameters
         ----------
-        cfg : Dict[str, Any] | Config
-            Configuration dictionary containing routing parameters
-        device : str, optional
+        cfg : Config
+            Configuration object containing routing parameters
+        device : str | torch.device, optional
             Device to use for computations, by default "cpu"
         """
         self.cfg = cfg
@@ -123,10 +123,10 @@ class MuskingumCunge:
         self.t = torch.tensor(3600.0, device=self.device)
 
         # Routing parameters
-        self.n = None
-        self.q_spatial = None
-        self._discharge_t = None
-        self.network = None
+        self.n: torch.Tensor | None = None
+        self.q_spatial: torch.Tensor | None = None
+        self._discharge_t: torch.Tensor | None = None
+        self.network: torch.Tensor | None = None
 
         # Parameter bounds and defaults
         self.parameter_bounds = self.cfg.params.parameter_ranges
@@ -139,23 +139,29 @@ class MuskingumCunge:
         )
 
         # Hydrofabric data - managed internally
-        self.hydrofabric = None
-        self.length = None
-        self.slope = None
-        self.top_width = None
-        self.side_slope = None
-        self.x_storage = None
-        self.observations = None
-        self.output_indices = None
-        self.gage_wb = None
+        self.routing_dataclass: Any = None
+        self.length: torch.Tensor | None = None
+        self.slope: torch.Tensor | None = None
+        self.top_width: torch.Tensor | None = None
+        self.side_slope: torch.Tensor | None = None
+        self.x_storage: torch.Tensor | None = None
+        self.observations: Any = None
+        self.output_indices: list[Any] | None = None
+        self.gage_wb: list[str] | None = None
 
         # Input data
-        self.q_prime = None
-        self.spatial_parameters = None
+        self.q_prime: torch.Tensor | None = None
+        self.spatial_parameters: dict[str, torch.Tensor] | None = None
 
         # Progress tracking attributes (for tqdm display)
         self.epoch = 0
         self.mini_batch = 0
+
+        # Scatter indices for ragged output (initialized in setup_inputs)
+        self._flat_indices: torch.Tensor | None = None
+        self._group_ids: torch.Tensor | None = None
+        self._num_outputs: int | None = None
+        self._scatter_input: torch.Tensor | None = None
 
     def set_progress_info(self, epoch: int, mini_batch: int) -> None:
         """Set progress information for display purposes.
@@ -175,7 +181,7 @@ class MuskingumCunge:
     ) -> None:
         """Setup all inputs for routing including hydrofabric, streamflow, and parameters."""
         # Store hydrofabric
-        self.hydrofabric = hydrofabric
+        self.routing_dataclass = hydrofabric
         self.output_indices = hydrofabric.outflow_idx
         self.gage_wb = hydrofabric.gage_wb
 
@@ -199,7 +205,7 @@ class MuskingumCunge:
         self.x_storage = hydrofabric.x.to(self.device).to(torch.float32)
 
         # Setup streamflow
-        self.q_prime: torch.Tensor = streamflow.to(self.device)
+        self.q_prime = streamflow.to(self.device)
 
         # Setup spatial parameters
         self.spatial_parameters = spatial_parameters
@@ -233,8 +239,10 @@ class MuskingumCunge:
 
     def forward(self) -> torch.Tensor:
         """Perform forward routing calculation."""
-        if self.hydrofabric is None:
+        if self.routing_dataclass is None:
             raise ValueError("Hydrofabric not set. Call setup_inputs() first.")
+        if self.q_prime is None or self._discharge_t is None:
+            raise ValueError("Streamflow not set. Call setup_inputs() first.")
 
         num_timesteps = self.q_prime.shape[0]
         num_segments = len(self._discharge_t)
@@ -251,6 +259,12 @@ class MuskingumCunge:
             )
             output[:, 0] = torch.clamp(self._discharge_t, min=self.discharge_lb)
         else:
+            if self._flat_indices is None or self._group_ids is None or self._num_outputs is None:
+                raise ValueError("Scatter indices not initialized properly")
+            if self._scatter_input is None:
+                raise ValueError("Scatter input not initialized")
+
+            assert self.output_indices is not None
             max_idx = max(idx.max() for idx in self.output_indices)
             assert max_idx < num_segments, (
                 f"Output index {max_idx} out of bounds for discharge tensor of size {num_segments}."
@@ -289,6 +303,8 @@ class MuskingumCunge:
             if output_all:
                 output[:, timestep] = q_t1
             else:
+                if self._flat_indices is None or self._group_ids is None or self._scatter_input is None:
+                    raise ValueError("Scatter indices not initialized")
                 gathered = q_t1[self._flat_indices]
                 output[:, timestep] = torch.scatter_add(
                     input=self._scatter_input,
@@ -309,6 +325,8 @@ class MuskingumCunge:
         Tuple[PatternMapper, torch.Tensor, torch.Tensor]
             Pattern mapper and dense row/column indices
         """
+        if self.network is None:
+            raise ValueError("Network not set. Call setup_inputs() first.")
         matrix_dims = self.network.shape[0]
         mapper = PatternMapper(self.fill_op, matrix_dims, device=self.device)
         dense_rows, dense_cols = get_network_idx(mapper)
@@ -360,6 +378,19 @@ class MuskingumCunge:
         torch.Tensor
             Routed discharge
         """
+        if (
+            self._discharge_t is None
+            or self.n is None
+            or self.top_width is None
+            or self.side_slope is None
+            or self.slope is None
+            or self.q_spatial is None
+            or self.length is None
+            or self.x_storage is None
+            or self.network is None
+        ):
+            raise ValueError("Required attributes not set. Call setup_inputs() first.")
+
         # Calculate velocity using internal hydrofabric data
         velocity = _get_trapezoid_velocity(
             q_t=self._discharge_t,
@@ -421,6 +452,8 @@ class MuskingumCunge:
         torch.Tensor
             Filled sparse matrix
         """
+        if self.network is None:
+            raise ValueError("Network not set. Call setup_inputs() first.")
         identity_matrix = self._sparse_eye(self.network.shape[0])
         vec_diag = self._sparse_diag(data_vector)
         vec_filled = torch.matmul(vec_diag.cpu(), self.network.cpu()).to(self.device)

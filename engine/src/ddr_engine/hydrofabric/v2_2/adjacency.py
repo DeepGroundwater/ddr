@@ -1,14 +1,12 @@
 #!/usr/bin/env python
+"""Functions for building a lower triangular adjacency matrix from a NextGen hydrofabric.
 
-"""
+Writes a sparse zarr group.
+
 @author Nels Frazier
 @author Tadd Bindas
-
 @date Dec 21 2025
 @version 1.1
-
-Functions for building a lower triangular adjancency matrix
-from a NextGen hydrofabric and writing a sparse zarr group
 """
 
 from pathlib import Path
@@ -23,9 +21,7 @@ from tqdm import tqdm
 
 
 def index_matrix(matrix: np.ndarray, fp: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create a 2D dataframe with rows and columns indexed by flowpath IDs
-    and values from the lower triangular adjacency matrix.
+    """Create a 2D dataframe with rows and columns indexed by flowpath IDs and values from the lower triangular adjacency matrix.
 
     Parameters
     ----------
@@ -52,7 +48,7 @@ def index_matrix(matrix: np.ndarray, fp: pd.DataFrame) -> pd.DataFrame:
 
 
 def create_matrix(
-    fp: pl.LazyFrame, network: pl.LazyFrame, ghost=False
+    fp: pl.LazyFrame, network: pl.LazyFrame, ghost: bool = False
 ) -> tuple[sparse.coo_matrix, list[str]]:
     """
     Create a lower triangular adjacency matrix from flowpaths and network dataframes.

@@ -43,7 +43,7 @@ dependencies = [
   "pykan",
   "scikit-learn",
   "scipy",
-  "torch",
+  "torch>=2.9.1",
   "tqdm",
   "xarray",
   "zarr",
@@ -178,6 +178,10 @@ disallow_untyped_defs = true
 no_implicit_optional = true
 show_error_codes = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 filterwarnings =  [

@@ -32,6 +32,8 @@ def create_mock_config() -> Config:
     """Create a mock configuration for testing routing models."""
     cfg = {
         "name": "mock",
+        "mode": "training",
+        "geodataset": "lynker_hydrofabric",
         "data_sources": {
             "geospatial_fabric_gpkg": "mock.gpkg",
             "streamflow": "mock://streamflow/store",

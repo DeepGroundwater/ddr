@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 import torch
+import torch._dynamo
 
 from ddr.routing.mmc import MuskingumCunge
 from ddr.routing.torch_mc import dmc
@@ -51,10 +52,10 @@ class TestdmcInitialization:
         assert isinstance(model.bottom_width_lb, torch.Tensor)
 
         # Test compatibility attributes
-        assert model._discharge_t is None
-        assert model.network is None
-        assert model.n is None
-        assert model.q_spatial is None
+        assert torch.equal(model._discharge_t, torch.empty(0))
+        assert torch.equal(model.network, torch.empty(0))
+        assert torch.equal(model.n, torch.empty(0))
+        assert torch.equal(model.q_spatial, torch.empty(0))
         assert model.epoch == 0
         assert model.mini_batch == 0
 
@@ -580,96 +581,6 @@ class TestdmcIntegration:
         assert new_model.mini_batch == 5
 
 
-class TestdmcBackwardCompatibility:
-    """Test backward compatibility features."""
-
-    def test_dmc_alias(self) -> None:
-        """Test that dmc is an alias for dmc."""
-        assert dmc is dmc
-
-    def test_interface_compatibility(self) -> None:
-        """Test that dmc has same interface as original dmc."""
-        cfg = create_mock_config()
-        model = dmc(cfg, device="cpu")
-
-        # Test that all expected attributes exist
-        expected_attributes = [
-            "t",
-            "parameter_bounds",
-            "p_spatial",
-            "velocity_lb",
-            "depth_lb",
-            "discharge_lb",
-            "bottom_width_lb",
-            "_discharge_t",
-            "network",
-            "n",
-            "q_spatial",
-            "epoch",
-            "mini_batch",
-        ]
-
-        for attr in expected_attributes:
-            assert hasattr(model, attr), f"Missing attribute: {attr}"
-
-        # Test that all expected methods exist
-        expected_methods = [
-            "forward",
-            "fill_op",
-            "_sparse_eye",
-            "_sparse_diag",
-            "route_timestep",
-            "set_progress_info",
-            "to",
-            "cpu",
-            "cuda",
-            "state_dict",
-            "load_state_dict",
-        ]
-
-        for method in expected_methods:
-            assert hasattr(model, method), f"Missing method: {method}"
-            assert callable(getattr(model, method)), f"Not callable: {method}"
-
-    def test_drop_in_replacement(self) -> None:
-        """Test that dmc can be used as drop-in replacement."""
-        cfg = create_mock_config()
-
-        # This is how the original dmc would be used
-        routing_model = dmc(cfg=cfg, device="cpu")
-
-        # Test basic initialization
-        assert isinstance(routing_model, dmc)
-        assert routing_model.device_num == "cpu"
-
-        # Test progress tracking (as used in training scripts)
-        routing_model.epoch = 1
-        routing_model.mini_batch = 0
-
-        assert routing_model.epoch == 1
-        assert routing_model.mini_batch == 0
-
-        # Test forward pass interface
-        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
-        streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
-        spatial_params = create_mock_spatial_parameters(num_reaches=5)
-
-        dmc_kwargs = {
-            "hydrofabric": hydrofabric,
-            "spatial_parameters": spatial_params,
-            "streamflow": streamflow,
-        }
-
-        with patch.object(routing_model.routing_engine, "forward") as mock_forward:
-            mock_forward.return_value = torch.ones(2, 12) * 5.0
-
-            dmc_output = routing_model(**dmc_kwargs)
-
-            # Should return dict with 'runoff' key (same as original)
-            assert isinstance(dmc_output, dict)
-            assert "runoff" in dmc_output
-
-
 class TestParameterTraining:
     """Test Training of parameters in dmc."""
 
@@ -689,6 +600,7 @@ class TestParameterTraining:
         )
         nn = create_mock_nn()
         spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
+        optimizer = torch.optim.Adam(params=nn.parameters(), lr=0.01)
 
         model.epoch = 1
         model.mini_batch = 0
@@ -710,9 +622,6 @@ class TestParameterTraining:
         # To test the dynamic tensors we care about (model.n, model.q_spatial, and model._discharge_t),
         # we can pass an additional kwarg to dmc
         kwargs["retain_grads"] = True  # This is a custom kwarg to trigger gradient checks
-
-        # Mock optimizer
-        optimizer = torch.optim.Adam(params=nn.parameters(), lr=0.01)
 
         # Forward pass
         output = model(**kwargs)

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from ddr.dataset import utils
+from ddr.io.readers import fill_nans, naninfmean
 
 
 @pytest.mark.parametrize(
@@ -18,7 +18,7 @@ from ddr.dataset import utils
     ],
 )
 def test_naninfmean(test_input, expected):
-    result = utils.naninfmean(test_input)
+    result = naninfmean(test_input)
     if np.isnan(expected):
         assert np.isnan(result)
     else:
@@ -49,7 +49,7 @@ def test_naninfmean(test_input, expected):
     ],
 )
 def test_fill_nans(test_input, row_means, expected):
-    result = utils.fill_nans(test_input, row_means=row_means)
+    result = fill_nans(test_input, row_means=row_means)
 
     # Test shape preservation
     assert result.shape == test_input.shape, (
@@ -68,7 +68,7 @@ def test_fill_nans_device_consistency():
         attr_cpu = torch.tensor([1.0, float("nan"), 3.0])
         row_means_gpu = torch.tensor([10.0]).cuda()
 
-        result = utils.fill_nans(attr_cpu, row_means=row_means_gpu)
+        result = fill_nans(attr_cpu, row_means=row_means_gpu)
 
         assert result.device == attr_cpu.device
         assert result.shape == attr_cpu.shape
@@ -78,11 +78,11 @@ def test_fill_nans_edge_case_shapes():
     """Test specific edge cases that could cause view() to fail"""
 
     single = torch.tensor([float("nan")])
-    result = utils.fill_nans(single, torch.tensor([42.0]))
+    result = fill_nans(single, torch.tensor([42.0]))
     assert result.shape == single.shape
     assert result.item() == 42.0
 
     high_dim = torch.tensor([1.0, float("nan")]).view(1, 1, 1, 2)
-    result = utils.fill_nans(high_dim, torch.tensor([99.0]))
+    result = fill_nans(high_dim, torch.tensor([99.0]))
     assert result.shape == high_dim.shape
     assert result.flatten()[1].item() == 99.0

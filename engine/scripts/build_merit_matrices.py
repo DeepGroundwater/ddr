@@ -27,22 +27,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pkg",
         type=Path,
-        required=False,
         default="/projects/mhpi/data/MERIT/raw/continent/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp",
         help="Path to the MERIT shapefile.",
     )
     parser.add_argument(
         "--path",
         type=Path,
-        default="/projects/mhpi/tbindas/ddr/data/tmp/",
-        required=False,
+        default="data/",
         help="Path to save the zarr group. Defaults to current working directory",
     )
     parser.add_argument(
         "--gages",
         type=Path,
-        required=False,
-        default="/projects/mhpi/tbindas/datasets/mhpi/dHBV2.0UH/training_gauges.csv",
+        default=Path("datasets/gage_info/dhbv2_gages.csv"),
         help="The gauges CSV file containing the training locations with COMID column.",
     )
     args = parser.parse_args()
@@ -90,8 +87,8 @@ if __name__ == "__main__":
         merit_mapping = {comid: idx for idx, comid in enumerate(ts_order)}
 
         # Create local zarr store
-        store = zarr.storage.LocalStore(root=out_path)
-        if out_path.exists():
+        store = zarr.storage.LocalStore(root=gages_out_path)
+        if gages_out_path.exists():
             root = zarr.open_group(store=store)
         else:
             root = zarr.create_group(store=store)
@@ -137,4 +134,4 @@ if __name__ == "__main__":
                 merit_mapping=merit_mapping,
             )
 
-        print(f"MERIT Gauge adjacency matrices written to {out_path}")
+        print(f"MERIT Gauge adjacency matrices written to {gages_out_path}")

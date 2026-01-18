@@ -3,7 +3,9 @@ defaults:
   - _self_
   - hydra: settings
 
-name: DDR-v${oc.env:DDR_VERSION,dev}
+mode: training
+geodataset: lynker_hydrofabric
+name: ddr-v${oc.env:DDR_VERSION,dev}-${geodataset}-${mode}
 
 data_sources:
   hydrofabric_gpkg: "DOWNLOAD THE FILE FROM https://www.lynker-spatial.com/data/hydrofabric/v2.2/conus/"  # patched

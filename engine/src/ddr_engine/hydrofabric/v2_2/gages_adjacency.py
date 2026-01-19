@@ -204,7 +204,7 @@ def preprocess_river_network(network: pl.LazyFrame) -> dict[str, list[str]]:
 
 def coo_to_zarr_group(
     coo: sparse.coo_matrix,
-    ts_order: list[str],
+    ts_order: set[str],
     origin: str,
     gauge_root: zarr.Group,
     conus_mapping: dict[str, int],
@@ -243,7 +243,7 @@ def coo_to_zarr_group(
 
     gauge_root.attrs["format"] = "COO"
     gauge_root.attrs["shape"] = list(coo.shape)
-    gauge_root.attrs["gage_wb"] = origin
+    gauge_root.attrs["gage_catchment"] = origin
     gauge_root.attrs["gage_idx"] = conus_mapping[origin]
     gauge_root.attrs["data_types"] = {
         "indices_0": coo.row.dtype.__str__(),

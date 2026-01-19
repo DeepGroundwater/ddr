@@ -147,7 +147,7 @@ class MuskingumCunge:
         self.x_storage: torch.Tensor | None = None
         self.observations: Any = None
         self.output_indices: list[Any] | None = None
-        self.gage_wb: list[str] | None = None
+        self.gage_catchment: list[str] | None = None
 
         # Input data
         self.q_prime: torch.Tensor | None = None
@@ -183,7 +183,7 @@ class MuskingumCunge:
         # Store hydrofabric
         self.routing_dataclass = hydrofabric
         self.output_indices = hydrofabric.outflow_idx
-        self.gage_wb = hydrofabric.gage_wb
+        self.gage_catchment = hydrofabric.gage_catchment
 
         # Handle observations (only present in gages mode)
         if hydrofabric.observations is not None:

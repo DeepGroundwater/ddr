@@ -39,7 +39,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--gages",
         type=Path,
-        default=Path("datasets/gage_info/dhbv2_gages.csv"),
+        default=Path("streamflow_datasets/gage_info/dhbv2_gages.csv"),
         help="The gauges CSV file containing the training locations. Only needed if gage adjacency matrices are being made.",
     )
     args = parser.parse_args()

@@ -1,6 +1,5 @@
 import logging
 import random
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +9,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from ddr.geodatazoo.base_dataset import BaseDataset
+from ddr.validation.enums import GeoDataset, Mode
 
 log = logging.getLogger(__name__)
 
@@ -22,29 +21,6 @@ def check_path(v: str) -> Path:
         log.exception(f"Path {v} does not exist")
         raise ValueError(f"Path {v} does not exist")
     return path
-
-
-class Mode(str, Enum):
-    """Operating mode for the DDR model."""
-
-    TRAINING = "training"
-    TESTING = "testing"
-    ROUTING = "routing"
-
-
-class GeoDataset(str, Enum):
-    """The geospatial dataset used for predictions and routing"""
-
-    LYNKER_HYDROFABRIC = "lynker_hydrofabric"
-
-    def get_dataset_class(self, cfg: "Config") -> BaseDataset:
-        """A factory pattern for instantiating TorchDatasets through config settings"""
-        from ddr.geodatazoo.lynker_hydrofabric import LynkerHydrofabric
-
-        mapping = {
-            GeoDataset.LYNKER_HYDROFABRIC: LynkerHydrofabric,
-        }
-        return mapping[self](cfg=cfg)
 
 
 class AttributeMinimums(BaseModel):

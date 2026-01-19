@@ -37,6 +37,7 @@ dependencies = [
   "hydra-core",
   "icechunk",
   "matplotlib",
+  "netcdf4",
   "numpy>=2.4.1",
   "pandas",
   "pydantic",

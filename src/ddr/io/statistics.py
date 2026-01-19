@@ -28,7 +28,7 @@ def set_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
     attributes_name = Path(cfg.data_sources.attributes).name  # gets the name of the attributes store
     statistics_path = Path(cfg.data_sources.statistics)
     statistics_path.mkdir(exist_ok=True)
-    stats_file = statistics_path / f"attribute_statistics_{attributes_name}.json"
+    stats_file = statistics_path / f"{cfg.geodataset.value}_attribute_statistics_{attributes_name}.json"
 
     if stats_file.exists():
         # TODO improve the logic for saving/selecting statistics
@@ -38,7 +38,7 @@ def set_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
             json_ = json.load(f)
         df = pd.DataFrame(json_)
     else:
-        log.info("Reading CONUS hydrofabric to construct attribute statistics")
+        log.info(f"Reading {cfg.geodataset.value} attributes to construct statistics")
         json_ = {}
         for attr in list(ds.data_vars.keys()):  # Iterating through all variables
             data = ds[attr].values

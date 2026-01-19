@@ -24,10 +24,10 @@ uv sync --all-packages --extra cu124
 Next, you need to create the necessary data files for running a routing across your domain.
 - The example below is for the NOAA-OWP Hydrofabric v2.2 (Dataset is not included in the repo)
 - This requires the `ddr-engine` local package to be installed (which is done automatically through the above `uv sync`)
-- The gauges.csv can be found [here](https://github.com/DeepGroundwater/datasets/tree/master/mhpi/dHBV2.0UH)
+- The gauges.csv can be found [here](https://github.com/DeepGroundwater/streamflow_datasets/tree/master/mhpi/dHBV2.0UH)
 
 ```sh
-uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py <PATH/TO/conus_nextgen.gpkg> data/ --gages datasets/mhpi/dHBV2.0UH/training_gauges.csv
+uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py <PATH/TO/conus_nextgen.gpkg> data/ --gages streamflow_datasets/mhpi/dHBV2.0UH/training_gauges.csv
 ```
 
 This will create two files used for routing

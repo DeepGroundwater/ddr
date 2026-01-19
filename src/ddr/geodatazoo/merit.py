@@ -1,4 +1,4 @@
-"""A file to have all train/test geospatial datasets for the NOAA-OWP/Lynker Hydrofabric v2.2"""
+"""A file to have all train/test geospatial datasets for the MERIT Hydro dataset"""
 
 import logging
 from pathlib import Path
@@ -8,6 +8,7 @@ import geopandas as gpd
 import numpy as np
 import rustworkx as rx
 import torch
+import xarray as xr
 from scipy import sparse
 
 from ddr.geodatazoo.base_geodataset import BaseGeoDataset
@@ -17,7 +18,7 @@ from ddr.io.builders import (
     construct_network_matrix,
     create_hydrofabric_observations,
 )
-from ddr.io.readers import IcechunkUSGSReader, fill_nans, naninfmean, read_ic, read_zarr
+from ddr.io.readers import IcechunkUSGSReader, fill_nans, naninfmean, read_zarr
 from ddr.io.statistics import set_statistics
 from ddr.validation.configs import Config
 from ddr.validation.enums import Mode
@@ -25,10 +26,10 @@ from ddr.validation.enums import Mode
 log = logging.getLogger(__name__)
 
 
-class LynkerHydrofabric(BaseGeoDataset):
-    """An implementation of the BaseGeoDataset for the LynkerHydrofabric."""
+class Merit(BaseGeoDataset):
+    """An implementation of the BaseDataset for the MERIT Hydro dataset."""
 
-    def __init__(self, cfg: Config) -> None:
+    def __init__(self, cfg: "Config") -> None:
         self.cfg = cfg
         self.dates = Dates(**self.cfg.experiment.model_dump())
         self.gage_ids: np.ndarray | None = None
@@ -42,9 +43,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         # Load attributes
         self.attribute_ds = self._load_attributes()
         self.attr_stats = set_statistics(self.cfg, self.attribute_ds)
-        self.id_to_index = {
-            divide_id: idx for idx, divide_id in enumerate(self.attribute_ds.divide_id.values)
-        }
+        self.id_to_index = {comid: idx for idx, comid in enumerate(self.attribute_ds.COMID.values)}
         self.attributes_list = list(self.cfg.kan.input_var_names)
 
         # Precompute mean/std tensors for normalization
@@ -61,31 +60,29 @@ class LynkerHydrofabric(BaseGeoDataset):
 
         # Load flowpath attributes
         _flowpath_attr = gpd.read_file(
-            self.cfg.data_sources.geospatial_fabric_gpkg, layer="flowpath-attributes-ml"
-        ).set_index("id")
+            self.cfg.data_sources.geospatial_fabric_gpkg,
+        )
         self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
 
         self.phys_means = torch.tensor(
-            [
-                naninfmean(self.flowpath_attr[attr].values)
-                for attr in ["Length_m", "So", "TopWdth", "ChSlp", "MusX"]
-            ],
+            [naninfmean(self.flowpath_attr[attr].values) for attr in ["lengthkm", "slope"]],
             device=self.cfg.device,
             dtype=torch.float32,
         ).unsqueeze(1)
 
         # Load adjacency data
         self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
-        self.hf_ids = self.conus_adjacency["order"][:]
+        self.merit_ids = self.conus_adjacency["order"][:]
 
+        # Initialize based on mode
         if cfg.mode == Mode.TRAINING:
             self._init_training()
         else:
             self._init_inference()
 
-    def _load_attributes(self) -> Any:
-        """Load attributes from icechunk repository."""
-        return read_ic(self.cfg.data_sources.attributes, region=self.cfg.s3_region)
+    def _load_attributes(self) -> xr.Dataset:
+        """Load attributes from NetCDF/Zarr files."""
+        return xr.open_mfdataset(self.cfg.data_sources.attributes)
 
     def _get_attributes(
         self,
@@ -93,18 +90,24 @@ class LynkerHydrofabric(BaseGeoDataset):
         device: str | torch.device = "cpu",
         dtype: torch.dtype = torch.float32,
     ) -> torch.Tensor:
-        """Fetch attributes for the given divide IDs."""
+        """Fetch attributes for the given divide IDs (COMIDs)."""
         valid_indices = []
         divide_idx_mask = []
 
         for i, divide_id in enumerate(divide_ids):
-            if divide_id in self.id_to_index:
-                valid_indices.append(self.id_to_index[divide_id])
+            # Extract COMID from divide_id (e.g., "cat-12345" -> 12345)
+            if isinstance(divide_id, str) and "-" in divide_id:
+                comid = int(divide_id.split("-")[1])
+            else:
+                comid = int(divide_id)
+
+            if comid in self.id_to_index:
+                valid_indices.append(self.id_to_index[comid])
                 divide_idx_mask.append(i)
             else:
-                log.debug(f"{divide_id} missing from the loaded attributes")
+                log.debug(f"COMID {comid} missing from the loaded attributes")
 
-        assert valid_indices, "No valid divide IDs found in this batch"
+        assert valid_indices, "No valid COMIDs found in this batch"
 
         output = torch.full(
             (len(self.attributes_list), len(divide_ids)),
@@ -113,8 +116,8 @@ class LynkerHydrofabric(BaseGeoDataset):
             dtype=dtype,
         )
 
-        _ds = self.attribute_ds[self.attributes_list].isel(divide_id=valid_indices).compute()
-        data_tensor = torch.from_numpy(_ds.to_array(dim="divide_id").values).to(device=device, dtype=dtype)
+        _ds = self.attribute_ds[self.attributes_list].isel(COMID=valid_indices).compute()
+        data_tensor = torch.from_numpy(_ds.to_array(dim="COMID").values).to(device=device, dtype=dtype)
 
         output[:, divide_idx_mask] = data_tensor
         return fill_nans(attr=output, row_means=self.means)
@@ -169,10 +172,10 @@ class LynkerHydrofabric(BaseGeoDataset):
             shape=(compressed_size, compressed_size),
         )
         compressed_csr = compressed_coo.tocsr()
-        compressed_hf_ids = self.hf_ids[active_indices]
+        compressed_merit_ids = self.merit_ids[active_indices]
 
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
-        divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
+        wb_ids = np.array([f"wb-{_id}" for _id in compressed_merit_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in compressed_merit_ids])
         compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         outflow_idx = []
@@ -182,18 +185,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             original_col_indices = coo.col[local_gage_inflow_idx]
             compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
             outflow_idx.append(compressed_col_indices)
-
-        assert (
-            np.array(
-                [
-                    _id.split("-")[1]
-                    for _id in compressed_flowpath_attr.iloc[np.concatenate(outflow_idx)]["to"]
-                    .drop_duplicates(keep="first")
-                    .values
-                ]
-            )
-            == np.array([_id.split("-")[1] for _id in gage_catchment])
-        ).all(), "Gage WB don't match up with indices"
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
             self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
@@ -288,7 +279,7 @@ class LynkerHydrofabric(BaseGeoDataset):
 
         for target in self.target_catchments:
             target_id = int(target.split("-")[1])
-            assert target_id in self.hf_id_to_node, f"{target_id} not found in Hydrofabric graph"
+            assert target_id in self.hf_id_to_node, f"{target_id} not found in graph"
 
             target_node = self.hf_id_to_node[target_id]
             ancestors = rx.ancestors(self.network_graph, target_node)
@@ -296,7 +287,7 @@ class LynkerHydrofabric(BaseGeoDataset):
             all_ancestor_indices.update(ancestors)
 
         if not all_ancestor_indices:
-            raise ValueError("No valid target catchments found in hydrofabric")
+            raise ValueError("No valid target catchments found")
 
         rows = self.conus_adjacency["indices_0"][:]
         cols = self.conus_adjacency["indices_1"][:]
@@ -314,7 +305,7 @@ class LynkerHydrofabric(BaseGeoDataset):
 
         coo = sparse.coo_matrix(
             (filtered_data, (filtered_rows, filtered_cols)),
-            shape=(len(self.hf_ids), len(self.hf_ids)),
+            shape=(len(self.merit_ids), len(self.merit_ids)),
         )
 
         active_indices = np.unique(np.concatenate([coo.row, coo.col]))
@@ -329,10 +320,10 @@ class LynkerHydrofabric(BaseGeoDataset):
             shape=(compressed_size, compressed_size),
         )
         compressed_csr = compressed_coo.tocsr()
-        compressed_hf_ids = self.hf_ids[active_indices]
+        compressed_merit_ids = self.merit_ids[active_indices]
 
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
-        divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
+        wb_ids = np.array([f"wb-{_id}" for _id in compressed_merit_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in compressed_merit_ids])
         compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         outflow_idx = [np.array([i]) for i in range(compressed_size)]
@@ -373,8 +364,8 @@ class LynkerHydrofabric(BaseGeoDataset):
             shape=shape,
         ).tocsr()
 
-        wb_ids = np.array([f"wb-{_id}" for _id in self.hf_ids])
-        divide_ids = np.array([f"cat-{_id}" for _id in self.hf_ids])
+        wb_ids = np.array([f"wb-{_id}" for _id in self.merit_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in self.merit_ids])
         flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
@@ -420,10 +411,10 @@ class LynkerHydrofabric(BaseGeoDataset):
             shape=(compressed_size, compressed_size),
         )
         compressed_csr = compressed_coo.tocsr()
-        compressed_hf_ids = self.hf_ids[active_indices]
+        compressed_merit_ids = self.merit_ids[active_indices]
 
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
-        divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
+        wb_ids = np.array([f"wb-{_id}" for _id in compressed_merit_ids])
+        divide_ids = np.array([f"cat-{_id}" for _id in compressed_merit_ids])
         compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         outflow_idx = []

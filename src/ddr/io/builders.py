@@ -81,15 +81,19 @@ def construct_network_matrix(
     for _id in batch:
         try:
             gauge_root = subsets[_id]
-            _r: list[int] = gauge_root["indices_0"][:].tolist()
-            _c: list[int] = gauge_root["indices_1"][:].tolist()
-            for row, col in zip(_r, _c, strict=False):
-                coordinates.add((row, col))
+        except KeyError:
+            msg = f"Cannot find gage {_id} in subsets zarr store. Skipping"
+            log.info(msg)
+        _r: list[int] = gauge_root["indices_0"][:].tolist()
+        _c: list[int] = gauge_root["indices_1"][:].tolist()
+        for row, col in zip(_r, _c, strict=False):
+            coordinates.add((row, col))
+        try:
             _attrs = dict(gauge_root.attrs)
             output_idx.append(_attrs["gage_idx"])
-            output_wb.append(_attrs["gage_wb"])
+            output_wb.append(_attrs["gage_catchment"])
         except KeyError:
-            msg = f"Cannot find gauge {_id} in subsets zarr store. Skipping"
+            msg = f"Cannot find gauge attributes for gage {_id}. Skipping"
             log.info(msg)
     if coordinates:
         rows_tuple, cols_tuple = zip(*coordinates, strict=False)

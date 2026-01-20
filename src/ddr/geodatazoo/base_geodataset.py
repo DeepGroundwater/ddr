@@ -57,7 +57,7 @@ class BaseGeoDataset(Dataset, ABC):
     @abstractmethod
     def _get_attributes(
         self,
-        divide_ids: np.ndarray,
+        catchment_ids: np.ndarray,
         device: str | torch.device = "cpu",
         dtype: torch.dtype = torch.float32,
     ) -> torch.Tensor:
@@ -83,7 +83,7 @@ class BaseGeoDataset(Dataset, ABC):
     def _build_common_tensors(
         self,
         csr_matrix: sparse.csr_matrix,
-        divide_ids: np.ndarray,
+        catchment_ids: np.ndarray,
         flowpath_attr: gpd.GeoDataFrame,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Build tensors common to all collate methods."""

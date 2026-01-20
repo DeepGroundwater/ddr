@@ -166,7 +166,7 @@ def print_metrics_summary(metrics: Metrics, save_path: Path, valid_gauges: np.nd
     log.info(f"Detailed metrics saved to: {csv_path}")
 
 
-def eval(
+def eval_q_prime(
     cfg: DictConfig,
     streamflow: xr.Dataset,
     observations: xr.Dataset,
@@ -190,7 +190,7 @@ def eval(
     """
     gauges = [str(_id).zfill(8) for _id in basins_df["STAID"].values]
     valid_gauges = np.array(gauges)[np.isin(gauges, list(gages_adjacency.keys()))]
-    log.info(f"{valid_gauges.shape[0]}/{len(gauges)} Gauges found in the hydrofabric")
+    log.info(f"{valid_gauges.shape[0]}/{len(gauges)} Gauges found in the routing_dataclass")
 
     eval_daily_time_range = pd.date_range(
         datetime.strptime(cfg.experiment.start_time, daily_format),
@@ -263,7 +263,7 @@ def main(cfg: DictConfig) -> None:
         observations = read_ic(cfg.data_sources.observations, region=cfg.s3_region)
         gages_adjacency = zarr.open_group(cfg.data_sources.gages_adjacency)
         basins_df = pd.read_csv(cfg.data_sources.gages)
-        eval(
+        eval_q_prime(
             cfg=cfg,
             streamflow=streamflow,
             observations=observations,

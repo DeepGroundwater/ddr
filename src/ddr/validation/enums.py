@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 
 
 class Mode(str, Enum):
-    """The mode DDR is running in"""
+    """The mode DDR is running"""
 
     TRAINING = "training"
     TESTING = "testing"

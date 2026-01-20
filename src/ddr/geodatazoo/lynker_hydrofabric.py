@@ -89,7 +89,7 @@ class LynkerHydrofabric(BaseGeoDataset):
 
     def _get_attributes(
         self,
-        divide_ids: np.ndarray,
+        catchment_ids: np.ndarray,
         device: str | torch.device = "cpu",
         dtype: torch.dtype = torch.float32,
     ) -> torch.Tensor:
@@ -97,7 +97,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         valid_indices = []
         divide_idx_mask = []
 
-        for i, divide_id in enumerate(divide_ids):
+        for i, divide_id in enumerate(catchment_ids):
             if divide_id in self.id_to_index:
                 valid_indices.append(self.id_to_index[divide_id])
                 divide_idx_mask.append(i)
@@ -107,7 +107,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         assert valid_indices, "No valid divide IDs found in this batch"
 
         output = torch.full(
-            (len(self.attributes_list), len(divide_ids)),
+            (len(self.attributes_list), len(catchment_ids)),
             np.nan,
             device=device,
             dtype=dtype,
@@ -225,7 +225,7 @@ class LynkerHydrofabric(BaseGeoDataset):
     def _build_common_tensors(
         self,
         csr_matrix: sparse.csr_matrix,
-        divide_ids: np.ndarray,
+        catchment_ids: np.ndarray,
         flowpath_attr: gpd.GeoDataFrame,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Build tensors common to all collate methods."""
@@ -239,7 +239,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         )
 
         spatial_attributes = self._get_attributes(
-            divide_ids=divide_ids,
+            catchment_ids=catchment_ids,
             device=self.cfg.device,
             dtype=torch.float32,
         )

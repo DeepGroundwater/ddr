@@ -52,6 +52,8 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     )
 
     warmup = cfg.experiment.warmup
+    assert dataset.routing_dataclass is not None, "Routing dataclass not defined in dataset"
+    assert dataset.routing_dataclass.observations is not None, "Observations not defined in dataset"
     observations = dataset.routing_dataclass.observations.streamflow.values
 
     # Create time ranges
@@ -62,13 +64,15 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     predictions = np.zeros([len(all_gage_ids), len(dataset.dates.hourly_time_range)])
 
     with torch.no_grad():  # Disable gradient calculations during evaluation
-        for i, hydrofabric in enumerate(dataloader, start=0):
+        for i, routing_dataclass in enumerate(dataloader, start=0):
             routing_model.set_progress_info(epoch=0, mini_batch=i)
 
-            streamflow_predictions = flow(hydrofabric=hydrofabric, device=cfg.device, dtype=torch.float32)
-            spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
+            streamflow_predictions = flow(
+                routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+            )
+            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
             dmc_kwargs = {
-                "hydrofabric": hydrofabric,
+                "routing_dataclass": routing_dataclass,
                 "spatial_parameters": spatial_params,
                 "streamflow": streamflow_predictions,
             }

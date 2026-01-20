@@ -56,6 +56,12 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
     start_time = datetime.strptime(cfg.experiment.start_time, date_time_format).strftime("%Y-%m-%d")
     end_time = datetime.strptime(cfg.experiment.end_time, date_time_format).strftime("%Y-%m-%d")
 
+    assert dataset.routing_dataclass is not None, "Routing dataclass not defined in dataset"
+    assert dataset.routing_dataclass.outflow_idx is not None, "Routing dataclass output_idx not defined"
+    assert dataset.routing_dataclass.adjacency_matrix is not None, (
+        "Routing dataclass adjacency_matrix not defined"
+    )
+
     if cfg.data_sources.target_catchments is not None:
         num_outputs = len(dataset.routing_dataclass.outflow_idx)
         log.info(f"Routing for {num_outputs} target catchments")
@@ -70,13 +76,15 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
     predictions = np.zeros((num_outputs, num_timesteps), dtype=np.float32)
 
     with torch.no_grad():  # Disable gradient calculations during evaluation
-        for i, hydrofabric in enumerate(dataloader, start=0):
+        for i, routing_dataclass in enumerate(dataloader, start=0):
             routing_model.set_progress_info(epoch=0, mini_batch=i)
 
-            streamflow_predictions = flow(hydrofabric=hydrofabric, device=cfg.device, dtype=torch.float32)
-            spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
+            streamflow_predictions = flow(
+                routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+            )
+            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
             dmc_kwargs = {
-                "hydrofabric": hydrofabric,
+                "routing_dataclass": routing_dataclass,
                 "spatial_parameters": spatial_params,
                 "streamflow": streamflow_predictions,
             }

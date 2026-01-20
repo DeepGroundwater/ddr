@@ -61,7 +61,7 @@ class Merit(BaseGeoDataset):
         # Load flowpath attributes
         _flowpath_attr = gpd.read_file(
             self.cfg.data_sources.geospatial_fabric_gpkg,
-        )
+        ).set_index("COMID")
         self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
 
         self.phys_means = torch.tensor(
@@ -86,7 +86,7 @@ class Merit(BaseGeoDataset):
 
     def _get_attributes(
         self,
-        divide_ids: np.ndarray,
+        catchment_ids: np.ndarray,
         device: str | torch.device = "cpu",
         dtype: torch.dtype = torch.float32,
     ) -> torch.Tensor:
@@ -94,12 +94,8 @@ class Merit(BaseGeoDataset):
         valid_indices = []
         divide_idx_mask = []
 
-        for i, divide_id in enumerate(divide_ids):
-            # Extract COMID from divide_id (e.g., "cat-12345" -> 12345)
-            if isinstance(divide_id, str) and "-" in divide_id:
-                comid = int(divide_id.split("-")[1])
-            else:
-                comid = int(divide_id)
+        for i, divide_id in enumerate(catchment_ids):
+            comid = int(divide_id)
 
             if comid in self.id_to_index:
                 valid_indices.append(self.id_to_index[comid])
@@ -110,7 +106,7 @@ class Merit(BaseGeoDataset):
         assert valid_indices, "No valid COMIDs found in this batch"
 
         output = torch.full(
-            (len(self.attributes_list), len(divide_ids)),
+            (len(self.attributes_list), len(catchment_ids)),
             np.nan,
             device=device,
             dtype=dtype,
@@ -174,9 +170,7 @@ class Merit(BaseGeoDataset):
         compressed_csr = compressed_coo.tocsr()
         compressed_merit_ids = self.merit_ids[active_indices]
 
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_merit_ids])
-        divide_ids = np.array([f"cat-{_id}" for _id in compressed_merit_ids])
-        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+        compressed_flowpath_attr = self.flowpath_attr.reindex(compressed_merit_ids)
 
         outflow_idx = []
         for _idx in _gage_idx:
@@ -187,7 +181,7 @@ class Merit(BaseGeoDataset):
             outflow_idx.append(compressed_col_indices)
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
-            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+            self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
         )
 
         hydrofabric_observations = create_hydrofabric_observations(
@@ -208,7 +202,7 @@ class Merit(BaseGeoDataset):
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
             observations=hydrofabric_observations,
-            divide_ids=divide_ids,
+            divide_ids=compressed_merit_ids,
             outflow_idx=outflow_idx,
             gage_catchment=gage_catchment,
         )
@@ -216,7 +210,7 @@ class Merit(BaseGeoDataset):
     def _build_common_tensors(
         self,
         csr_matrix: sparse.csr_matrix,
-        divide_ids: np.ndarray,
+        catchment_ids: np.ndarray,
         flowpath_attr: gpd.GeoDataFrame,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Build tensors common to all collate methods."""
@@ -230,7 +224,7 @@ class Merit(BaseGeoDataset):
         )
 
         spatial_attributes = self._get_attributes(
-            divide_ids=divide_ids,
+            catchment_ids=catchment_ids,
             device=self.cfg.device,
             dtype=torch.float32,
         )
@@ -245,26 +239,20 @@ class Merit(BaseGeoDataset):
 
         flowpath_tensors = {
             "length": fill_nans(
-                torch.tensor(flowpath_attr["Length_m"].values, dtype=torch.float32),
+                torch.tensor(flowpath_attr["lengthkm"].values, dtype=torch.float32),
                 row_means=self.phys_means[0],
-            ),
+            )
+            * 1000,  # convert from km to m
             "slope": fill_nans(
-                torch.tensor(flowpath_attr["So"].values, dtype=torch.float32),
+                torch.tensor(flowpath_attr["slope"].values, dtype=torch.float32),
                 row_means=self.phys_means[1],
             ),
-            "top_width": fill_nans(
-                torch.tensor(flowpath_attr["TopWdth"].values, dtype=torch.float32),
-                row_means=self.phys_means[2],
-            ),
-            "side_slope": fill_nans(
-                torch.tensor(flowpath_attr["ChSlp"].values, dtype=torch.float32),
-                row_means=self.phys_means[3],
-            ),
-            "x": fill_nans(
-                torch.tensor(flowpath_attr["MusX"].values, dtype=torch.float32),
-                row_means=self.phys_means[4],
-            ),
         }
+        flowpath_tensors["x"] = torch.full_like(
+            flowpath_tensors["length"], fill_value=0.3, dtype=torch.float32
+        )
+        flowpath_tensors["top_width"] = torch.empty(0)
+        flowpath_tensors["side_slope"] = torch.empty(0)
 
         return adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors
 
@@ -322,14 +310,12 @@ class Merit(BaseGeoDataset):
         compressed_csr = compressed_coo.tocsr()
         compressed_merit_ids = self.merit_ids[active_indices]
 
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_merit_ids])
-        divide_ids = np.array([f"cat-{_id}" for _id in compressed_merit_ids])
-        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+        compressed_flowpath_attr = self.flowpath_attr.reindex(compressed_merit_ids)
 
         outflow_idx = [np.array([i]) for i in range(compressed_size)]
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
-            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+            self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
         )
 
         log.info(f"Created target catchments adjacency matrix of shape: {adjacency_matrix.shape}")
@@ -344,7 +330,7 @@ class Merit(BaseGeoDataset):
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
             observations=None,
-            divide_ids=divide_ids,
+            divide_ids=compressed_merit_ids,
             outflow_idx=outflow_idx,
             gage_catchment=None,
         )
@@ -369,7 +355,7 @@ class Merit(BaseGeoDataset):
         flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
-            self._build_common_tensors(csr_matrix, divide_ids, flowpath_attr)
+            self._build_common_tensors(csr_matrix, self.merit_ids, flowpath_attr)
         )
 
         log.info(f"Created all segments adjacency matrix of shape: {adjacency_matrix.shape}")
@@ -426,7 +412,7 @@ class Merit(BaseGeoDataset):
             outflow_idx.append(compressed_col_indices)
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
-            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+            self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
         )
 
         hydrofabric_observations = create_hydrofabric_observations(

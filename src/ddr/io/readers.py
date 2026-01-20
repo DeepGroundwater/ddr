@@ -233,14 +233,14 @@ class StreamflowReader(torch.nn.Module):
         IndexError
             The basin you're searching for is not in the sample
         """
-        hydrofabric = kwargs["hydrofabric"]
+        routing_dataclass = kwargs["routing_dataclass"]
         device = kwargs.get("device", "cpu")  # defaulting to a CPU tensor
         dtype = kwargs.get("dtype", torch.float32)  # defaulting to float32
         use_hourly = kwargs.get("use_hourly", False)
         valid_divide_indices = []
         divide_idx_mask = []
 
-        for i, divide_id in enumerate(hydrofabric.divide_ids):
+        for i, divide_id in enumerate(routing_dataclass.divide_ids):
             if divide_id in self.divide_id_to_index:
                 valid_divide_indices.append(self.divide_id_to_index[divide_id])
                 divide_idx_mask.append(i)
@@ -249,11 +249,13 @@ class StreamflowReader(torch.nn.Module):
 
         assert len(valid_divide_indices) != 0, "No valid divide IDs found in this batch. Throwing error"
 
-        _ds = self.ds.isel(time=hydrofabric.dates.numerical_time_range, divide_id=valid_divide_indices)["Qr"]
+        _ds = self.ds.isel(time=routing_dataclass.dates.numerical_time_range, divide_id=valid_divide_indices)[
+            "Qr"
+        ]
 
         if use_hourly is False:
             _ds = _ds.interp(
-                time=hydrofabric.dates.batch_hourly_time_range,
+                time=routing_dataclass.dates.batch_hourly_time_range,
                 method="nearest",
             )
         streamflow_data = (
@@ -262,7 +264,7 @@ class StreamflowReader(torch.nn.Module):
 
         # Creating an output tensor where we're filling any missing data with minimum flow
         output = torch.full(
-            (streamflow_data.shape[0], len(hydrofabric.divide_ids)),
+            (streamflow_data.shape[0], len(routing_dataclass.divide_ids)),
             fill_value=0.001,
             device=device,
             dtype=dtype,

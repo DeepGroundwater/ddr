@@ -54,6 +54,8 @@ class dmc(torch.nn.Module):
         self.network: torch.Tensor = torch.empty(0)
         self.n: torch.Tensor = torch.empty(0)
         self.q_spatial: torch.Tensor = torch.empty(0)
+        self.top_width: torch.Tensor = torch.empty(0)
+        self.side_slope: torch.Tensor = torch.empty(0)
 
         self.epoch = 0
         self.mini_batch = 0

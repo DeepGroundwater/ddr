@@ -18,7 +18,8 @@ from tqdm import tqdm
 
 from ddr._version import __version__
 from ddr.io.readers import read_ic
-from ddr.validation import Metrics
+from ddr.validation.configs import GeoDataset
+from ddr.validation.metrics import Metrics
 
 daily_format: str = "%Y/%m/%d"
 log = logging.getLogger(__name__)
@@ -208,7 +209,12 @@ def eval_q_prime(
     for i, gauge in tqdm(
         enumerate(valid_gauges), total=len(valid_gauges), desc="Processing gauges", ncols=140
     ):
-        basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])
+        if cfg.geodataset == GeoDataset.LYNKER_HYDROFABRIC.value:
+            basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])
+        elif cfg.geodataset == GeoDataset.MERIT.value:
+            basins = gages_adjacency[gauge]["order"][:]
+        else:
+            raise ValueError("Cannot run Summed Q` calculation without specifying basin identifiers")
         divide_indices = np.where(np.isin(conus_divide_ids, basins))[0]
         qr = streamflow.isel(time=time_indices, divide_id=divide_indices)["Qr"].values.astype(np.float32)
         preds[i] = qr.sum(axis=0)

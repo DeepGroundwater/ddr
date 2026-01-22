@@ -152,7 +152,7 @@ class dmc(torch.nn.Module):
         ----------
         **kwargs : dict
             Keyword arguments containing:
-            - hydrofabric: Hydrofabric object with network and channel properties
+            - routing_dataclass: routing_dataclass object with network and channel properties
             - streamflow: Input streamflow tensor
             - spatial_parameters: Dictionary of spatial parameters (n, q_spatial)
 
@@ -163,19 +163,21 @@ class dmc(torch.nn.Module):
             - runoff: Routed discharge at gauge locations
         """
         # Extract inputs
-        hydrofabric = kwargs["hydrofabric"]
+        routing_dataclass = kwargs["routing_dataclass"]
         q_prime = kwargs["streamflow"].to(self.device_num)
         spatial_parameters = kwargs["spatial_parameters"]
 
         # Setup routing engine with all inputs
         self.routing_engine.setup_inputs(
-            hydrofabric=hydrofabric, streamflow=q_prime, spatial_parameters=spatial_parameters
+            routing_dataclass=routing_dataclass, streamflow=q_prime, spatial_parameters=spatial_parameters
         )
 
         # Update compatibility attributes
         self.network = self.routing_engine.network
         self.n = self.routing_engine.n
         self.q_spatial = self.routing_engine.q_spatial
+        self.top_width = self.routing_engine.top_width
+        self.side_slope = self.routing_engine.side_slope
         self._discharge_t = self.routing_engine._discharge_t
 
         # Perform routing

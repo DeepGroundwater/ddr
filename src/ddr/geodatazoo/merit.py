@@ -350,9 +350,7 @@ class Merit(BaseGeoDataset):
             shape=shape,
         ).tocsr()
 
-        wb_ids = np.array([f"wb-{_id}" for _id in self.merit_ids])
-        divide_ids = np.array([f"cat-{_id}" for _id in self.merit_ids])
-        flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+        flowpath_attr = self.flowpath_attr.reindex(self.merit_ids)
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
             self._build_common_tensors(csr_matrix, self.merit_ids, flowpath_attr)
@@ -370,7 +368,7 @@ class Merit(BaseGeoDataset):
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
             observations=None,
-            divide_ids=divide_ids,
+            divide_ids=self.merit_ids,
             outflow_idx=None,
             gage_catchment=None,
         )
@@ -398,10 +396,7 @@ class Merit(BaseGeoDataset):
         )
         compressed_csr = compressed_coo.tocsr()
         compressed_merit_ids = self.merit_ids[active_indices]
-
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_merit_ids])
-        divide_ids = np.array([f"cat-{_id}" for _id in compressed_merit_ids])
-        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+        compressed_flowpath_attr = self.flowpath_attr.reindex(compressed_merit_ids)
 
         outflow_idx = []
         for _idx in _gage_idx:
@@ -433,7 +428,7 @@ class Merit(BaseGeoDataset):
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
             observations=hydrofabric_observations,
-            divide_ids=divide_ids,
+            divide_ids=compressed_merit_ids,
             outflow_idx=outflow_idx,
             gage_catchment=gage_catchment,
         )

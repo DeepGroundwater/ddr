@@ -191,6 +191,10 @@ class dmc(torch.nn.Module):
                 self.n.retain_grad()
             if self.q_spatial is not None:
                 self.q_spatial.retain_grad()
+            if self.top_width is not None:
+                self.top_width.retain_grad()
+            if self.side_slope is not None:
+                self.side_slope.retain_grad()
             if self._discharge_t is not None:
                 self._discharge_t.retain_grad()
 
@@ -201,6 +205,10 @@ class dmc(torch.nn.Module):
                     spatial_params["n"].retain_grad()
                 if "q_spatial" in spatial_params:
                     spatial_params["q_spatial"].retain_grad()
+                if "top_width" in spatial_params:
+                    spatial_params["top_width"].retain_grad()
+                if "side_slope" in spatial_params:
+                    spatial_params["side_slope"].retain_grad()
                 if "p_spatial" in spatial_params:
                     spatial_params["p_spatial"].retain_grad()
 

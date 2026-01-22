@@ -200,8 +200,6 @@ class MuskingumCunge:
             routing_dataclass.slope.to(self.device).to(torch.float32),
             min=self.cfg.params.attribute_minimums["slope"],
         )
-        self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
-        self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
         self.x_storage = routing_dataclass.x.to(self.device).to(torch.float32)
 
         # Setup streamflow
@@ -214,6 +212,18 @@ class MuskingumCunge:
             value=spatial_parameters["q_spatial"],
             bounds=self.parameter_bounds["q_spatial"],
         )
+        if routing_dataclass.top_width.numel() == 0:
+            self.top_width = denormalize(
+                value=spatial_parameters["top_width"], bounds=self.parameter_bounds["top_width"]
+            )
+        else:
+            self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
+        if routing_dataclass.side_slope.numel() == 0:
+            self.side_slope = denormalize(
+                value=spatial_parameters["side_slope"], bounds=self.parameter_bounds["side_slope"]
+            )
+        else:
+            self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
         # Initialize discharge
         self._discharge_t = self.q_prime[0].to(self.device)

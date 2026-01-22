@@ -43,12 +43,12 @@ def set_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
         for attr in list(ds.data_vars.keys()):  # Iterating through all variables
             data = ds[attr].values
             json_[attr] = {
-                "min": np.min(data, axis=0),
-                "max": np.max(data, axis=0),
-                "mean": np.mean(data, axis=0),
-                "std": np.std(data, axis=0),
-                "p10": np.percentile(data, 10, axis=0),
-                "p90": np.percentile(data, 90, axis=0),
+                "min": np.nanmin(data, axis=0),
+                "max": np.nanmax(data, axis=0),
+                "mean": np.nanmean(data, axis=0),
+                "std": np.nanstd(data, axis=0),
+                "p10": np.nanpercentile(data, 10, axis=0),
+                "p90": np.nanpercentile(data, 90, axis=0),
             }
         df = pd.DataFrame(json_)
         # Save as JSON file instead of CSV

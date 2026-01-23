@@ -103,7 +103,7 @@ class MuskingumCunge:
     """Core Muskingum-Cunge routing implementation.
 
     This class implements the mathematical core of the Muskingum-Cunge routing
-    algorithm, managing all hydrofabric data, parameters, and routing calculations.
+    algorithm, managing all routing_dataclass data, parameters, and routing calculations.
     """
 
     def __init__(self, cfg: Config, device: str | torch.device = "cpu") -> None:
@@ -138,7 +138,7 @@ class MuskingumCunge:
             self.cfg.params.attribute_minimums["bottom_width"], device=self.device
         )
 
-        # Hydrofabric data - managed internally
+        # routing_dataclass data - managed internally
         self.routing_dataclass: Any = None
         self.length: torch.Tensor | None = None
         self.slope: torch.Tensor | None = None
@@ -147,7 +147,7 @@ class MuskingumCunge:
         self.x_storage: torch.Tensor | None = None
         self.observations: Any = None
         self.output_indices: list[Any] | None = None
-        self.gage_wb: list[str] | None = None
+        self.gage_catchment: list[str] | None = None
 
         # Input data
         self.q_prime: torch.Tensor | None = None
@@ -177,32 +177,30 @@ class MuskingumCunge:
         self.mini_batch = mini_batch
 
     def setup_inputs(
-        self, hydrofabric: Any, streamflow: torch.Tensor, spatial_parameters: dict[str, torch.Tensor]
+        self, routing_dataclass: Any, streamflow: torch.Tensor, spatial_parameters: dict[str, torch.Tensor]
     ) -> None:
-        """Setup all inputs for routing including hydrofabric, streamflow, and parameters."""
-        # Store hydrofabric
-        self.routing_dataclass = hydrofabric
-        self.output_indices = hydrofabric.outflow_idx
-        self.gage_wb = hydrofabric.gage_wb
+        """Setup all inputs for routing including routing_dataclass, streamflow, and parameters."""
+        # Store routing_dataclass
+        self.routing_dataclass = routing_dataclass
+        self.output_indices = routing_dataclass.outflow_idx
+        self.gage_catchment = routing_dataclass.gage_catchment
 
         # Handle observations (only present in gages mode)
-        if hydrofabric.observations is not None:
-            self.observations = hydrofabric.observations.gage_id
+        if routing_dataclass.observations is not None:
+            self.observations = routing_dataclass.observations.gage_id
         else:
             self.observations = None
 
         # Setup network
-        self.network = hydrofabric.adjacency_matrix
+        self.network = routing_dataclass.adjacency_matrix
 
         # Extract and prepare spatial attributes
-        self.length = hydrofabric.length.to(self.device).to(torch.float32)
+        self.length = routing_dataclass.length.to(self.device).to(torch.float32)
         self.slope = torch.clamp(
-            hydrofabric.slope.to(self.device).to(torch.float32),
+            routing_dataclass.slope.to(self.device).to(torch.float32),
             min=self.cfg.params.attribute_minimums["slope"],
         )
-        self.top_width = hydrofabric.top_width.to(self.device).to(torch.float32)
-        self.side_slope = hydrofabric.side_slope.to(self.device).to(torch.float32)
-        self.x_storage = hydrofabric.x.to(self.device).to(torch.float32)
+        self.x_storage = routing_dataclass.x.to(self.device).to(torch.float32)
 
         # Setup streamflow
         self.q_prime = streamflow.to(self.device)
@@ -214,6 +212,18 @@ class MuskingumCunge:
             value=spatial_parameters["q_spatial"],
             bounds=self.parameter_bounds["q_spatial"],
         )
+        if routing_dataclass.top_width.numel() == 0:
+            self.top_width = denormalize(
+                value=spatial_parameters["top_width"], bounds=self.parameter_bounds["top_width"]
+            )
+        else:
+            self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
+        if routing_dataclass.side_slope.numel() == 0:
+            self.side_slope = denormalize(
+                value=spatial_parameters["side_slope"], bounds=self.parameter_bounds["side_slope"]
+            )
+        else:
+            self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
         # Initialize discharge
         self._discharge_t = self.q_prime[0].to(self.device)
@@ -240,7 +250,7 @@ class MuskingumCunge:
     def forward(self) -> torch.Tensor:
         """Perform forward routing calculation."""
         if self.routing_dataclass is None:
-            raise ValueError("Hydrofabric not set. Call setup_inputs() first.")
+            raise ValueError("routing_dataclass not set. Call setup_inputs() first.")
         if self.q_prime is None or self._discharge_t is None:
             raise ValueError("Streamflow not set. Call setup_inputs() first.")
 
@@ -391,7 +401,7 @@ class MuskingumCunge:
         ):
             raise ValueError("Required attributes not set. Call setup_inputs() first.")
 
-        # Calculate velocity using internal hydrofabric data
+        # Calculate velocity using internal routing_dataclass data
         velocity = _get_trapezoid_velocity(
             q_t=self._discharge_t,
             _n=self.n,

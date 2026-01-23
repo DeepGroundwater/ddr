@@ -25,22 +25,22 @@ if __name__ == "__main__":
         description="Create a lower triangular adjacency matrix from MERIT hydrofabric data."
     )
     parser.add_argument(
-        "--pkg",
+        "pkg",
         type=Path,
-        default="/projects/mhpi/data/MERIT/raw/continent/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp",
-        help="Path to the MERIT shapefile.",
+        help="Path to the hydrofabric geopackage.",
     )
     parser.add_argument(
         "--path",
         type=Path,
         default="data/",
-        help="Path to save the zarr group. Defaults to current working directory",
+        help="Path to save the zarr group. Defaults to current working directory with name appended.",
     )
+
     parser.add_argument(
         "--gages",
         type=Path,
-        default=Path("datasets/gage_info/dhbv2_gages.csv"),
-        help="The gauges CSV file containing the training locations with COMID column.",
+        default=Path("streamflow_datasets/gage_info/dhbv2_gages.csv"),
+        help="The gauges CSV file containing the training locations. Only needed if gage adjacency matrices are being made.",
     )
     args = parser.parse_args()
 

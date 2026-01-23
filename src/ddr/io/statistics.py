@@ -28,7 +28,7 @@ def set_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
     attributes_name = Path(cfg.data_sources.attributes).name  # gets the name of the attributes store
     statistics_path = Path(cfg.data_sources.statistics)
     statistics_path.mkdir(exist_ok=True)
-    stats_file = statistics_path / f"attribute_statistics_{attributes_name}.json"
+    stats_file = statistics_path / f"{cfg.geodataset.value}_attribute_statistics_{attributes_name}.json"
 
     if stats_file.exists():
         # TODO improve the logic for saving/selecting statistics
@@ -38,17 +38,17 @@ def set_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
             json_ = json.load(f)
         df = pd.DataFrame(json_)
     else:
-        log.info("Reading CONUS hydrofabric to construct attribute statistics")
+        log.info(f"Reading {cfg.geodataset.value} attributes to construct statistics")
         json_ = {}
         for attr in list(ds.data_vars.keys()):  # Iterating through all variables
             data = ds[attr].values
             json_[attr] = {
-                "min": np.min(data, axis=0),
-                "max": np.max(data, axis=0),
-                "mean": np.mean(data, axis=0),
-                "std": np.std(data, axis=0),
-                "p10": np.percentile(data, 10, axis=0),
-                "p90": np.percentile(data, 90, axis=0),
+                "min": np.nanmin(data, axis=0),
+                "max": np.nanmax(data, axis=0),
+                "mean": np.nanmean(data, axis=0),
+                "std": np.nanstd(data, axis=0),
+                "p10": np.nanpercentile(data, 10, axis=0),
+                "p90": np.nanpercentile(data, 90, axis=0),
             }
         df = pd.DataFrame(json_)
         # Save as JSON file instead of CSV

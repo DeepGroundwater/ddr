@@ -367,7 +367,7 @@ class TestMuskingumCungeForward:
         cfg = create_mock_config()
         mc = MuskingumCunge(cfg, device="cpu")
 
-        with pytest.raises(ValueError, match="Hydrofabric not set"):
+        with pytest.raises(ValueError, match="routing_dataclass not set"):
             mc.forward()
 
     def test_forward_basic(self) -> None:

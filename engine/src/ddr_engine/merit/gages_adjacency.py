@@ -151,7 +151,7 @@ def coo_to_zarr_group(
 
     gauge_root.attrs["format"] = "COO"
     gauge_root.attrs["shape"] = list(coo.shape)
-    gauge_root.attrs["gage_comid"] = int(origin_comid)
+    gauge_root.attrs["gage_catchment"] = int(origin_comid)
     gauge_root.attrs["gage_idx"] = int(merit_mapping[origin_comid])
     gauge_root.attrs["data_types"] = {
         "indices_0": str(coo.row.dtype),

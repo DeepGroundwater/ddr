@@ -240,7 +240,7 @@ class TestCooToZarrGroup:
         gauge_root = root.create_group("00000001")
         coo_to_zarr_group(coo, ts_order, origin_comid, gauge_root, merit_mapping)
         assert gauge_root.attrs["format"] == "COO"
-        assert gauge_root.attrs["gage_comid"] == origin_comid
+        assert gauge_root.attrs["gage_catchment"] == origin_comid
         assert gauge_root.attrs["gage_idx"] == merit_mapping[origin_comid]
         assert "shape" in gauge_root.attrs
         assert "data_types" in gauge_root.attrs
@@ -263,7 +263,7 @@ class TestIntegration:
         root = zarr.create_group(store=store)
         gauge_root = root.create_group(staid)
         coo_to_zarr_group(coo, ts_order, origin_comid, gauge_root, merit_mapping)
-        assert gauge_root.attrs["gage_comid"] == 71028858
+        assert gauge_root.attrs["gage_catchment"] == 71028858
 
     def test_full_workflow_mid_network_gauge(self, graph_and_indices, merit_mapping, tmp_path):
         """Test full workflow for mid-network gauge (STAID='2', COMID=71029768, DRAIN_SQKM=300)."""
@@ -280,7 +280,7 @@ class TestIntegration:
         root = zarr.create_group(store=store)
         gauge_root = root.create_group(staid)
         coo_to_zarr_group(coo, ts_order, origin_comid, gauge_root, merit_mapping)
-        assert gauge_root.attrs["gage_comid"] == 71029768
+        assert gauge_root.attrs["gage_catchment"] == 71029768
 
     def test_full_workflow_cycles_network_gauge(
         self, graph_and_indices_with_cycle, merit_mapping_cycles, tmp_path
@@ -298,12 +298,12 @@ class TestIntegration:
         root = zarr.create_group(store=store)
         gauge_root = root.create_group(staid)
         coo_to_zarr_group(coo, ts_order, origin_comid, gauge_root, merit_mapping_cycles)
-        assert gauge_root.attrs["gage_comid"] == 78025040
+        assert gauge_root.attrs["gage_catchment"] == 78025040
 
     def test_multiple_gauges_same_zarr_store(self, graph_and_indices, merit_mapping, tmp_path):
         """Test saving multiple gauges to the same zarr store."""
         graph, node_indices = graph_and_indices
-        gauges = [
+        gauges: list[dict[str, str | int]] = [
             {"staid": "00000001", "comid": 71028858},
             {"staid": "00000002", "comid": 71029768},
         ]
@@ -311,11 +311,11 @@ class TestIntegration:
         store = zarr.storage.LocalStore(root=zarr_path)
         root = zarr.create_group(store=store)
         for gauge in gauges:
-            subset_comids = subset(gauge["comid"], graph, node_indices)
+            subset_comids = subset(int(gauge["comid"]), graph, node_indices)
             coo, ts_order = create_coo(subset_comids, merit_mapping, graph, node_indices)
             gauge_root = root.create_group(gauge["staid"])
-            coo_to_zarr_group(coo, ts_order, gauge["comid"], gauge_root, merit_mapping)
+            coo_to_zarr_group(coo, ts_order, int(gauge["comid"]), gauge_root, merit_mapping)
         assert "00000001" in root
         assert "00000002" in root
-        assert root["00000001"].attrs["gage_comid"] == 71028858
-        assert root["00000002"].attrs["gage_comid"] == 71029768
+        assert root["00000001"].attrs["gage_catchment"] == 71028858
+        assert root["00000002"].attrs["gage_catchment"] == 71029768

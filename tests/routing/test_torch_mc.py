@@ -184,22 +184,26 @@ class TestdmcForwardPass:
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
-        hydrofabric = create_mock_routing_dataclass(num_reaches=10)
+        routing_dataclass = create_mock_routing_dataclass(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
         spatial_params = create_mock_spatial_parameters(num_reaches=10)
 
-        return model, hydrofabric, streamflow, spatial_params
+        return model, routing_dataclass, streamflow, spatial_params
 
     def test_forward_basic(
         self,
         setup_model_and_data: tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test basic forward pass."""
-        model, hydrofabric, streamflow, spatial_params = setup_model_and_data
+        model, routing_dataclass, streamflow, spatial_params = setup_model_and_data
 
         model.set_progress_info(1, 0)
 
-        kwargs = {"hydrofabric": hydrofabric, "streamflow": streamflow, "spatial_parameters": spatial_params}
+        kwargs = {
+            "routing_dataclass": routing_dataclass,
+            "streamflow": streamflow,
+            "spatial_parameters": spatial_params,
+        }
 
         # Mock the routing engine forward method
         with patch.object(model.routing_engine, "forward") as mock_forward:
@@ -217,9 +221,13 @@ class TestdmcForwardPass:
         setup_model_and_data: tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test that routing engine is properly set up during forward pass."""
-        model, hydrofabric, streamflow, spatial_params = setup_model_and_data
+        model, routing_dataclass, streamflow, spatial_params = setup_model_and_data
 
-        kwargs = {"hydrofabric": hydrofabric, "streamflow": streamflow, "spatial_parameters": spatial_params}
+        kwargs = {
+            "routing_dataclass": routing_dataclass,
+            "streamflow": streamflow,
+            "spatial_parameters": spatial_params,
+        }
 
         with (
             patch.object(model.routing_engine, "setup_inputs") as mock_setup,
@@ -231,7 +239,7 @@ class TestdmcForwardPass:
 
             # Check that setup_inputs was called correctly
             mock_setup.assert_called_once_with(
-                hydrofabric=hydrofabric, streamflow=streamflow, spatial_parameters=spatial_params
+                routing_dataclass=routing_dataclass, streamflow=streamflow, spatial_parameters=spatial_params
             )
 
     def test_forward_compatibility_attributes_update(
@@ -239,9 +247,13 @@ class TestdmcForwardPass:
         setup_model_and_data: tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test that compatibility attributes are updated during forward pass."""
-        model, hydrofabric, streamflow, spatial_params = setup_model_and_data
+        model, routing_dataclass, streamflow, spatial_params = setup_model_and_data
 
-        kwargs = {"hydrofabric": hydrofabric, "streamflow": streamflow, "spatial_parameters": spatial_params}
+        kwargs = {
+            "routing_dataclass": routing_dataclass,
+            "streamflow": streamflow,
+            "spatial_parameters": spatial_params,
+        }
 
         # Setup mock routing engine with some state
         with (
@@ -249,7 +261,7 @@ class TestdmcForwardPass:
             patch.object(model.routing_engine, "forward") as mock_forward,
         ):
             # Mock routing engine state
-            model.routing_engine.network = hydrofabric.adjacency_matrix
+            model.routing_engine.network = routing_dataclass.adjacency_matrix
             model.routing_engine.n = torch.ones(10) * 0.03
             model.routing_engine.q_spatial = torch.ones(10) * 0.5
             model.routing_engine._discharge_t = torch.ones(10) * 2.0
@@ -274,13 +286,13 @@ class TestdmcForwardPass:
         setup_model_and_data: tuple[dmc, MockRoutingDataclass, torch.Tensor, dict[str, torch.Tensor]],
     ) -> None:
         """Test device handling in forward pass."""
-        model, hydrofabric, streamflow, spatial_params = setup_model_and_data
+        model, routing_dataclass, streamflow, spatial_params = setup_model_and_data
 
         # Test with streamflow on different device (should be moved to model device)
         streamflow_wrong_device = streamflow.clone()  # Same device for testing
 
         kwargs = {
-            "hydrofabric": hydrofabric,
+            "routing_dataclass": routing_dataclass,
             "streamflow": streamflow_wrong_device,
             "spatial_parameters": spatial_params,
         }
@@ -452,7 +464,7 @@ class TestdmcPyTorchIntegration:
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
-        hydrofabric = create_mock_routing_dataclass(num_reaches=5)
+        routing_dataclass = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
 
         # Create spatial parameters that require gradients
@@ -463,7 +475,11 @@ class TestdmcPyTorchIntegration:
 
         model.set_progress_info(1, 0)
 
-        kwargs = {"hydrofabric": hydrofabric, "streamflow": streamflow, "spatial_parameters": spatial_params}
+        kwargs = {
+            "routing_dataclass": routing_dataclass,
+            "streamflow": streamflow,
+            "spatial_parameters": spatial_params,
+        }
 
         with patch("ddr.routing.mmc.triangular_sparse_solve") as mock_solve:
             # Return solution that maintains gradient connections
@@ -511,7 +527,7 @@ class TestdmcIntegration:
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
-        hydrofabric = create_mock_routing_dataclass(num_reaches=scenario["num_reaches"])
+        routing_dataclass = create_mock_routing_dataclass(num_reaches=scenario["num_reaches"])
         streamflow = create_mock_streamflow(
             num_timesteps=scenario["num_timesteps"], num_reaches=scenario["num_reaches"]
         )
@@ -519,7 +535,11 @@ class TestdmcIntegration:
 
         model.set_progress_info(1, 0)
 
-        kwargs = {"hydrofabric": hydrofabric, "streamflow": streamflow, "spatial_parameters": spatial_params}
+        kwargs = {
+            "routing_dataclass": routing_dataclass,
+            "streamflow": streamflow,
+            "spatial_parameters": spatial_params,
+        }
 
         with patch.object(model.routing_engine, "forward") as mock_forward:
             expected_shape = (2, scenario["num_timesteps"])
@@ -541,7 +561,7 @@ class TestdmcIntegration:
         assert model_cpu.device_num == "cpu"
 
         # Setup data
-        hydrofabric = create_mock_routing_dataclass(num_reaches=8)
+        routing_dataclass = create_mock_routing_dataclass(num_reaches=8)
         streamflow = create_mock_streamflow(num_timesteps=36, num_reaches=8)
         spatial_params = create_mock_spatial_parameters(num_reaches=8)
 
@@ -549,7 +569,11 @@ class TestdmcIntegration:
         model.set_progress_info(2, 5)
 
         # Prepare kwargs
-        kwargs = {"hydrofabric": hydrofabric, "streamflow": streamflow, "spatial_parameters": spatial_params}
+        kwargs = {
+            "routing_dataclass": routing_dataclass,
+            "streamflow": streamflow,
+            "spatial_parameters": spatial_params,
+        }
 
         # Mock the routing engine forward pass
         with (
@@ -593,20 +617,20 @@ class TestParameterTraining:
 
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
-        # Create mock hydrofabric and streamflow
-        hydrofabric = create_mock_routing_dataclass(num_reaches=scenario["num_reaches"])
+        # Create mock routing_dataclass and streamflow
+        routing_dataclass = create_mock_routing_dataclass(num_reaches=scenario["num_reaches"])
         streamflow = create_mock_streamflow(
             num_timesteps=scenario["num_timesteps"], num_reaches=scenario["num_reaches"]
         )
         nn = create_mock_nn()
-        spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
+        spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
         optimizer = torch.optim.Adam(params=nn.parameters(), lr=0.01)
 
         model.epoch = 1
         model.mini_batch = 0
 
         kwargs: dict[str, Any] = {
-            "hydrofabric": hydrofabric,
+            "routing_dataclass": routing_dataclass,
             "streamflow": streamflow,
             "spatial_parameters": spatial_params,
         }
@@ -618,7 +642,7 @@ class TestParameterTraining:
         # created/recreated during the forward pass.
         find_and_retain_grad(nn, required=True, skip=skip_attrs)
         find_and_retain_grad(model, required=True, skip=skip_attrs)
-        find_and_retain_grad(hydrofabric, required=True, skip=skip_attrs)
+        find_and_retain_grad(routing_dataclass, required=True, skip=skip_attrs)
         # To test the dynamic tensors we care about (model.n, model.q_spatial, and model._discharge_t),
         # we can pass an additional kwarg to dmc
         kwargs["retain_grads"] = True  # This is a custom kwarg to trigger gradient checks
@@ -626,8 +650,8 @@ class TestParameterTraining:
         # Forward pass
         output = model(**kwargs)
 
-        test_modules = [model, nn, hydrofabric]
-        modules_names = ["model", "nn", "hydrofabric"]
+        test_modules = [model, nn, routing_dataclass]
+        modules_names = ["model", "nn", "routing_dataclass"]
         ts = [find_gradient_tensors(obj, skip=skip_attrs) for obj in test_modules]
         init_tensors = [
             t for ts_ in ts for t in ts_
@@ -670,7 +694,7 @@ class TestParameterTraining:
         # Also skip spatial parameters that are not used by the routing engine
         # The routing engine only uses parameters that are in cfg.params.parameter_ranges.range
         unused_spatial_params: list[str] = []
-        for param_name in ["n", "q_spatial", "p_spatial"]:
+        for param_name in ["n", "q_spatial", "p_spatial", "top_width", "side_slope"]:
             if param_name not in cfg.params.parameter_ranges:
                 unused_spatial_params.append(f"spatial_parameters['{param_name}']")
 

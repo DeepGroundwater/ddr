@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from ddr._version import __version__
 from ddr.io.readers import read_ic
-from ddr.validation import Metrics
+from ddr.validation import GeoDataset, Metrics
 
 daily_format: str = "%Y/%m/%d"
 log = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ def print_metrics_summary(metrics: Metrics, save_path: Path, valid_gauges: np.nd
 
     # Print header
     print("\n" + "=" * 80)
-    print(" " * 25 + "STREAMFLOW PREDICTION METRICS SUMMARY")
+    print(" " * 25 + "SUMMED Q` METRICS SUMMARY")
     print("=" * 80)
     print(f"Total Gauges Evaluated: {total_gauges}")
     print("-" * 80)
@@ -166,7 +166,7 @@ def print_metrics_summary(metrics: Metrics, save_path: Path, valid_gauges: np.nd
     log.info(f"Detailed metrics saved to: {csv_path}")
 
 
-def eval(
+def eval_q_prime(
     cfg: DictConfig,
     streamflow: xr.Dataset,
     observations: xr.Dataset,
@@ -190,7 +190,7 @@ def eval(
     """
     gauges = [str(_id).zfill(8) for _id in basins_df["STAID"].values]
     valid_gauges = np.array(gauges)[np.isin(gauges, list(gages_adjacency.keys()))]
-    log.info(f"{valid_gauges.shape[0]}/{len(gauges)} Gauges found in the hydrofabric")
+    log.info(f"{valid_gauges.shape[0]}/{len(gauges)} Gauges found in the routing_dataclass")
 
     eval_daily_time_range = pd.date_range(
         datetime.strptime(cfg.experiment.start_time, daily_format),
@@ -202,16 +202,23 @@ def eval(
     conus_time_range = streamflow.time.values
     time_indices = np.where(np.isin(conus_time_range, eval_daily_time_range))[0]
     preds = np.zeros([len(valid_gauges), len(eval_daily_time_range)], dtype=np.float32)
-    target: np.ndarray = observations.sel(
-        time=eval_daily_time_range, gage_id=valid_gauges
-    ).streamflow.values.astype(np.float32)
+    target: np.ndarray = (
+        observations.sel(time=eval_daily_time_range)
+        .reindex(gage_id=valid_gauges)
+        .streamflow.values.astype(np.float32)
+    )
     for i, gauge in tqdm(
         enumerate(valid_gauges), total=len(valid_gauges), desc="Processing gauges", ncols=140
     ):
-        basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])
+        if cfg.geodataset == GeoDataset.LYNKER_HYDROFABRIC.value:
+            basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])
+        elif cfg.geodataset == GeoDataset.MERIT.value:
+            basins = gages_adjacency[gauge]["order"][:]
+        else:
+            raise ValueError("Cannot run Summed Q` calculation without specifying basin identifiers")
         divide_indices = np.where(np.isin(conus_divide_ids, basins))[0]
         qr = streamflow.isel(time=time_indices, divide_id=divide_indices)["Qr"].values.astype(np.float32)
-        preds[i] = qr.sum(axis=0)
+        preds[i] = np.nansum(qr, axis=0)
     metrics = Metrics(pred=preds, target=target)
 
     start_time = pd.to_datetime(eval_daily_time_range.values[0]).strftime("%Y-%m-%d")
@@ -263,7 +270,7 @@ def main(cfg: DictConfig) -> None:
         observations = read_ic(cfg.data_sources.observations, region=cfg.s3_region)
         gages_adjacency = zarr.open_group(cfg.data_sources.gages_adjacency)
         basins_df = pd.read_csv(cfg.data_sources.gages)
-        eval(
+        eval_q_prime(
             cfg=cfg,
             streamflow=streamflow,
             observations=observations,

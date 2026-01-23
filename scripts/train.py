@@ -69,17 +69,19 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
             for param_group in optimizer.param_groups:
                 param_group["lr"] = cfg.experiment.learning_rate[epoch]
 
-        for i, hydrofabric in enumerate(dataloader, start=0):
+        for i, routing_dataclass in enumerate(dataloader, start=0):
             if i < start_mini_batch:
                 log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")
             else:
                 start_mini_batch = 0
                 routing_model.set_progress_info(epoch=epoch, mini_batch=i)
 
-                streamflow_predictions = flow(hydrofabric=hydrofabric, device=cfg.device, dtype=torch.float32)
-                spatial_params = nn(inputs=hydrofabric.normalized_spatial_attributes.to(cfg.device))
+                streamflow_predictions = flow(
+                    routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+                )
+                spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
                 dmc_kwargs = {
-                    "hydrofabric": hydrofabric,
+                    "routing_dataclass": routing_dataclass,
                     "spatial_parameters": spatial_params,
                     "streamflow": streamflow_predictions,
                 }
@@ -91,10 +93,10 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                     rho=num_days,
                 )
 
-                nan_mask = hydrofabric.observations.isnull().any(dim="time")
+                nan_mask = routing_dataclass.observations.isnull().any(dim="time")
                 np_nan_mask = nan_mask.streamflow.values
 
-                filtered_ds = hydrofabric.observations.where(~nan_mask, drop=True)
+                filtered_ds = routing_dataclass.observations.where(~nan_mask, drop=True)
                 filtered_observations = torch.tensor(
                     filtered_ds.streamflow.values, device=cfg.device, dtype=torch.float32
                 )[:, 1:-1]  # Cutting off days to match with realigned timesteps
@@ -131,8 +133,8 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                     filtered_predictions[-1].detach().cpu().numpy(),
                     filtered_observations[-1].cpu().numpy(),
                     plotted_dates,
-                    hydrofabric.observations.gage_id.values[random_gage],
-                    hydrofabric.observations.gage_id.values[random_gage],
+                    routing_dataclass.observations.gage_id.values[random_gage],
+                    routing_dataclass.observations.gage_id.values[random_gage],
                     metrics={"nse": nse[-1]},
                     path=cfg.params.save_path / f"plots/epoch_{epoch}_mb_{i}_validation_plot.png",
                     warmup=cfg.experiment.warmup,

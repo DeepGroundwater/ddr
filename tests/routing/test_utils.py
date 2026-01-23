@@ -119,7 +119,7 @@ class MockRoutingDataclass:
 
         # mock gauge outflows
         self.outflow_idx = [np.array([-1])]  # Picking two values as there are two gages in obs
-        self.gage_wb = ["wb-1"]
+        self.gage_catchment = ["wb-1"]
 
 
 def create_mock_routing_dataclass(num_reaches: int = 10, device: str = "cpu") -> MockRoutingDataclass:

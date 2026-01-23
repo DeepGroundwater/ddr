@@ -8,11 +8,14 @@ s3_region: us-east-2
 
 data_sources:
   geospatial_fabric_gpkg: ./../../data/conus_nextgen.gpkg
-  conus_adjacency: ./../../data/conus_adjacency.zarr
+  conus_adjacency: ./../../data/hydrofabric_v2.2_conus_adjacency.zarr
   statistics: ./../../data/
 
 params:
   save_path: ./model
+
+experiment:
+  checkpoint: ./ddr_v0.1.0a2_trained_model_weights.pt
 
 kan:
   hidden_size: 11

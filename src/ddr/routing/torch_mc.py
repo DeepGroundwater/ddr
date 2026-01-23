@@ -191,10 +191,6 @@ class dmc(torch.nn.Module):
                 self.n.retain_grad()
             if self.q_spatial is not None:
                 self.q_spatial.retain_grad()
-            if self.top_width is not None:
-                self.top_width.retain_grad()
-            if self.side_slope is not None:
-                self.side_slope.retain_grad()
             if self._discharge_t is not None:
                 self._discharge_t.retain_grad()
 

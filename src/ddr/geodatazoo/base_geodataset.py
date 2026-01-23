@@ -87,3 +87,4 @@ class BaseGeoDataset(Dataset, ABC):
         flowpath_attr: gpd.GeoDataFrame,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Build tensors common to all collate methods."""
+        raise NotImplementedError

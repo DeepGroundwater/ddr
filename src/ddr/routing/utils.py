@@ -163,23 +163,26 @@ def get_network_idx(mapper: PatternMapper) -> tuple[torch.Tensor, torch.Tensor]:
     return torch.tensor(rows), torch.tensor(cols)
 
 
-def denormalize(value: torch.Tensor, bounds: list[float]) -> torch.Tensor:
-    """Denormalizing neural network outputs to be within the Physical Bounds
+def denormalize(value: torch.Tensor, bounds: list[float], log_space: bool = False) -> torch.Tensor:
+    """Denormalizing neural network outputs to physical bounds
 
     Parameters
     ----------
     value: torch.Tensor
-        The NN output
+        The NN output (0-1 from sigmoid)
     bounds: list[float]
-        The specified physical parameter bounds
-
-    Returns
-    -------
-    torch.Tensor:
-        The NN output in a physical parameter space
+        The specified physical parameter bounds [min, max]
+    log_space: bool
+        If True, map through log space (for right-skewed distributions)
     """
-    output = (value * (bounds[1] - bounds[0])) + bounds[0]
-    return output
+    if log_space:
+        # Map sigmoid output to log space, then exponentiate
+        log_min = torch.log(torch.tensor(bounds[0] + 1e-6))
+        log_max = torch.log(torch.tensor(bounds[1]))
+        log_value = value * (log_max - log_min) + log_min
+        return torch.exp(log_value)
+    else:
+        return (value * (bounds[1] - bounds[0])) + bounds[0]
 
 
 def _backward_cpu(

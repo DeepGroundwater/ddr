@@ -4,7 +4,7 @@ site_description = "A differentiable routing library for large-scale runoff calc
 site_author = "Tadd Bindas"
 site_url = "https://deepgroundwater.com/ddr"
 copyright = """
-Copyright &copy; 2025 DeepGroundwater
+Copyright &copy; 2026 DeepGroundwater
 """
 repo_url = "https://github.com/DeepGroundwater/ddr"
 repo_name = "deepgroundwater/ddr"

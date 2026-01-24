@@ -207,20 +207,30 @@ class MuskingumCunge:
 
         # Setup spatial parameters
         self.spatial_parameters = spatial_parameters
-        self.n = denormalize(value=spatial_parameters["n"], bounds=self.parameter_bounds["n"])
+        log_space_params = self.cfg.params.log_space_parameters
+        self.n = denormalize(
+            value=spatial_parameters["n"],
+            bounds=self.parameter_bounds["n"],
+            log_space="n" in log_space_params,
+        )
         self.q_spatial = denormalize(
             value=spatial_parameters["q_spatial"],
             bounds=self.parameter_bounds["q_spatial"],
+            log_space="q_spatial" in log_space_params,
         )
         if routing_dataclass.top_width.numel() == 0:
             self.top_width = denormalize(
-                value=spatial_parameters["top_width"], bounds=self.parameter_bounds["top_width"]
+                value=spatial_parameters["top_width"],
+                bounds=self.parameter_bounds["top_width"],
+                log_space="top_width" in log_space_params,
             )
         else:
             self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
         if routing_dataclass.side_slope.numel() == 0:
             self.side_slope = denormalize(
-                value=spatial_parameters["side_slope"], bounds=self.parameter_bounds["side_slope"]
+                value=spatial_parameters["side_slope"],
+                bounds=self.parameter_bounds["side_slope"],
+                log_space="side_slope" in log_space_params,
             )
         else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)

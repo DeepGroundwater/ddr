@@ -40,10 +40,12 @@ class kan(torch.nn.Module):
                     device=device,
                 )
             )
-        self.output = torch.nn.Linear(self.hidden_size, self.output_size, bias=False, device=device)
-        torch.nn.init.xavier_normal_(self.input.weight)
-        torch.nn.init.xavier_normal_(self.output.weight)
+        self.output = torch.nn.Linear(self.hidden_size, self.output_size, bias=True, device=device)
+
+        torch.nn.init.kaiming_normal_(self.input.weight, nonlinearity="relu")
+        torch.nn.init.xavier_normal_(self.output.weight, gain=0.1)
         torch.nn.init.zeros_(self.input.bias)
+        torch.nn.init.zeros_(self.output.bias)
 
     def forward(self, *args: Any, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass of the neural network"""

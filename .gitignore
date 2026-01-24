@@ -193,3 +193,6 @@ config/
 
 # eval example data
 examples/eval/*.zarr
+
+# scratch notebooks
+examples/scratch

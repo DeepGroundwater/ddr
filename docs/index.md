@@ -7,29 +7,6 @@ The goal of this project is to provide an open-sourced, easy to follow, routing 
 
 Traditional river routing models require manual calibration of parameters like Manning's roughness coefficient across thousands of river segments. DDR solves this by using **differentiable programming** - the routing equations are implemented in a way that allows automatic computation of gradients through the entire network, enabling neural networks to learn optimal parameters from observed streamflow data.
 
-### Key Features
-
-- **Differentiable Muskingum-Cunge Routing**: Physics-based routing with learnable parameters
-- **Neural Network Parameter Learning**: Uses Kolmogorov-Arnold Networks (KAN) to predict Manning's roughness and channel geometry from catchment attributes
-- **GPU Acceleration**: Sparse matrix operations optimized for both CPU and GPU
-- **Multiple Geospatial Datasets**: Support for NOAA-OWP Hydrofabric v2.2 and MERIT Hydro
-- **Scalable Architecture**: Route across thousands of river segments simultaneously
-
-## How It Works
-
-DDR combines physics-based river routing with machine learning:
-
-```
-Catchment Attributes → Neural Network → Physical Parameters → Muskingum-Cunge Routing → Streamflow
-        ↑                                                                                  ↓
-        └────────────────────── Gradient Backpropagation ──────────────────────────────────┘
-```
-
-1. **Input**: Lateral inflow predictions (Q') from unit catchments
-2. **Parameter Learning**: A neural network predicts Manning's roughness (n) and other parameters from catchment attributes
-3. **Routing**: The Muskingum-Cunge equations route flow downstream through the river network
-4. **Training**: Gradients flow backward through the entire system to optimize the neural network
-
 <div class="grid cards" markdown>
 
 - :fontawesome-solid-microchip: [__Model Training__](../usage/train.md) for how to create your own weights/states
@@ -38,6 +15,22 @@ Catchment Attributes → Neural Network → Physical Parameters → Muskingum-Cu
 - :fontawesome-solid-gears: [__Summed Q_Prime__](../usage/summed_q_prime.md) for determining how well your unit catchment predictions are (pre-routing)
 
 </div>
+
+
+## How It Works
+
+DDR combines physics-based river routing with machine learning:
+
+```
+Lumped Attributes → Neural Network → Physical Parameters → MC Routing → Runoff
+        ↑                                                                 ↓
+        └──────────────────── Gradient Backpropagation ───────────────────┘
+```
+
+1. **Input**: Lateral inflow predictions (Q') from unit catchments
+2. **Parameter Learning**: A neural network predicts Manning's roughness (n) and other parameters from catchment attributes
+3. **Routing**: The Muskingum-Cunge equations route flow downstream through the river network
+4. **Training**: Gradients flow backward through the entire system to optimize the neural network
 
 ## Supported Geospatial Datasets
 

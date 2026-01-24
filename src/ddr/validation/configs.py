@@ -90,10 +90,19 @@ class Params(BaseModel):
     )
     parameter_ranges: dict[str, list[float]] = Field(
         default_factory=lambda: {
-            "n": [0.01, 0.35],
-            "q_spatial": [0.0, 3.0],
+            "n": [0.02, 0.2],  # (m⁻¹/³s)
+            "q_spatial": [0.0, 1.0],  # 0 = rectangular, 1 = triangular
+            "top_width": [1.0, 6000.0],  # Log-space (m)
+            "side_slope": [0.5, 50.0],  # H:V ratio Log-space (-)
         },
         description="The parameter space bounds [min, max] to project learned physical values to",
+    )
+    log_space_parameters: list[str] = Field(
+        default_factory=lambda: [
+            "top_width",
+            "side_slope",
+        ],
+        description="Parameters to denormalize in log-space for right-skewed distributions",
     )
     defaults: dict[str, int | float] = Field(
         default_factory=lambda: {

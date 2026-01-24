@@ -90,7 +90,7 @@ class Params(BaseModel):
     )
     parameter_ranges: dict[str, list[float]] = Field(
         default_factory=lambda: {
-            "n": [0.02, 0.2],  # (m⁻¹/³s)
+            "n": [0.015, 0.25],  # (m⁻¹/³s)
             "q_spatial": [0.0, 1.0],  # 0 = rectangular, 1 = triangular
             "top_width": [1.0, 5000.0],  # Log-space (m)
             "side_slope": [0.5, 50.0],  # H:V ratio Log-space (-)

@@ -40,8 +40,8 @@ class TestCooToZarr:
 
     def test_zarr_indices_shape(self, sandbox_zarr_root):
         """Indices arrays should have same length."""
-        assert len(sandbox_zarr_root["indices_0"]) == len(sandbox_zarr_root["indices_1"])
-        assert len(sandbox_zarr_root["indices_0"]) == len(sandbox_zarr_root["values"])
+        assert len(sandbox_zarr_root["indices_0"][:]) == len(sandbox_zarr_root["indices_1"][:])
+        assert len(sandbox_zarr_root["indices_0"][:]) == len(sandbox_zarr_root["values"][:])
 
     def test_zarr_values_all_ones(self, sandbox_zarr_root):
         """Values array should be all ones (unweighted adjacency)."""

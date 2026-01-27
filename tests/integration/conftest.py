@@ -70,7 +70,8 @@ class MockGaugeSet:
 @pytest.fixture(scope="session")
 def sandbox_connections() -> pd.DataFrame:
     """Load raw RAPID Sandbox connectivity CSV."""
-    return pd.read_csv("./input/Sandbox/rapid_connect_Sandbox.csv", header=None)
+    cwd = Path(__file__).parent
+    return pd.read_csv(cwd / "input/Sandbox/rapid_connect_Sandbox.csv", header=None)
 
 
 def sandbox_to_merit_format(sandbox_df: pd.DataFrame) -> gpd.GeoDataFrame:
@@ -191,7 +192,7 @@ def sandbox_zarr_order(sandbox_zarr_root: zarr.Group) -> Any:
 
 
 @pytest.fixture(scope="session")
-def sandbox_upstream_dict(mock_merit_fp: gpd.GeoDataFrame) -> dict[int, list[int]]:
+def sandbox_upstream_dict(mock_merit_fp: gpd.GeoDataFrame) -> Any:
     """Build upstream dictionary from Sandbox network."""
     return build_upstream_dict(mock_merit_fp)
 
@@ -203,7 +204,7 @@ def sandbox_graph(sandbox_upstream_dict: dict[int, list[int]]):
 
 
 @pytest.fixture(scope="session")
-def sandbox_graph_obj(sandbox_graph):
+def G(sandbox_graph):
     """Extract just the graph object."""
     return sandbox_graph[0]
 
@@ -220,7 +221,7 @@ def sandbox_node_indices(sandbox_graph):
 
 
 @pytest.fixture(scope="session")
-def sandbox_matrix(mock_merit_fp: gpd.GeoDataFrame) -> tuple[sparse.coo_matrix, list[int]]:
+def sandbox_matrix(mock_merit_fp: gpd.GeoDataFrame) -> Any:
     """Create adjacency matrix from Sandbox network."""
     return create_adjacency_matrix(mock_merit_fp)
 

@@ -1,4 +1,4 @@
-### RAPID Sandbox
+### Integration tests using RAPID Sandbox
 The integration tests inside of this folder are centered on the RAPID Sandbox mock data. These tests will adapt this sandbox network to fit the patterns of any geodataset used in DDR to fully test the integration of the dataset within the routing patterns. For more information on the sandbox mock data see: https://github.com/c-h-david/rapid2/blob/main/SANDBOX.md
 
 #### Source:

@@ -61,7 +61,7 @@ class TestFullPipeline:
 class TestGaugeIntegration:
     """Tests for gauge-related integration."""
 
-    def test_gauge_subset_sizes(self, sandbox_graph_obj, sandbox_node_indices, sandbox_gauge_set):
+    def test_gauge_subset_sizes(self, G, sandbox_node_indices, sandbox_gauge_set):
         """Verify subset sizes for each gauge."""
         expected_sizes = {
             30: 3,  # 10, 20, 30
@@ -69,22 +69,22 @@ class TestGaugeIntegration:
         }
 
         for gauge in sandbox_gauge_set.gauges:
-            subset = subset_upstream(gauge.COMID, sandbox_graph_obj, sandbox_node_indices)
+            subset = subset_upstream(gauge.COMID, G, sandbox_node_indices)
             assert len(subset) == expected_sizes[gauge.COMID], (
                 f"Gauge {gauge.STAID} at COMID {gauge.COMID} has wrong subset size"
             )
 
-    def test_gauge_subsets_are_nested(self, sandbox_graph_obj, sandbox_node_indices):
+    def test_gauge_subsets_are_nested(self, G, sandbox_node_indices):
         """Gauge 30's subset should be contained in gauge 50's subset."""
-        subset_30 = set(subset_upstream(30, sandbox_graph_obj, sandbox_node_indices))
-        subset_50 = set(subset_upstream(50, sandbox_graph_obj, sandbox_node_indices))
+        subset_30 = set(subset_upstream(30, G, sandbox_node_indices))
+        subset_50 = set(subset_upstream(50, G, sandbox_node_indices))
 
         assert subset_30.issubset(subset_50)
 
-    def test_headwater_gauge_subset(self, sandbox_graph_obj, sandbox_node_indices):
+    def test_headwater_gauge_subset(self, G, sandbox_node_indices):
         """A gauge at a headwater should have subset of size 1."""
         for comid in [10, 20, 40]:
-            subset = subset_upstream(comid, sandbox_graph_obj, sandbox_node_indices)
+            subset = subset_upstream(comid, G, sandbox_node_indices)
             assert len(subset) == 1
             assert subset[0] == comid
 

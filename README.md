@@ -17,7 +17,7 @@ The following commands will allow you to install all required dependencies for D
 
 ```sh
 # CPU
-uv sync --all-packages
+uv sync --all-packages --group cpu
 . .venv/bin/activate
 
 # or GPU

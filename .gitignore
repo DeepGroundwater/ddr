@@ -184,6 +184,7 @@ data/
 # Hydra outputs
 runs/
 output/
+!tests/sandbox/output
 
 # Pykan model state
 model/

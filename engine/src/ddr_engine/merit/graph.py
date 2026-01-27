@@ -1,4 +1,4 @@
-"""A utils file for building network matrices for MERIT vectorized flowlines"""
+"""Graph construction and traversal utilities for MERIT flowpaths"""
 
 import geopandas as gpd
 import polars as pl
@@ -6,7 +6,7 @@ import rustworkx as rx
 from tqdm import tqdm
 
 
-def _build_upstream_dict_from_merit(
+def build_upstream_dict(
     fp: gpd.GeoDataFrame,
 ) -> dict[int, list[int]]:
     """
@@ -22,11 +22,8 @@ def _build_upstream_dict_from_merit(
     dict[int, list[int]]
         Dictionary mapping downstream COMID to list of upstream COMIDs.
     """
-    # Convert to polars (drop geometry)
     df = pl.DataFrame(fp.drop(columns="geometry"))
 
-    # Build connections from up1, up2, up3, up4
-    # Create a long-form dataframe with all upstream connections
     connections = []
     for up_col in ["up1", "up2", "up3", "up4"]:
         conn = df.select(
@@ -40,15 +37,12 @@ def _build_upstream_dict_from_merit(
     if not connections:
         return {}
 
-    # Concatenate all connections
     all_connections = pl.concat(connections)
 
-    # Group by downstream COMID and aggregate upstream COMIDs
     upstream_dict_df = all_connections.group_by("dn_comid").agg(
         pl.col("up_comid").sort().alias("upstream_list")
     )
 
-    # Convert to dictionary
     return dict(
         zip(
             upstream_dict_df["dn_comid"].to_list(),
@@ -58,7 +52,7 @@ def _build_upstream_dict_from_merit(
     )
 
 
-def _build_rustworkx_object(
+def build_graph(
     upstream_network: dict[int, list[int]],
 ) -> tuple[rx.PyDiGraph, dict[int, int]]:
     """
@@ -77,7 +71,6 @@ def _build_rustworkx_object(
     graph = rx.PyDiGraph(check_cycle=False)
     node_indices: dict[int, int] = {}
 
-    # Add all nodes first
     for to_comid in tqdm(sorted(upstream_network.keys()), desc="Adding nodes"):
         from_comids = upstream_network[to_comid]
         if to_comid not in node_indices:
@@ -86,9 +79,40 @@ def _build_rustworkx_object(
             if from_comid not in node_indices:
                 node_indices[from_comid] = graph.add_node(from_comid)
 
-    # Add edges
     for to_comid, from_comids in tqdm(upstream_network.items(), desc="Adding edges"):
         for from_comid in from_comids:
             graph.add_edge(node_indices[from_comid], node_indices[to_comid], None)
 
     return graph, node_indices
+
+
+def subset_upstream(
+    origin_comid: int,
+    graph: rx.PyDiGraph,
+    node_indices: dict[int, int],
+) -> list[int]:
+    """
+    Find all upstream COMIDs from the origin using graph ancestors.
+
+    Parameters
+    ----------
+    origin_comid : int
+        The COMID to start from
+    graph : rx.PyDiGraph
+        The river network graph
+    node_indices : dict[int, int]
+        Mapping of COMID to graph node index
+
+    Returns
+    -------
+    list[int]
+        List of all COMIDs in the subset (including origin)
+    """
+    if origin_comid not in node_indices:
+        return [origin_comid]
+
+    origin_node_idx = node_indices[origin_comid]
+    ancestor_indices = rx.ancestors(graph, origin_node_idx)
+    ancestor_comids = [graph.get_node_data(idx) for idx in ancestor_indices]
+
+    return ancestor_comids + [origin_comid]

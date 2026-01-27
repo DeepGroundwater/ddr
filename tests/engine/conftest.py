@@ -9,7 +9,6 @@ import geopandas as gpd
 import numpy as np
 import polars as pl
 import pytest
-from ddr_engine.merit import _build_rustworkx_object, _build_upstream_dict_from_merit, create_matrix
 from shapely.geometry import LineString
 
 from ddr.geodatazoo.dataclasses import Gauge
@@ -520,36 +519,6 @@ def merit_flowpaths_with_cycles() -> gpd.GeoDataFrame:
 
     gdf = gpd.GeoDataFrame(data, geometry=geometries, crs="EPSG:4326")
     return gdf
-
-
-@pytest.fixture
-def graph_and_indices(simple_merit_flowpaths):
-    """Build graph and node indices from simple_merit_flowpaths."""
-    upstream_dict = _build_upstream_dict_from_merit(simple_merit_flowpaths)
-    graph, node_indices = _build_rustworkx_object(upstream_dict)
-    return graph, node_indices
-
-
-@pytest.fixture
-def graph_and_indices_with_cycle(merit_flowpaths_with_cycles):
-    """Build graph and node indices from merit_flowpaths_with_cycles."""
-    upstream_dict = _build_upstream_dict_from_merit(merit_flowpaths_with_cycles)
-    graph, node_indices = _build_rustworkx_object(upstream_dict)
-    return graph, node_indices
-
-
-@pytest.fixture
-def merit_mapping(simple_merit_flowpaths):
-    """Create MERIT mapping using actual topological order from create_matrix."""
-    _, ts_order = create_matrix(simple_merit_flowpaths)
-    return {comid: idx for idx, comid in enumerate(ts_order)}
-
-
-@pytest.fixture
-def merit_mapping_cycles(merit_flowpaths_with_cycles):
-    """Create MERIT mapping for network with cycles (after cycle removal)."""
-    _, ts_order = create_matrix(merit_flowpaths_with_cycles)
-    return {comid: idx for idx, comid in enumerate(ts_order)}
 
 
 @pytest.fixture

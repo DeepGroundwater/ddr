@@ -1,5 +1,6 @@
+"""IO utilities for reading and writing adjacency matrices to zarr."""
+
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -178,26 +179,26 @@ def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> 
 
 def coo_to_zarr_group(
     coo: sparse.coo_matrix,
-    ts_order: set[str],
+    ts_order: list[str],
     origin: str,
     gauge_root: zarr.Group,
     conus_mapping: dict[str, int],
 ) -> None:
     """
-    Convert a lower triangular adjacency matrix to a sparse COO matrix and save it in a zarr group.
+    Save a COO matrix to a zarr group for a gauge subset.
 
     Parameters
     ----------
     coo : sparse.coo_matrix
         Lower triangular adjacency matrix.
     ts_order : list[str]
-        Topological sort order of flowpaths.
-    origin: str
-        The origin edge of the flow network
-    gauge_root: zarr.Group
-        The zarr group for the subset COO matrix
-    conus_mapping: dict[str, int]
-        The index mapping from watershed boundary to it's position in the array. Ordering is determined through toposort.
+        Watershed boundary IDs in deterministic order (sorted by CONUS index).
+    origin : str
+        The origin watershed boundary ID of the gauge.
+    gauge_root : zarr.Group
+        The zarr group for the subset COO matrix.
+    conus_mapping : dict[str, int]
+        Mapping of watershed boundary ID to its position in the CONUS array.
 
     Returns
     -------
@@ -226,22 +227,28 @@ def coo_to_zarr_group(
     }
 
 
-def create_coo(connections: list[tuple[str, str]], conus_mapping: dict[str, int]) -> tuple[Any, set[str]]:
-    """A function to create a coo matrix out of the ts_ordering from the conus_adjacency matrix indices
+def create_coo(
+    connections: list[tuple[str, str]],
+    conus_mapping: dict[str, int],
+) -> tuple[sparse.coo_matrix, list[str]]:
+    """
+    Create a COO matrix from connections indexed by CONUS adjacency matrix indices.
 
     Parameters
     ----------
-    connections: list[tuple[str, str]]
-        The connections of the watershed boundaries from the gauge subset
-    conus_mapping: dict[str, int]
-        The mapping of watershed boundaries to their conus index (topo sorted already)
+    connections : list[tuple[str, str]]
+        List of (downstream_wb, upstream_wb) connection tuples.
+    conus_mapping : dict[str, int]
+        Mapping of watershed boundary IDs to their CONUS index (topologically sorted).
 
     Returns
     -------
-    Any
-        The sparse coo matrix from subset indexed from the CONUS adjacency matrix
-    set[str]
-        The topological sorted ordering from the subset
+    tuple[sparse.coo_matrix, list[str]]
+        The sparse COO matrix and deterministically ordered list of flowpath IDs.
+
+    Notes
+    -----
+    The flowpath list is sorted by CONUS mapping index for deterministic ordering.
     """
     row_idx = []
     col_idx = []
@@ -261,6 +268,10 @@ def create_coo(connections: list[tuple[str, str]], conus_mapping: dict[str, int]
         shape=(len(conus_mapping), len(conus_mapping)),
         dtype=np.int8,
     )
-    all_flowpaths = {item for connection in connections for item in connection}
+
+    # Collect unique flowpaths and sort by CONUS index for determinism
+    all_flowpaths_set = {item for connection in connections for item in connection}
+    all_flowpaths = sorted(all_flowpaths_set, key=lambda x: conus_mapping.get(x, float("inf")))
+
     assert np.all(coo.row >= coo.col), "Matrix is not lower triangular"
     return coo, all_flowpaths

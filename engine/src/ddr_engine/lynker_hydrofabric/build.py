@@ -1,4 +1,4 @@
-"""a file to contain all build scripts for the lynker_hydrofabric adjacency matrices"""
+"""Build functions for adjacency matrices from Lynker Hydrofabric flowpaths."""
 
 import sqlite3
 from pathlib import Path
@@ -14,16 +14,62 @@ from .graph import find_origin, preprocess_river_network, subset
 from .io import coo_to_zarr, coo_to_zarr_group, create_coo, create_matrix
 
 
-def build_lynker_hydrofabric_adjacency(fp: pl.LazyFrame, network: pl.LazyFrame, out_path: Path) -> None:
-    """A function to build the large-scale adjacency matrix for the lynker hydrofabric"""
+def build_lynker_hydrofabric_adjacency(
+    fp: pl.LazyFrame,
+    network: pl.LazyFrame,
+    out_path: Path,
+) -> None:
+    """
+    Build the large-scale CONUS adjacency matrix for the Lynker Hydrofabric.
+
+    Parameters
+    ----------
+    fp : pl.LazyFrame
+        Flowpaths dataframe with 'id' and 'toid' columns.
+    network : pl.LazyFrame
+        Network dataframe with 'id' and 'toid' columns.
+    out_path : Path
+        Path to save the zarr group.
+
+    Returns
+    -------
+    None
+    """
     matrix, ts_order = create_matrix(fp, network)
     coo_to_zarr(matrix, ts_order, out_path)
 
 
 def build_lynker_hydrofabric_gages_adjacency(
-    gpkg_path: Path, out_path: Path, gauge_set: GaugeSet, gages_out_path: Path
+    gpkg_path: Path,
+    out_path: Path,
+    gauge_set: GaugeSet,
+    gages_out_path: Path,
 ) -> None:
-    """Builds the lynker hydrofabric gages adjacency matrix"""
+    """
+    Build per-gauge adjacency matrices for the Lynker Hydrofabric.
+
+    Parameters
+    ----------
+    gpkg_path : Path
+        Path to the hydrofabric geopackage.
+    out_path : Path
+        Path to the CONUS adjacency zarr store.
+    gauge_set : GaugeSet
+        Validated gauge set containing gauge information.
+    gages_out_path : Path
+        Path to save the gauge adjacency zarr store.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    Creates a zarr group with one subgroup per gauge, each containing:
+    - indices_0, indices_1: COO matrix indices
+    - values: COO matrix values
+    - order: Topological ordering of watershed boundaries
+    """
     query = "SELECT id,toid,tot_drainage_areasqkm FROM flowpaths"
     conn = sqlite3.connect(gpkg_path)
     flowpaths_schema = {

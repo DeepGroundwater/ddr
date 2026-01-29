@@ -1,35 +1,40 @@
-"""
-@author Tadd Bindas
+"""Graph construction and traversal utilities for Lynker Hydrofabric flowpaths."""
 
-@date June 20 2025
-@version 0.1
+from typing import Any
 
-A script to build subset COO matrices from the conus_adjacency.zarr
-"""
-
-import numpy as np
 import polars as pl
 import rustworkx as rx
 
 from ddr.geodatazoo.dataclasses import Gauge
 
 
-def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.ndarray:
-    """A function to query the network Lazyframe for a gauge ID
+def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> Any:
+    """
+    Find the origin flowpath ID for a gauge by querying the network.
 
     Parameters
     ----------
-    gauge: Gauge
-        A pydantic object containing gauge information
-    fp: pl.LazyFrame
-        The hydrofabric flowpaths table
-    network: pl.LazyFrame
-        The hydrofabric network table
+    gauge : Gauge
+        A pydantic object containing gauge information (STAID, DRAIN_SQKM).
+    fp : pl.LazyFrame
+        The hydrofabric flowpaths table with 'id' and 'tot_drainage_areasqkm'.
+    network : pl.LazyFrame
+        The hydrofabric network table with 'id', 'toid', and 'hl_uri'.
 
     Returns
     -------
-    np.ndarray
-        The flowpaths associated with the gauge ID
+    str
+        The flowpath ID (e.g., "wb-123") associated with the gauge.
+
+    Raises
+    ------
+    ValueError
+        If no flowpath is found for the gauge.
+
+    Notes
+    -----
+    If multiple flowpaths match the gauge, the one with drainage area closest
+    to the gauge's DRAIN_SQKM is selected.
     """
     try:
         flowpaths = (
@@ -66,19 +71,27 @@ def find_origin(gauge: Gauge, fp: pl.LazyFrame, network: pl.LazyFrame) -> np.nda
 
 
 def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[tuple[str, str]]:
-    """Subsets the hydrofabric to find all upstream watershed boundaries upstream of the origin fp
+    """
+    Find all upstream watershed boundary connections from an origin flowpath.
 
     Parameters
     ----------
-    origin: str
-        The starting point from which to find upstream connections from
-    wb_network_dict: dict[str, list[str]]
-        a dictionary which maps toid -> list[id] for upstream subsets
+    origin : str
+        The starting flowpath ID from which to find upstream connections.
+    wb_network_dict : dict[str, list[str]]
+        Dictionary mapping downstream ID (toid) to list of upstream IDs.
+        The upstream lists should be pre-sorted for deterministic output.
 
     Returns
     -------
     list[tuple[str, str]]
-        The watershed boundary connections that make up the subset. Note [0] is the toid and [1] is the from_id
+        List of (downstream_id, upstream_id) connection tuples.
+        tuple[0] is the downstream (toid), tuple[1] is the upstream (from_id).
+
+    Notes
+    -----
+    Relies on wb_network_dict having sorted upstream_ids lists (from preprocess_river_network).
+    The recursive traversal processes upstream IDs in sorted order for determinism.
     """
     upstream_segments = set()
     connections = []
@@ -103,23 +116,30 @@ def subset(origin: str, wb_network_dict: dict[str, list[str]]) -> list[tuple[str
 
 
 def preprocess_river_network(network: pl.LazyFrame) -> dict[str, list[str]]:
-    """Preprocesses the network dictionary to find all connections
+    """
+    Preprocess the network to build a downstream-to-upstream mapping dictionary.
 
-    Connections are ordered by the key being the toid, and the values being ids (upstream segments)
+    Connections are ordered by the key being the toid (downstream segment),
+    and the values being ids (upstream segments) sorted alphabetically for determinism.
 
     Parameters
     ----------
-    network: pl.LazyFrame
+    network : pl.LazyFrame
+        Network dataframe with 'id' and 'toid' columns.
 
     Returns
     -------
     dict[str, list[str]]
-        A dictionary which maps downstream segments to their upstream values in a one -> many relationship
+        Dictionary mapping downstream segment to sorted list of upstream segments.
+
+    Notes
+    -----
+    The upstream_ids list is sorted for deterministic output ordering.
     """
     network_dict = (
         network.filter(pl.col("toid").is_not_null())
         .group_by("toid")
-        .agg(pl.col("id").alias("upstream_ids"))
+        .agg(pl.col("id").sort().alias("upstream_ids"))
         .collect()
     )
 
@@ -153,8 +173,10 @@ def preprocess_river_network(network: pl.LazyFrame) -> dict[str, list[str]]:
     # Combine both types of connections
     wb_connections = pl.concat([wb_to_wb, wb_to_nexus]).unique()
 
-    # Group back to dictionary format
-    wb_network_result = wb_connections.group_by("toid").agg(pl.col("upstream_ids")).unique()
+    # Group back to dictionary format with sorting for determinism
+    wb_network_result = (
+        wb_connections.group_by("toid").agg(pl.col("upstream_ids").sort().alias("upstream_ids")).unique()
+    )
     wb_network_dict = {row["toid"]: row["upstream_ids"] for row in wb_network_result.iter_rows(named=True)}
     return wb_network_dict
 
@@ -174,20 +196,27 @@ def build_graph_from_wb_network(
     -------
     tuple[rx.PyDiGraph, dict[str, int]]
         Graph and mapping of wb ID to graph node index.
+
+    Notes
+    -----
+    Node indices are assigned in sorted order of wb IDs for deterministic behavior.
     """
     graph = rx.PyDiGraph(check_cycle=False)
     node_indices: dict[str, int] = {}
 
-    # Add all nodes first
-    all_ids = set(wb_network_dict.keys())
+    # Collect all IDs and sort for deterministic node index assignment
+    all_ids_set = set(wb_network_dict.keys())
     for upstream_list in wb_network_dict.values():
-        all_ids.update(upstream_list)
+        all_ids_set.update(upstream_list)
+
+    all_ids = sorted(all_ids_set)
 
     for wb_id in all_ids:
         node_indices[wb_id] = graph.add_node(wb_id)
 
-    # Add edges (upstream -> downstream)
-    for to_id, from_ids in wb_network_dict.items():
+    # Add edges (upstream -> downstream) - iterate sorted keys for determinism
+    for to_id in sorted(wb_network_dict.keys()):
+        from_ids = wb_network_dict[to_id]
         for from_id in from_ids:
             graph.add_edge(node_indices[from_id], node_indices[to_id], None)
 

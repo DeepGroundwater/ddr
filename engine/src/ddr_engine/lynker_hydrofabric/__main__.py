@@ -2,10 +2,6 @@
 
 Usage:
     python -m ddr_engine.lynker_hydrofabric <pkg> [--path PATH] [--gages GAGES]
-
-@author Nels Frazier
-@author Tadd Bindas
-@date Jan 26 2026
 """
 
 import argparse
@@ -18,9 +14,9 @@ from .build import build_lynker_hydrofabric_adjacency, build_lynker_hydrofabric_
 
 
 def main() -> None:
-    """Main function for the module"""
+    """The main function for the Lynker Hydrofabric engine."""
     parser = argparse.ArgumentParser(
-        description="Create a lower triangular adjacency matrix from hydrofabric data."
+        description="Create lower triangular adjacency matrices from Lynker Hydrofabric data."
     )
     parser.add_argument(
         "pkg",
@@ -30,36 +26,20 @@ def main() -> None:
     parser.add_argument(
         "--path",
         type=Path,
-        default="data/",
-        help="Path to save the zarr group. Defaults to current working directory with name appended.",
+        default=Path("data/"),
+        help="Path to save the zarr group. Defaults to 'data/'.",
     )
-
     parser.add_argument(
         "--gages",
         type=Path,
-        default=Path("streamflow_datasets/gage_info/dhbv2_gages.csv"),
-        help="The gauges CSV file containing the training locations. Only needed if gage adjacency matrices are being made.",
+        default=None,
+        help="The gauges CSV file containing the training locations.",
     )
     args = parser.parse_args()
 
-    if args.path is None:
-        raise FileNotFoundError("Path not provided for zarr group outputs")
-    else:
-        out_path = Path(args.path) / "hydrofabric_v2.2_conus_adjacency.zarr"
-        out_path.parent.mkdir(exist_ok=True)
-
-        if args.gages is not None:
-            gages_out_path = Path(args.path) / "hydrofabric_v2.2_gages_conus_adjacency.zarr"
-            if gages_out_path.exists():
-                print(f"Cannot create zarr store {gages_out_path}. One already exists")
-                exit(1)
-
-    if out_path.exists():
-        print(f"Cannot create zarr store {args.path}. One already exists")
-        exit(1)
+    print(f"Reading Lynker Hydrofabric data from {args.pkg}")
 
     # Read hydrofabric geopackage using sqlite
-    # uri = "sqlite://" + str(args.pkg)
     query = "SELECT id,toid FROM flowpaths"
     conn = sqlite3.connect(args.pkg)
     fp = pl.read_database(query=query, connection=conn)
@@ -70,21 +50,22 @@ def main() -> None:
     # identifier, then you would need to actually drop all wb-0 instances in
     # the network table toid column and replace them with null values...
     fp = fp.extend(pl.DataFrame({"id": ["wb-0"], "toid": [None]})).lazy()
-    # build the network table
+
+    # Build the network table
     query = "SELECT id,toid FROM network"
-    # network = pl.read_database_uri(query=query, uri=uri, engine="adbc").lazy()
     network = pl.read_database(query=query, connection=conn).lazy()
     network = network.filter(pl.col("id").str.starts_with("wb-").not_())
+
+    out_path = args.path / "hydrofabric_v2.2_conus_adjacency.zarr"
     build_lynker_hydrofabric_adjacency(fp, network, out_path)
     conn.close()
 
     if args.gages is not None:
         from ddr.geodatazoo.dataclasses import Gauge, GaugeSet, validate_gages
 
-        print("Creating Gages Adjacency Matrix")
         gauge_set: GaugeSet = validate_gages(args.gages, type=Gauge)
+        gages_out_path = args.path / "hydrofabric_v2.2_gages_conus_adjacency.zarr"
         build_lynker_hydrofabric_gages_adjacency(args.pkg, out_path, gauge_set, gages_out_path)
-    print(f"Gage Adjacency matrices for v2.2 were created at: {out_path}")
 
 
 if __name__ == "__main__":

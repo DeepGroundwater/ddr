@@ -1,4 +1,8 @@
-"""IO utilities for reading and writing adjacency matrices to zarr."""
+"""IO utilities for reading and writing Lynker Hydrofabric adjacency matrices to zarr.
+
+This module provides Lynker-specific wrappers around the generic COO zarr I/O
+functions in ddr_engine.core.zarr_io. Lynker uses wb-* string IDs as identifiers.
+"""
 
 from pathlib import Path
 
@@ -9,6 +13,13 @@ import rustworkx as rx
 import zarr
 from scipy import sparse
 from tqdm import tqdm
+
+from ddr_engine.core import (
+    coo_from_zarr_generic,
+    coo_to_zarr_generic,
+    coo_to_zarr_group_generic,
+    lynker_converter,
+)
 
 
 def index_matrix(matrix: np.ndarray, fp: pd.DataFrame) -> pd.DataFrame:
@@ -144,37 +155,11 @@ def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> 
     coo : sparse.coo_matrix
         Lower triangular adjacency matrix.
     ts_order : list[str]
-        Topological sort order of flowpaths.
-    out_path : Path | str | None, optional
-        Path to save the zarr group. If None, defaults to current working directory with name appended.
-
-    Returns
-    -------
-    None
+        Topological sort order of flowpaths (as wb-* strings).
+    out_path : Path
+        Path to save the zarr group.
     """
-    # Converting to a sparse COO matrix, and saving the output in many arrays within a zarr v3 group
-    store = zarr.storage.LocalStore(root=out_path)
-    root = zarr.create_group(store=store)
-
-    zarr_order = np.array([int(float(_id.split("-")[1])) for _id in ts_order], dtype=np.int32)
-
-    indices_0 = root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
-    indices_1 = root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
-    values = root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
-    order = root.create_array(name="order", shape=zarr_order.shape, dtype=zarr_order.dtype)
-    indices_0[:] = coo.row
-    indices_1[:] = coo.col
-    values[:] = coo.data
-    order[:] = zarr_order
-
-    root.attrs["format"] = "COO"
-    root.attrs["shape"] = list(coo.shape)
-    root.attrs["data_types"] = {
-        "indices_0": coo.row.dtype.__str__(),
-        "indices_1": coo.col.dtype.__str__(),
-        "values": coo.data.dtype.__str__(),
-    }
-    print(f"CONUS Hydrofabric adjacency written to zarr at {out_path}")
+    coo_to_zarr_generic(coo, ts_order, out_path, lynker_converter)
 
 
 def coo_to_zarr_group(
@@ -199,32 +184,25 @@ def coo_to_zarr_group(
         The zarr group for the subset COO matrix.
     conus_mapping : dict[str, int]
         Mapping of watershed boundary ID to its position in the CONUS array.
+    """
+    coo_to_zarr_group_generic(coo, ts_order, origin, gauge_root, conus_mapping, lynker_converter)
+
+
+def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[str]]:
+    """
+    Load a COO adjacency matrix from a zarr group.
+
+    Parameters
+    ----------
+    zarr_path : Path
+        Path to the zarr group.
 
     Returns
     -------
-    None
+    tuple[sparse.coo_matrix, list[str]]
+        The COO matrix and topological order (as wb-* strings).
     """
-    # Converting to a sparse COO matrix, and saving the output in many arrays within a zarr v3 group
-    zarr_order = np.array([int(float(_id.split("-")[1])) for _id in ts_order], dtype=np.int32)
-
-    indices_0 = gauge_root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
-    indices_1 = gauge_root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
-    values = gauge_root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
-    order = gauge_root.create_array(name="order", shape=zarr_order.shape, dtype=zarr_order.dtype)
-    indices_0[:] = coo.row
-    indices_1[:] = coo.col
-    values[:] = coo.data
-    order[:] = zarr_order
-
-    gauge_root.attrs["format"] = "COO"
-    gauge_root.attrs["shape"] = list(coo.shape)
-    gauge_root.attrs["gage_catchment"] = origin
-    gauge_root.attrs["gage_idx"] = conus_mapping[origin]
-    gauge_root.attrs["data_types"] = {
-        "indices_0": coo.row.dtype.__str__(),
-        "indices_1": coo.col.dtype.__str__(),
-        "values": coo.data.dtype.__str__(),
-    }
+    return coo_from_zarr_generic(zarr_path, lynker_converter)
 
 
 def create_coo(

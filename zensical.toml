@@ -18,6 +18,7 @@ nav = [
   ]},
   {"Engine" = [
      "engine/index.md",
+     "engine/binsparse.md"
   ]},
   {"Usage" = [
      "usage/index.md",

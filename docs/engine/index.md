@@ -16,7 +16,28 @@ The `engine/` folder is meant to contain all necessary code for generating end-t
 
 As explained [here](http://rapid-hub.org/docs/RAPID_Parallel_Computing.pdf#page=5.00) routing can be efficiently solved using a sparse network (otherwise known as an adjacency) matrix and a backwards linear solution. Storing these matrixes then becomes a choice of what format to use for universal readability and efficient storage. Thus, a sparse COO was chosen as COO is fast to turn into other formats, and is readable given only coordinates are stored.
 
-It was necessary to build the tools to convert datasets to their matrix form as river networks don't often ship in sparse form. We used the [Binsparse](https://github.com/ivirshup/binsparse-python) specification for storing the matrices.
+It was necessary to build the tools to convert datasets to their matrix form as river networks don't often ship in sparse form. We used the [Binsparse](https://github.com/ivirshup/binsparse-python) specification for storing the matrices. See the [Binsparse COO Format](binsparse.md) documentation for details on the storage format and API.
+
+## Package API
+
+The `ddr_engine` package exports core I/O functions at the package level for convenient access:
+
+```python
+from ddr_engine import (
+    coo_to_zarr_generic,    # Write COO matrix to zarr
+    coo_from_zarr_generic,  # Read COO matrix from zarr
+    coo_to_zarr_group_generic,  # Write gauge subset
+    merit_converter,        # MERIT COMID converter
+    lynker_converter,       # Lynker wb-* string converter
+)
+```
+
+For dataset-specific functions, use the submodule imports:
+
+```python
+from ddr_engine.merit.io import coo_to_zarr, coo_from_zarr
+from ddr_engine.lynker_hydrofabric.io import coo_to_zarr, coo_from_zarr
+```
 
 ## Setup
 

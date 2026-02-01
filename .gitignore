@@ -197,3 +197,6 @@ examples/eval/*.zarr
 
 # scratch notebooks
 examples/scratch
+
+# claude
+Claude.md

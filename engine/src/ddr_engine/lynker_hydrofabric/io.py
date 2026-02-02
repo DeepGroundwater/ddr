@@ -1,7 +1,13 @@
 """IO utilities for reading and writing Lynker Hydrofabric adjacency matrices to zarr.
 
-This module provides Lynker-specific wrappers around the generic COO zarr I/O
-functions in ddr_engine.core.zarr_io. Lynker uses wb-* string IDs as identifiers.
+This module provides Lynker-specific wrappers around the core COO zarr I/O
+functions. Lynker uses wb-* string IDs as identifiers.
+
+For most use cases, prefer the auto-detecting functions from ddr_engine:
+
+    >>> from ddr_engine import coo_to_zarr, coo_from_zarr
+    >>> coo_to_zarr(coo, ts_order, path, "lynker")
+    >>> coo, ts_order = coo_from_zarr(path)  # Auto-detects
 """
 
 from pathlib import Path
@@ -20,6 +26,8 @@ from ddr_engine.core import (
     coo_to_zarr_group_generic,
     lynker_converter,
 )
+
+GEODATASET = "lynker"
 
 
 def index_matrix(matrix: np.ndarray, fp: pd.DataFrame) -> pd.DataFrame:
@@ -159,7 +167,7 @@ def coo_to_zarr(coo: sparse.coo_matrix, ts_order: list[str], out_path: Path) -> 
     out_path : Path
         Path to save the zarr group.
     """
-    coo_to_zarr_generic(coo, ts_order, out_path, lynker_converter)
+    coo_to_zarr_generic(coo, ts_order, out_path, lynker_converter, geodataset=GEODATASET)
 
 
 def coo_to_zarr_group(
@@ -185,7 +193,9 @@ def coo_to_zarr_group(
     conus_mapping : dict[str, int]
         Mapping of watershed boundary ID to its position in the CONUS array.
     """
-    coo_to_zarr_group_generic(coo, ts_order, origin, gauge_root, conus_mapping, lynker_converter)
+    coo_to_zarr_group_generic(
+        coo, ts_order, origin, gauge_root, conus_mapping, lynker_converter, geodataset=GEODATASET
+    )
 
 
 def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[str]]:

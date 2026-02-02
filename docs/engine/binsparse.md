@@ -4,7 +4,7 @@ icon: lucide/binary
 
 # Binsparse COO Format
 
-DDR uses a zarr-based storage format for sparse COO (Coordinate) matrices, inspired by the [binsparse specification](https://github.com/ivirshup/binsparse-python). This format efficiently stores river network connectivity for routing computations.
+DDR uses a zarr-based storage format for sparse COO (Coordinate) matrices, inspired by the [binsparse specification](https://graphblas.org/binsparse-specification/) and [binsparse-python](https://github.com/ivirshup/binsparse-python). This format efficiently stores river network connectivity for routing computations.
 
 ## Format Overview
 
@@ -25,6 +25,7 @@ Each adjacency matrix is stored as a zarr v3 group containing arrays and metadat
 |-----------|------|-------------|
 | `format` | str | Always "COO" |
 | `shape` | [int, int] | Matrix dimensions [rows, cols] |
+| `geodataset` | str | Geodataset type (e.g., "merit", "lynker") for auto-detection |
 | `data_types` | dict | Dtype strings for each array |
 | `gage_catchment` | int/str | Origin catchment ID (gauge subsets only) |
 | `gage_idx` | int | CONUS matrix index (gauge subsets only) |
@@ -35,67 +36,70 @@ The adjacency matrix is **lower triangular**, where `A[i, j] = 1` indicates that
 
 ```
      0  1  2  3  4   (upstream)
-   ┌─────────────┐
- 0 │ 0           │   Flow direction: column → row
- 1 │ 1  0        │   Example: A[1,0]=1 means 0→1
- 2 │ 0  1  0     │            A[2,1]=1 means 1→2
- 3 │ 0  0  1  0  │            A[4,3]=1 means 3→4
- 4 │ 0  0  1  1  0│            A[4,2]=1 means 2→4
-   └─────────────┘
+   ┌───────────────┐
+ 0 │ 0             │   Flow direction: column → row
+ 1 │ 1  0          │   Example: A[1,0]=1 means 0→1
+ 2 │ 0  1  0       │            A[2,1]=1 means 1→2
+ 3 │ 0  0  1  0    │            A[4,3]=1 means 3→4
+ 4 │ 0  0  1  1  0 │            A[4,2]=1 means 2→4
+   └───────────────┘
 (downstream)
 ```
 
-## Order Converters
+## Geodataset Types
 
-Different hydrofabric datasets use different ID formats. Order converters translate between domain-specific IDs and the integer format stored in zarr.
+Different geodatasets use different ID formats. The `geodataset` attribute stored in zarr metadata enables automatic detection when reading.
 
-### MERIT Hydro
+### Supported Geodatasets
 
-MERIT uses integer COMIDs. The conversion is straightforward:
+| Name | ID Format | Example IDs |
+|------|-----------|-------------|
+| `merit` | Integer COMIDs | `12345`, `12346`, `12347` |
+| `lynker` | String wb-* IDs | `"wb-123"`, `"wb-456"` |
+| `hydrofabric_v2.2` | Alias for `lynker` | Same as lynker |
+
+### Listing Available Geodatasets
 
 ```python
-from ddr_engine import merit_converter
+from ddr_engine import list_geodatasets
 
-# Domain IDs: [12345, 12346, 12347]
-# Zarr storage: np.array([12345, 12346, 12347], dtype=np.int32)
-
-zarr_order = merit_converter.to_zarr([12345, 12346, 12347])
-comids = merit_converter.from_zarr(zarr_order)
+print(list_geodatasets())  # ['hydrofabric_v2.2', 'lynker', 'merit']
 ```
 
-### Lynker Hydrofabric
-
-Lynker uses string IDs like "wb-123". The converter extracts the numeric portion:
+### Registering Custom Geodatasets
 
 ```python
-from ddr_engine import lynker_converter
+from ddr_engine import register_converter
 
-# Domain IDs: ["wb-123", "wb-456", "wb-789"]
-# Zarr storage: np.array([123, 456, 789], dtype=np.int32)
+class MyConverter:
+    def to_zarr(self, ids):
+        return np.array(ids, dtype=np.int32)
+    def from_zarr(self, order):
+        return order.tolist()
 
-zarr_order = lynker_converter.to_zarr(["wb-123", "wb-456", "wb-789"])
-wb_ids = lynker_converter.from_zarr(zarr_order)  # ["wb-123", "wb-456", "wb-789"]
+register_converter("my_geodataset", MyConverter())
 ```
 
 ## Reading Adjacency Matrices
 
-### Using Generic Functions
+### Auto-Detection (Recommended)
+
+The simplest way to read a COO matrix - the geodataset type is automatically detected from metadata:
 
 ```python
 from pathlib import Path
-from ddr_engine import coo_from_zarr_generic, merit_converter
+from ddr_engine import coo_from_zarr
 
-# Read MERIT adjacency matrix
-coo, ts_order = coo_from_zarr_generic(
-    Path("data/merit_conus_adjacency.zarr"),
-    merit_converter
-)
+# Auto-detects hydrofabric from metadata
+coo, ts_order = coo_from_zarr(Path("data/merit_conus_adjacency.zarr"))
 
 # coo: scipy.sparse.coo_matrix
-# ts_order: list[int] of COMIDs in topological order
+# ts_order: list of domain-specific IDs (int for MERIT, str for Lynker)
 ```
 
-### Using Dataset-Specific Functions
+### Dataset-Specific Functions
+
+For type-hinted return values, use the dataset-specific functions:
 
 ```python
 from pathlib import Path
@@ -103,11 +107,13 @@ from ddr_engine.merit.io import coo_from_zarr
 
 # MERIT - returns COMIDs as integers
 coo, ts_order = coo_from_zarr(Path("data/merit_conus_adjacency.zarr"))
+# ts_order: list[int]
 
 from ddr_engine.lynker_hydrofabric.io import coo_from_zarr
 
 # Lynker - returns wb-* strings
 coo, ts_order = coo_from_zarr(Path("data/hydrofabric_v2.2_conus_adjacency.zarr"))
+# ts_order: list[str]
 ```
 
 ### Reading Gauge Subsets
@@ -142,7 +148,7 @@ gage_idx = gauge_group.attrs["gage_idx"]
 ```python
 from pathlib import Path
 from scipy import sparse
-from ddr_engine import coo_to_zarr_generic, merit_converter
+from ddr_engine import coo_to_zarr
 
 # Create a COO matrix (example)
 row = [1, 2, 3, 4, 4]
@@ -153,20 +159,15 @@ coo = sparse.coo_matrix((data, (row, col)), shape=(5, 5), dtype="uint8")
 # Topological order as COMIDs
 ts_order = [12345, 12346, 12347, 12348, 12349]
 
-# Write to zarr
-coo_to_zarr_generic(
-    coo,
-    ts_order,
-    Path("output/merit_conus_adjacency.zarr"),
-    merit_converter
-)
+# Write to zarr - pass geodataset name
+coo_to_zarr(coo, ts_order, Path("output/merit_conus_adjacency.zarr"), "merit")
 ```
 
 ### Gauge Subsets
 
 ```python
 import zarr
-from ddr_engine import coo_to_zarr_group_generic, merit_converter
+from ddr_engine import coo_to_zarr_group
 
 # Create/open the gauge zarr store
 store = zarr.storage.LocalStore(root="output/merit_gages_adjacency.zarr")
@@ -175,14 +176,14 @@ root = zarr.create_group(store=store)
 # Create a subgroup for each gauge
 gauge_group = root.create_group("01570500")
 
-# Write the subset COO matrix
-coo_to_zarr_group_generic(
+# Write the subset COO matrix - pass geodataset name
+coo_to_zarr_group(
     coo=subset_coo,
     ts_order=[12345, 12346],  # COMIDs in subset
     origin=12346,  # Gauge catchment COMID
     gauge_root=gauge_group,
     mapping={12345: 0, 12346: 1},  # COMID → CONUS index
-    converter=merit_converter
+    geodataset="merit",
 )
 ```
 
@@ -213,7 +214,7 @@ merit_conus_adjacency.zarr/
 merit_gages_conus_adjacency.zarr/
 ├── zarr.json              # Root group metadata
 ├── 01570500/              # Gauge station ID
-│   ├── zarr.json          # Subgroup metadata with gage_catchment, gage_idx
+│   ├── zarr.json          # Subgroup metadata with geodataset, gage_catchment, gage_idx
 │   ├── indices_0/
 │   ├── indices_1/
 │   ├── values/
@@ -249,13 +250,20 @@ Both commands create:
 
 ## API Reference
 
-### Core Functions
+### Primary Functions (Recommended)
+
+::: ddr_engine.core.coo_to_zarr
+::: ddr_engine.core.coo_from_zarr
+::: ddr_engine.core.coo_to_zarr_group
+
+### Converter Registry
+
+::: ddr_engine.core.get_converter
+::: ddr_engine.core.register_converter
+::: ddr_engine.core.list_geodatasets
+
+### Generic Functions (Low-Level)
 
 ::: ddr_engine.core.coo_to_zarr_generic
 ::: ddr_engine.core.coo_from_zarr_generic
 ::: ddr_engine.core.coo_to_zarr_group_generic
-
-### Order Converters
-
-::: ddr_engine.core.MeritOrderConverter
-::: ddr_engine.core.LynkerOrderConverter

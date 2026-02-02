@@ -1,7 +1,13 @@
 """IO utilities for reading and writing MERIT adjacency matrices to zarr.
 
-This module provides MERIT-specific wrappers around the generic COO zarr I/O
-functions in ddr_engine.core.zarr_io. MERIT uses integer COMIDs as identifiers.
+This module provides MERIT-specific wrappers around the core COO zarr I/O
+functions. MERIT uses integer COMIDs as identifiers.
+
+For most use cases, prefer the auto-detecting functions from ddr_engine:
+
+    >>> from ddr_engine import coo_to_zarr, coo_from_zarr
+    >>> coo_to_zarr(coo, ts_order, path, "merit")
+    >>> coo, ts_order = coo_from_zarr(path)  # Auto-detects
 """
 
 from pathlib import Path
@@ -17,6 +23,8 @@ from ddr_engine.core import (
     coo_to_zarr_group_generic,
     merit_converter,
 )
+
+GEODATASET = "merit"
 
 
 def coo_to_zarr(
@@ -36,7 +44,7 @@ def coo_to_zarr(
     out_path : Path
         Path to save the zarr group.
     """
-    coo_to_zarr_generic(coo, ts_order, out_path, merit_converter)
+    coo_to_zarr_generic(coo, ts_order, out_path, merit_converter, geodataset=GEODATASET)
 
 
 def coo_to_zarr_group(
@@ -62,7 +70,9 @@ def coo_to_zarr_group(
     merit_mapping : dict[int, int]
         Mapping of COMID to its position in the array
     """
-    coo_to_zarr_group_generic(coo, ts_order, origin_comid, gauge_root, merit_mapping, merit_converter)
+    coo_to_zarr_group_generic(
+        coo, ts_order, origin_comid, gauge_root, merit_mapping, merit_converter, geodataset=GEODATASET
+    )
 
 
 def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[int]]:

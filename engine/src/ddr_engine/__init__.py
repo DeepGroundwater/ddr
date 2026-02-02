@@ -1,47 +1,64 @@
-"""DDR Engine - Hydrofabric data preparation tools.
+"""DDR Engine - Geodataset preparation tools.
 
 This package provides tools for building sparse COO adjacency matrices from
-hydrofabric datasets (MERIT Hydro, Lynker Hydrofabric v2.2).
+geodatasets (MERIT Hydro, Lynker Hydrofabric v2.2).
 
-Core I/O Functions
+Primary API
+-----------
+The recommended functions for reading and writing COO matrices:
+
+- ``coo_to_zarr``: Write a COO matrix (pass geodataset name)
+- ``coo_from_zarr``: Read a COO matrix (auto-detects geodataset)
+- ``coo_to_zarr_group``: Write a gauge subset COO matrix
+
+Converter Registry
 ------------------
-The following generic I/O functions work with any hydrofabric dataset:
-
-- ``coo_to_zarr_generic``: Write a COO matrix to zarr
-- ``coo_from_zarr_generic``: Read a COO matrix from zarr
-- ``coo_to_zarr_group_generic``: Write a gauge subset COO matrix
-
-Order Converters
-----------------
-Use the appropriate converter for your dataset:
-
-- ``merit_converter``: For MERIT Hydro (integer COMIDs)
-- ``lynker_converter``: For Lynker Hydrofabric (wb-* string IDs)
+Custom geodatasets can be registered with ``register_converter()``.
+List available geodatasets with ``list_geodatasets()``.
 
 Example
 -------
->>> from ddr_engine import coo_to_zarr_generic, merit_converter
+>>> from ddr_engine import coo_to_zarr, coo_from_zarr
 >>> from scipy import sparse
 >>> coo = sparse.coo_matrix(...)
->>> coo_to_zarr_generic(coo, ts_order, Path("output.zarr"), merit_converter)
+>>> coo_to_zarr(coo, ts_order, Path("output.zarr"), "merit")
+>>> coo, ts_order = coo_from_zarr(Path("output.zarr"))  # Auto-detects
 """
 
 from ._version import __version__
 from .core import (
+    # Primary API
+    coo_from_zarr,
+    # Generic API (low-level)
     coo_from_zarr_generic,
+    coo_to_zarr,
     coo_to_zarr_generic,
+    coo_to_zarr_group,
     coo_to_zarr_group_generic,
+    # Converter registry
+    get_converter,
+    list_geodatasets,
+    # Converter instances (for advanced use)
     lynker_converter,
     merit_converter,
+    register_converter,
 )
 
 __all__ = [
     "__version__",
-    # Core I/O functions
+    # Primary API (recommended)
+    "coo_to_zarr",
+    "coo_from_zarr",
+    "coo_to_zarr_group",
+    # Generic API (low-level)
     "coo_to_zarr_generic",
     "coo_from_zarr_generic",
     "coo_to_zarr_group_generic",
-    # Order converters
+    # Converter registry
+    "get_converter",
+    "register_converter",
+    "list_geodatasets",
+    # Converter instances (for advanced use)
     "merit_converter",
     "lynker_converter",
 ]

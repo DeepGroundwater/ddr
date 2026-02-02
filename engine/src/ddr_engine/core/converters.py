@@ -108,3 +108,74 @@ class LynkerOrderConverter:
 # Convenience instances
 merit_converter = MeritOrderConverter()
 lynker_converter = LynkerOrderConverter()
+
+# Geodataset registry - maps geodataset names to converter instances
+_GEODATASET_REGISTRY: dict[str, OrderConverter] = {
+    "merit": merit_converter,
+    "lynker": lynker_converter,
+    "hydrofabric_v2.2": lynker_converter,  # Alias for lynker
+}
+
+
+def get_converter(geodataset: str) -> OrderConverter:
+    """Get a converter by geodataset name.
+
+    Parameters
+    ----------
+    geodataset : str
+        Name of the geodataset (e.g., "merit", "lynker", "hydrofabric_v2.2").
+
+    Returns
+    -------
+    OrderConverter
+        The converter instance for the specified geodataset.
+
+    Raises
+    ------
+    ValueError
+        If the geodataset name is not registered.
+
+    Examples
+    --------
+    >>> converter = get_converter("merit")
+    >>> converter.to_zarr([12345, 12346])
+    array([12345, 12346], dtype=int32)
+    """
+    if geodataset not in _GEODATASET_REGISTRY:
+        available = ", ".join(sorted(_GEODATASET_REGISTRY.keys()))
+        raise ValueError(f"Unknown geodataset '{geodataset}'. Available: {available}")
+    return _GEODATASET_REGISTRY[geodataset]
+
+
+def register_converter(geodataset: str, converter: OrderConverter) -> None:
+    """Register a custom converter for a geodataset.
+
+    Parameters
+    ----------
+    geodataset : str
+        Name of the geodataset to register.
+    converter : OrderConverter
+        The converter instance to use for this geodataset.
+
+    Examples
+    --------
+    >>> class MyConverter:
+    ...     def to_zarr(self, ids):
+    ...         return np.array(ids, dtype=np.int32)
+    ...
+    ...     def from_zarr(self, order):
+    ...         return order.tolist()
+    >>> register_converter("my_geodataset", MyConverter())
+    """
+    _GEODATASET_REGISTRY[geodataset] = converter
+
+
+def list_geodatasets() -> list[str]:
+    """List all registered geodataset names.
+
+    Returns
+    -------
+    list[str]
+        Sorted list of registered geodataset names.
+    """
+    return sorted(_GEODATASET_REGISTRY.keys())

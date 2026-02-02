@@ -1,4 +1,14 @@
-"""IO utilities for reading and writing adjacency matrices to zarr"""
+"""IO utilities for reading and writing MERIT adjacency matrices to zarr.
+
+This module provides MERIT-specific wrappers around the core COO zarr I/O
+functions. MERIT uses integer COMIDs as identifiers.
+
+For most use cases, prefer the auto-detecting functions from ddr_engine:
+
+    >>> from ddr_engine import coo_to_zarr, coo_from_zarr
+    >>> coo_to_zarr(coo, ts_order, path, "merit")
+    >>> coo, ts_order = coo_from_zarr(path)  # Auto-detects
+"""
 
 from pathlib import Path
 
@@ -6,6 +16,15 @@ import numpy as np
 import rustworkx as rx
 import zarr
 from scipy import sparse
+
+from ddr_engine.core import (
+    coo_from_zarr_generic,
+    coo_to_zarr_generic,
+    coo_to_zarr_group_generic,
+    merit_converter,
+)
+
+GEODATASET = "merit"
 
 
 def coo_to_zarr(
@@ -25,30 +44,7 @@ def coo_to_zarr(
     out_path : Path
         Path to save the zarr group.
     """
-    store = zarr.storage.LocalStore(root=out_path)
-    root = zarr.create_group(store=store)
-
-    _order = np.array(ts_order, dtype=np.int32)
-
-    indices_0 = root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
-    indices_1 = root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
-    values = root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
-    order = root.create_array(name="order", shape=_order.shape, dtype=_order.dtype)
-
-    indices_0[:] = coo.row
-    indices_1[:] = coo.col
-    values[:] = coo.data
-    order[:] = _order
-
-    root.attrs["format"] = "COO"
-    root.attrs["shape"] = list(coo.shape)
-    root.attrs["data_types"] = {
-        "indices_0": str(coo.row.dtype),
-        "indices_1": str(coo.col.dtype),
-        "values": str(coo.data.dtype),
-    }
-
-    print(f"Adjacency matrix written to zarr at {out_path}")
+    coo_to_zarr_generic(coo, ts_order, out_path, merit_converter, geodataset=GEODATASET)
 
 
 def coo_to_zarr_group(
@@ -74,27 +70,9 @@ def coo_to_zarr_group(
     merit_mapping : dict[int, int]
         Mapping of COMID to its position in the array
     """
-    zarr_order = np.array(ts_order, dtype=np.int32)
-
-    indices_0 = gauge_root.create_array(name="indices_0", shape=coo.row.shape, dtype=coo.row.dtype)
-    indices_1 = gauge_root.create_array(name="indices_1", shape=coo.col.shape, dtype=coo.row.dtype)
-    values = gauge_root.create_array(name="values", shape=coo.data.shape, dtype=coo.data.dtype)
-    order_array = gauge_root.create_array(name="order", shape=zarr_order.shape, dtype=zarr_order.dtype)
-
-    indices_0[:] = coo.row
-    indices_1[:] = coo.col
-    values[:] = coo.data
-    order_array[:] = zarr_order
-
-    gauge_root.attrs["format"] = "COO"
-    gauge_root.attrs["shape"] = list(coo.shape)
-    gauge_root.attrs["gage_catchment"] = int(origin_comid)
-    gauge_root.attrs["gage_idx"] = int(merit_mapping[origin_comid])
-    gauge_root.attrs["data_types"] = {
-        "indices_0": str(coo.row.dtype),
-        "indices_1": str(coo.col.dtype),
-        "values": str(coo.data.dtype),
-    }
+    coo_to_zarr_group_generic(
+        coo, ts_order, origin_comid, gauge_root, merit_mapping, merit_converter, geodataset=GEODATASET
+    )
 
 
 def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[int]]:
@@ -109,19 +87,9 @@ def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[int]]:
     Returns
     -------
     tuple[sparse.coo_matrix, list[int]]
-        The COO matrix and topological order.
+        The COO matrix and topological order (as COMID integers).
     """
-    root = zarr.open_group(store=zarr_path, mode="r")
-
-    row = root["indices_0"][:]
-    col = root["indices_1"][:]
-    data = root["values"][:]
-    shape = tuple(root.attrs["shape"])
-    ts_order = root["order"][:].tolist()
-
-    coo = sparse.coo_matrix((data, (row, col)), shape=shape)
-
-    return coo, ts_order
+    return coo_from_zarr_generic(zarr_path, merit_converter)
 
 
 def create_subset_coo(

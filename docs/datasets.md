@@ -127,6 +127,12 @@ DDR uses sparse COO (Coordinate) matrices to represent river network connectivit
 # A[i, j] = 1 means flow goes from segment j to segment i
 ```
 
+The matrices are stored in zarr v3 format following the [Binsparse COO specification](engine/binsparse.md). See the binsparse documentation for details on:
+
+- Reading and writing adjacency matrices programmatically
+- Order converters for MERIT and Lynker ID formats
+- Per-gauge subset structure
+
 The engine scripts automatically create these matrices:
 
 ```bash

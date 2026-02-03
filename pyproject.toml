@@ -87,6 +87,7 @@ members = ["engine", "benchmarks"]
 ddr = { workspace = true }
 ddr-engine = { workspace = true }
 ddr-benchmarks = { workspace = true }
+diffroute = { git = "https://github.com/TristHas/DiffRoute", tag = "v1.0.0" }
 
 [tool.uv]
 default-groups = ["cpu", "tests", "dev"]

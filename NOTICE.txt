@@ -11,3 +11,8 @@ This dataset is made available under the Open Database License (ODbL).
 Johnson, J. M. (2022). National Hydrologic Geospatial Fabric (hydrofabric) for the Next Generation (NextGen) Hydrologic Modeling Framework,
 HydroShare http://www.hydroshare.org/resource/129787b468aa4d55ace7b124ed27dbde
 --
+The integration tests inside of this folder are centered on the RAPID Sandbox mock data.
+These tests will adapt this sandbox network to fit the patterns of any geodataset used in DDR to fully test the integration of the dataset within the routing patterns.
+For more information on the sandbox mock data see: https://github.com/c-h-david/rapid2/blob/main/SANDBOX.md
+
+--

@@ -14,6 +14,7 @@ dependencies = [
     "ddr",
     "xarray",
     "netcdf4",
+    "diffroute",
 ]
 
 [project.optional-dependencies]

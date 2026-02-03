@@ -81,10 +81,12 @@ dev = [
 
 # Add workspace configuration
 [tool.uv.workspace]
-members = ["engine"]
+members = ["engine", "benchmarks"]
 
 [tool.uv.sources]
+ddr = { workspace = true }
 ddr-engine = { workspace = true }
+ddr-benchmarks = { workspace = true }
 
 [tool.uv]
 default-groups = ["cpu", "tests", "dev"]

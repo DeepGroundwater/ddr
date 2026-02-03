@@ -18,6 +18,3 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-
-[tool.uv.sources]
-ddr = { path = "..", editable = true }

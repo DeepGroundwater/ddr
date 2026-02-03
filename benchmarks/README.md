@@ -1,12 +1,17 @@
 # DDR Benchmarks
 
-Standalone benchmarking tools for comparing DDR against other routing models.
+Benchmarking tools for comparing DDR against other routing models.
 
 ## Setup
 
+From repository root:
+
 ```bash
-cd benchmarks
-uv sync
+# Full workspace (includes benchmarks and engine)
+uv sync --all-packages
+
+# Or just DDR core (skip benchmarks/engine)
+uv sync --package ddr
 ```
 
 ## Planned Features

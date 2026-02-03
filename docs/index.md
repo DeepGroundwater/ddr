@@ -57,8 +57,10 @@ ddr/
 │   │   └── merit.py
 │   ├── io/                     # Data I/O utilities
 │   └── validation/             # Metrics and plotting
-├── engine/                     # Geospatial data preparation
+├── engine/                     # Geospatial data preparation (ddr-engine)
 │   └── scripts/                # Matrix building scripts
+├── benchmarks/                 # Model benchmarking tools (ddr-benchmarks)
+│   └── src/ddr_benchmarks/     # Benchmarking library
 └── streamflow_datasets/        # Dataset download utilities
 ```
 

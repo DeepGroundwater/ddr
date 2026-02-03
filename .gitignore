@@ -200,3 +200,8 @@ examples/scratch
 
 # claude
 Claude.md
+.claude/
+
+# misc
+.qodo/
+.ruff_cache/

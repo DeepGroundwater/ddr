@@ -33,21 +33,38 @@ cd ddr
 
 ### Install Dependencies
 
-DDR uses `uv` for dependency management. Choose the appropriate installation based on your hardware:
+DDR uses `uv` for dependency management. The repository is organized as a workspace with three packages:
 
-=== "CPU Only"
+| Package | Description |
+|---------|-------------|
+| `ddr` | Core routing library |
+| `ddr-engine` | Geospatial data preparation tools |
+| `ddr-benchmarks` | Benchmarking tools for model comparison |
+
+Choose the appropriate installation based on your needs:
+
+=== "Full Workspace"
 
     ```bash
+    # Installs ddr, ddr-engine, and ddr-benchmarks
     uv sync --all-packages
+    ```
+
+=== "Core Only"
+
+    ```bash
+    # Installs only the ddr package (skip engine and benchmarks)
+    uv sync --package ddr
     ```
 
 === "GPU (CUDA 12.4)"
 
     ```bash
-    uv sync --all-packages --extra cu124
+    # Full workspace with GPU support
+    uv sync --all-packages --extra cuda
     ```
 
-This installs both the main `ddr` package and the `ddr-engine` package for data preparation.
+The full workspace is recommended for development and paper verification. Use core-only for production routing.
 
 ### Verify Installation
 

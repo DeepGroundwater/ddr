@@ -1,4 +1,7 @@
-"""Tests to verify DiffRoute installation using RAPID Sandbox data"""
+"""Tests to verify DiffRoute installation using RAPID Sandbox data.
+
+NOTE: DiffRoute requires CUDA. These tests will be skipped if CUDA is not available.
+"""
 
 from pathlib import Path
 
@@ -10,6 +13,10 @@ import xarray as xr
 
 # Path to RAPID Sandbox test data
 SANDBOX_DIR = Path(__file__).parent.parent.parent / "tests" / "integration" / "input" / "Sandbox"
+
+# DiffRoute requires CUDA
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="DiffRoute requires CUDA")
 
 # IRF parameter names for each model (from diffroute.irfs)
 IRF_PARAMS = {
@@ -107,6 +114,7 @@ def test_diffroute_with_sandbox_network(
     assert len(riv) == 5
 
 
+@requires_cuda
 def test_diffroute_routing_sandbox(
     sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
     sandbox_runoff: torch.Tensor,
@@ -115,9 +123,9 @@ def test_diffroute_routing_sandbox(
     from diffroute import LTIRouter, RivTree
 
     G, param_df = sandbox_network
-    runoff = sandbox_runoff  # (1, 5, 80)
+    runoff = sandbox_runoff.to(DEVICE)  # (1, 5, 80)
 
-    riv = RivTree(G, irf_fn="muskingum", param_df=param_df)
+    riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
     router = LTIRouter(max_delay=100, dt=1)
 
     # Forward pass takes both runoff and the RivTree
@@ -130,6 +138,7 @@ def test_diffroute_routing_sandbox(
     assert (discharge >= 0).all()
 
 
+@requires_cuda
 def test_diffroute_gradient_sandbox(
     sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
     sandbox_runoff: torch.Tensor,
@@ -138,9 +147,9 @@ def test_diffroute_gradient_sandbox(
     from diffroute import LTIRouter, RivTree
 
     G, param_df = sandbox_network
-    runoff = sandbox_runoff.clone().requires_grad_(True)
+    runoff = sandbox_runoff.clone().to(DEVICE).requires_grad_(True)
 
-    riv = RivTree(G, irf_fn="muskingum", param_df=param_df)
+    riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
     router = LTIRouter(max_delay=100, dt=1)
 
     discharge = router(runoff, riv)
@@ -151,6 +160,7 @@ def test_diffroute_gradient_sandbox(
     assert not torch.isnan(runoff.grad).any()
 
 
+@requires_cuda
 def test_diffroute_multiple_models(
     sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
     sandbox_runoff: torch.Tensor,
@@ -159,13 +169,13 @@ def test_diffroute_multiple_models(
     from diffroute import LTIRouter, RivTree
 
     G, param_df = sandbox_network
-    runoff = sandbox_runoff
+    runoff = sandbox_runoff.to(DEVICE)
 
     models = ["muskingum", "linear_storage", "pure_lag"]
 
     for model_name in models:
         # Create RivTree with the appropriate IRF function
-        riv = RivTree(G, irf_fn=model_name, param_df=param_df)
+        riv = RivTree(G, irf_fn=model_name, param_df=param_df).to(DEVICE)
         router = LTIRouter(max_delay=100, dt=1)
 
         # Forward pass takes both runoff and the RivTree

@@ -11,10 +11,24 @@ import xarray as xr
 # Path to RAPID Sandbox test data
 SANDBOX_DIR = Path(__file__).parent.parent.parent / "tests" / "integration" / "input" / "Sandbox"
 
+# IRF parameter names for each model (from diffroute.irfs)
+IRF_PARAMS = {
+    "pure_lag": ["delay"],
+    "linear_storage": ["tau"],
+    "nash_cascade": ["tau"],
+    "muskingum": ["x", "k"],
+    "hayami": ["D", "L", "c"],
+}
+
 
 @pytest.fixture
-def sandbox_network() -> nx.DiGraph:
-    """Load RAPID Sandbox network topology as NetworkX DiGraph."""
+def sandbox_network() -> tuple[nx.DiGraph, pd.DataFrame]:
+    """Load RAPID Sandbox network topology as NetworkX DiGraph and params DataFrame.
+
+    Returns
+    -------
+        Tuple of (graph, param_df) where param_df has Muskingum parameters indexed by reach ID.
+    """
     # Read connectivity: columns are [COMID, NextDownID]
     connect_df = pd.read_csv(
         SANDBOX_DIR / "rapid_connect_Sandbox.csv", header=None, names=["comid", "next_down"]
@@ -30,16 +44,33 @@ def sandbox_network() -> nx.DiGraph:
     # Build graph (upstream -> downstream)
     G = nx.DiGraph()
     for i, rid in enumerate(reach_ids):
-        # DiffRoute uses tau (time constant) - convert from Muskingum k
-        # k is in seconds, tau is also a time constant
-        G.add_node(rid, tau=float(k_vals[i]), k=float(k_vals[i]), x=float(x_vals[i]))
+        # Store parameters on nodes for compatibility
+        G.add_node(
+            rid,
+            k=float(k_vals[i]),
+            x=float(x_vals[i]),
+            tau=float(k_vals[i]),  # tau for linear_storage
+            delay=float(k_vals[i]),  # delay for pure_lag
+        )
 
     # Add edges (from COMID to NextDownID, but 0 means outlet)
     for _, row in connect_df.iterrows():
         if row["next_down"] != 0:  # 0 means outlet
             G.add_edge(row["comid"], row["next_down"])
 
-    return G
+    # Build param_df indexed by reach ID with Muskingum parameters
+    # DiffRoute expects k in days (RAPID k is in seconds)
+    param_df = pd.DataFrame(
+        {
+            "k": [k / (3600 * 24) for k in k_vals],  # Convert seconds to days
+            "x": x_vals,
+            "tau": [k / (3600 * 24) for k in k_vals],  # tau for linear_storage
+            "delay": [k / (3600 * 24) for k in k_vals],  # delay for pure_lag
+        },
+        index=reach_ids,
+    )
+
+    return G, param_df
 
 
 @pytest.fixture
@@ -58,31 +89,39 @@ def sandbox_runoff() -> torch.Tensor:
     return runoff
 
 
-def test_diffroute_with_sandbox_network(sandbox_network: nx.DiGraph) -> None:
+def test_diffroute_with_sandbox_network(
+    sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
+) -> None:
     """Verify DiffRoute can build a router from RAPID Sandbox network."""
     from diffroute import LTIRouter, RivTree
 
-    G = sandbox_network
+    G, param_df = sandbox_network
 
-    # Outlet is COMID 50 (the one with NextDownID=0)
-    riv = RivTree(G, outlet=50)
-    router = LTIRouter(riv, model="muskingum")
+    # Create RivTree with graph, IRF function name, and parameters
+    riv = RivTree(G, irf_fn="muskingum", param_df=param_df)
+
+    # LTIRouter takes routing configuration, not the RivTree
+    router = LTIRouter(max_delay=100, dt=1)
 
     assert router is not None
-    assert len(list(G.nodes())) == 5
+    assert len(riv) == 5
 
 
-def test_diffroute_routing_sandbox(sandbox_network: nx.DiGraph, sandbox_runoff: torch.Tensor) -> None:
+def test_diffroute_routing_sandbox(
+    sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
+    sandbox_runoff: torch.Tensor,
+) -> None:
     """Run DiffRoute on RAPID Sandbox data."""
     from diffroute import LTIRouter, RivTree
 
-    G = sandbox_network
+    G, param_df = sandbox_network
     runoff = sandbox_runoff  # (1, 5, 80)
 
-    riv = RivTree(G, outlet=50)
-    router = LTIRouter(riv, model="muskingum")
+    riv = RivTree(G, irf_fn="muskingum", param_df=param_df)
+    router = LTIRouter(max_delay=100, dt=1)
 
-    discharge = router(runoff)
+    # Forward pass takes both runoff and the RivTree
+    discharge = router(runoff, riv)
 
     # Output should match input shape
     assert discharge.shape == runoff.shape
@@ -91,17 +130,20 @@ def test_diffroute_routing_sandbox(sandbox_network: nx.DiGraph, sandbox_runoff: 
     assert (discharge >= 0).all()
 
 
-def test_diffroute_gradient_sandbox(sandbox_network: nx.DiGraph, sandbox_runoff: torch.Tensor) -> None:
+def test_diffroute_gradient_sandbox(
+    sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
+    sandbox_runoff: torch.Tensor,
+) -> None:
     """Verify gradients flow through DiffRoute with Sandbox data."""
     from diffroute import LTIRouter, RivTree
 
-    G = sandbox_network
+    G, param_df = sandbox_network
     runoff = sandbox_runoff.clone().requires_grad_(True)
 
-    riv = RivTree(G, outlet=50)
-    router = LTIRouter(riv, model="muskingum")
+    riv = RivTree(G, irf_fn="muskingum", param_df=param_df)
+    router = LTIRouter(max_delay=100, dt=1)
 
-    discharge = router(runoff)
+    discharge = router(runoff, riv)
     loss = discharge.sum()
     loss.backward()
 
@@ -109,19 +151,25 @@ def test_diffroute_gradient_sandbox(sandbox_network: nx.DiGraph, sandbox_runoff:
     assert not torch.isnan(runoff.grad).any()
 
 
-def test_diffroute_multiple_models(sandbox_network: nx.DiGraph, sandbox_runoff: torch.Tensor) -> None:
+def test_diffroute_multiple_models(
+    sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
+    sandbox_runoff: torch.Tensor,
+) -> None:
     """Test different LTI models on Sandbox data."""
     from diffroute import LTIRouter, RivTree
 
-    G = sandbox_network
+    G, param_df = sandbox_network
     runoff = sandbox_runoff
 
     models = ["muskingum", "linear_storage", "pure_lag"]
 
     for model_name in models:
-        riv = RivTree(G, outlet=50)
-        router = LTIRouter(riv, model=model_name)
-        discharge = router(runoff)
+        # Create RivTree with the appropriate IRF function
+        riv = RivTree(G, irf_fn=model_name, param_df=param_df)
+        router = LTIRouter(max_delay=100, dt=1)
+
+        # Forward pass takes both runoff and the RivTree
+        discharge = router(runoff, riv)
 
         assert discharge.shape == runoff.shape, f"{model_name} failed shape check"
         assert not torch.isnan(discharge).any(), f"{model_name} produced NaN"

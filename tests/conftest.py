@@ -1,5 +1,9 @@
 """Fixtures and necessary imports for integration tests"""
 
+import pytest
+
+pytest.importorskip("ddr_engine")
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -7,15 +11,12 @@ from typing import Any
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import pytest
 import zarr
 from ddr_engine.merit import (
     build_graph,
     build_merit_adjacency,
     build_upstream_dict,
     create_adjacency_matrix,
-    # coo_from_zarr,
-    # subset_upstream,
 )
 from scipy import sparse
 from shapely.geometry import LineString
@@ -227,7 +228,9 @@ def sandbox_matrix(mock_merit_fp: gpd.GeoDataFrame) -> Any:
 
 
 @pytest.fixture(scope="session")
-def sandbox_coo_matrix(sandbox_matrix: tuple[sparse.coo_matrix, list[int]]) -> sparse.coo_matrix:
+def sandbox_coo_matrix(
+    sandbox_matrix: tuple[sparse.coo_matrix, list[int]],
+) -> sparse.coo_matrix:
     """Extract just the COO matrix."""
     return sandbox_matrix[0]
 

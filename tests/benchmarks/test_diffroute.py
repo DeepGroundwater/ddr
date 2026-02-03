@@ -12,7 +12,7 @@ import torch
 import xarray as xr
 
 # Path to RAPID Sandbox test data
-SANDBOX_DIR = Path(__file__).parent.parent.parent / "tests" / "integration" / "input" / "Sandbox"
+SANDBOX_DIR = Path(__file__).parent.parent / "input" / "Sandbox"
 
 # DiffRoute requires CUDA
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

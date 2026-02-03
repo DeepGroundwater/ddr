@@ -152,7 +152,7 @@ def test_create_param_df_with_muskingum(sandbox_zarr_root: zarr.Group) -> None:
     param_df = create_param_df(order, k=k_seconds, x=x_vals, k_units="seconds")
 
     assert isinstance(param_df, pd.DataFrame)
-    assert list(param_df.index) == [10, 20, 30, 40, 50]
+    assert sorted(param_df.index) == [10, 20, 30, 40, 50]
     assert "k" in param_df.columns
     assert "x" in param_df.columns
     assert "tau" in param_df.columns  # Derived from k

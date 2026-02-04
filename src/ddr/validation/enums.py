@@ -1,4 +1,4 @@
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -6,7 +6,7 @@ if TYPE_CHECKING:
     from ddr.validation.configs import Config
 
 
-class Mode(str, Enum):
+class Mode(StrEnum):
     """The mode DDR is running"""
 
     TRAINING = "training"
@@ -14,7 +14,7 @@ class Mode(str, Enum):
     ROUTING = "routing"
 
 
-class GeoDataset(str, Enum):
+class GeoDataset(StrEnum):
     """The geospatial dataset used for predictions and routing"""
 
     LYNKER_HYDROFABRIC = "lynker_hydrofabric"

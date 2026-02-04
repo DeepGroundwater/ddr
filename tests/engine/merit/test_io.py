@@ -67,7 +67,7 @@ class TestCooFromZarr:
         """Second element should be list of ints."""
         _, ts_order = coo_from_zarr(sandbox_zarr_path)
         assert isinstance(ts_order, list)
-        assert all(isinstance(x, (int, np.integer)) for x in ts_order)
+        assert all(isinstance(x, int | np.integer) for x in ts_order)
 
     def test_roundtrip_matrix(self, sandbox_coo_matrix, sandbox_zarr_path):
         """Matrix should survive roundtrip through zarr."""

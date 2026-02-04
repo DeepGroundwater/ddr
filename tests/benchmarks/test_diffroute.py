@@ -212,7 +212,7 @@ def test_compare_with_rapid2_reference(
     # dt in days = 900 / 86400 = 0.0104167 days
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
-    router = LTIRouter(max_delay=100, dt=dt_days)
+    router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
     discharge = router(runoff, riv)  # (1, 5, 80)
     discharge_cpu = discharge.squeeze(0).cpu()  # (5, 80)
@@ -265,7 +265,7 @@ def test_downstream_accumulation(
 
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
-    router = LTIRouter(max_delay=100, dt=dt_days)
+    router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
     discharge = router(runoff, riv)  # (1, 5, 80)
     discharge_cpu = discharge.squeeze(0).cpu()  # (5, 80) - nodes x time
@@ -313,7 +313,7 @@ def test_mass_balance(
 
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
-    router = LTIRouter(max_delay=100, dt=dt_days)
+    router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
     discharge = router(runoff, riv)  # (1, 5, 80)
     discharge_cpu = discharge.squeeze(0).cpu()  # (5, 80)
@@ -359,7 +359,7 @@ def test_steady_state_convergence(
 
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
-    router = LTIRouter(max_delay=100, dt=dt_days)
+    router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
     discharge = router(qext, riv)  # (1, 5, 200)
     discharge_cpu = discharge.squeeze(0).cpu()  # (5, 200)

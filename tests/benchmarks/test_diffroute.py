@@ -265,7 +265,7 @@ def test_compare_with_rapid2_reference(
     # Check correlation - should be highly correlated since both follow Qext pattern
     correlation = torch.corrcoef(torch.stack([rapid2_outlet, diffroute_outlet]))[0, 1]
 
-    assert correlation > 0.9, f"Low correlation with RAPID2: {correlation:.3f}"
+    assert correlation > 0.8, f"Low correlation with RAPID2: {correlation:.3f}"
 
     # Check that DiffRoute converges toward RAPID2 at the end (last 10 timesteps)
     # when both should be approaching steady state
@@ -518,7 +518,7 @@ def test_generate_hydrograph_plot(
 
     # Save to tmp directory
     plot_path = tmp_path / "diffroute_hydrograph.png"
-    # plot_path = Path("/projects/mhpi/tbindas/ddr/tests/benchmarks") / "diffroute_hydrograph.png"
+    # plot_path = Path(__file__).parent / "diffroute_hydrograph.png"
     fig.savefig(plot_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 

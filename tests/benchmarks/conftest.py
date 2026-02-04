@@ -7,6 +7,8 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pytest
+import torch
+import xarray as xr
 import zarr
 from scipy import sparse
 from shapely.geometry import LineString
@@ -131,3 +133,70 @@ def sandbox_coo_matrix(
 def sandbox_ts_order(sandbox_matrix: tuple[sparse.coo_matrix, list[int]]) -> list[int]:
     """Extract just the topological order."""
     return sandbox_matrix[1]
+
+
+# =============================================================================
+# RAPID2 Reference Data Fixtures
+# =============================================================================
+
+TESTS_OUTPUT_DIR = TESTS_DIR / "output"
+
+
+@pytest.fixture(scope="session")
+def sandbox_qinit() -> torch.Tensor:
+    """Load initial discharge conditions from RAPID Sandbox.
+
+    Returns
+    -------
+    torch.Tensor
+        Initial discharge state: [9, 9, 27, 18, 63] m³/s for reaches [10, 20, 30, 40, 50]
+    """
+    ds = xr.open_dataset(SANDBOX_DIR / "Qinit_Sandbox_19700101_19700110.nc4")
+    qinit = ds["Qout"].values.squeeze()  # (5,)
+    ds.close()
+    return torch.from_numpy(qinit).float()
+
+
+@pytest.fixture(scope="session")
+def sandbox_expected_qout() -> torch.Tensor:
+    """Load RAPID2 reference discharge output.
+
+    Returns
+    -------
+    torch.Tensor
+        Expected discharge time series, shape (80, 5) for (time, reaches)
+    """
+    ds = xr.open_dataset(TESTS_OUTPUT_DIR / "Sandbox" / "Qout_Sandbox_19700101_19700110.nc4")
+    qout = ds["Qout"].values  # (80, 5)
+    ds.close()
+    return torch.from_numpy(qout).float()
+
+
+@pytest.fixture(scope="session")
+def sandbox_expected_qfinal() -> torch.Tensor:
+    """Load RAPID2 final discharge state.
+
+    Returns
+    -------
+    torch.Tensor
+        Final discharge state, shape (5,) for reaches [10, 20, 30, 40, 50]
+    """
+    ds = xr.open_dataset(TESTS_OUTPUT_DIR / "Sandbox" / "Qfinal_Sandbox_19700101_19700110.nc4")
+    qfinal = ds["Qout"].values.squeeze()  # (5,)
+    ds.close()
+    return torch.from_numpy(qfinal).float()
+
+
+@pytest.fixture(scope="session")
+def sandbox_qext() -> torch.Tensor:
+    """Load RAPID Sandbox lateral inflow (Qext).
+
+    Returns
+    -------
+    torch.Tensor
+        Lateral inflow, shape (80, 5) for (time, reaches)
+    """
+    ds = xr.open_dataset(SANDBOX_DIR / "Qext_Sandbox_19700101_19700110.nc4")
+    qext = ds["Qext"].values  # (80, 5)
+    ds.close()
+    return torch.from_numpy(qext).float()

@@ -11,9 +11,10 @@ version = "0.1.0"
 description = "Benchmarking tools for DDR routing model"
 requires-python = ">=3.11"
 dependencies = [
-    "ddr",
+    "ddr[cuda]",
     "xarray",
     "netcdf4",
+    "diffroute",
 ]
 
 [project.optional-dependencies]

@@ -1,4 +1,8 @@
-"""Fixtures and necessary imports for integration tests"""
+"""Fixtures for MERIT engine integration tests."""
+
+import pytest
+
+pytest.importorskip("ddr_engine")
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,15 +11,12 @@ from typing import Any
 import geopandas as gpd
 import numpy as np
 import pandas as pd
-import pytest
 import zarr
 from ddr_engine.merit import (
     build_graph,
     build_merit_adjacency,
     build_upstream_dict,
     create_adjacency_matrix,
-    # coo_from_zarr,
-    # subset_upstream,
 )
 from scipy import sparse
 from shapely.geometry import LineString
@@ -40,6 +41,11 @@ from shapely.geometry import LineString
 #
 # Gauging stations at COMIDs 30 and 50
 # =============================================================================
+
+
+# Path to test input data (relative to tests/ directory)
+TESTS_DIR = Path(__file__).parent.parent.parent
+SANDBOX_INPUT_DIR = TESTS_DIR / "input" / "Sandbox"
 
 
 # =============================================================================
@@ -70,8 +76,7 @@ class MockGaugeSet:
 @pytest.fixture(scope="session")
 def sandbox_connections() -> pd.DataFrame:
     """Load raw RAPID Sandbox connectivity CSV."""
-    cwd = Path(__file__).parent
-    return pd.read_csv(cwd / "input/Sandbox/rapid_connect_Sandbox.csv", header=None)
+    return pd.read_csv(SANDBOX_INPUT_DIR / "rapid_connect_Sandbox.csv", header=None)
 
 
 def sandbox_to_merit_format(sandbox_df: pd.DataFrame) -> gpd.GeoDataFrame:
@@ -227,7 +232,9 @@ def sandbox_matrix(mock_merit_fp: gpd.GeoDataFrame) -> Any:
 
 
 @pytest.fixture(scope="session")
-def sandbox_coo_matrix(sandbox_matrix: tuple[sparse.coo_matrix, list[int]]) -> sparse.coo_matrix:
+def sandbox_coo_matrix(
+    sandbox_matrix: tuple[sparse.coo_matrix, list[int]],
+) -> sparse.coo_matrix:
     """Extract just the COO matrix."""
     return sandbox_matrix[0]
 

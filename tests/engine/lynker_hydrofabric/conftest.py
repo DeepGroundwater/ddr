@@ -1,9 +1,12 @@
 """Fixtures for Lynker Hydrofabric integration tests."""
 
+import pytest
+
+pytest.importorskip("ddr_engine")
+
 from typing import Any
 
 import polars as pl
-import pytest
 from ddr_engine.lynker_hydrofabric import (
     build_graph_from_wb_network,
     create_coo,
@@ -77,7 +80,7 @@ def sandbox_network() -> pl.LazyFrame:
 
 
 @pytest.fixture(scope="session")
-def sandbox_wb_network_dict(sandbox_network: pl.LazyFrame) -> dict[str, list[str]]:
+def sandbox_wb_network_dict(sandbox_network: pl.LazyFrame) -> Any:
     """Build wb_network_dict from sandbox network."""
     return preprocess_river_network(sandbox_network)
 
@@ -89,7 +92,7 @@ def sandbox_graph(sandbox_wb_network_dict: dict[str, list[str]]) -> Any:
 
 
 @pytest.fixture(scope="session")
-def sandbox_connections(sandbox_wb_network_dict: dict[str, list[str]]) -> list[tuple[str, str]]:
+def sandbox_connections(sandbox_wb_network_dict: dict[str, list[str]]) -> Any:
     """Get connections from wb-50 (outlet)."""
     return subset("wb-50", sandbox_wb_network_dict)
 
@@ -111,6 +114,6 @@ def sandbox_conus_mapping() -> dict[str, int]:
 def sandbox_coo_result(
     sandbox_connections: list[tuple[str, str]],
     sandbox_conus_mapping: dict[str, int],
-) -> tuple[Any, list[str]]:
+) -> Any:
     """Create COO matrix from sandbox connections."""
     return create_coo(sandbox_connections, sandbox_conus_mapping)

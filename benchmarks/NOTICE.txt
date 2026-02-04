@@ -1,0 +1,26 @@
+THIRD-PARTY NOTICES
+
+This package includes or depends on code from the following projects:
+
+================================================================================
+DiffRoute
+================================================================================
+
+Repository: https://github.com/TristHas/DiffRoute
+License: MIT
+Documentation: https://tristhas.github.io/DiffRoute/
+
+DiffRoute is a differentiable and GPU-accelerated implementation of Linear
+Time Invariant (LTI) river routing models for PyTorch integration.
+
+Citation:
+@article{hascoet2026differentiable,
+  title={Differentiable river routing for end-to-end learning of hydrological processes},
+  author={Hascoet, Tristan and Pellet, Victor and Oishi, Satoru and Miyoshi, Takemasa},
+  journal={Journal of Geophysical Research: Machine Learning and Computation},
+  volume={3},
+  number={1},
+  pages={e2025JH000760},
+  year={2026},
+  publisher={Wiley Online Library}
+}

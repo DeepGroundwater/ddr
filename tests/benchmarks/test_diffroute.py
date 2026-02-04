@@ -448,7 +448,7 @@ def test_generate_hydrograph_plot(
 
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
-    router = LTIRouter(max_delay=100, dt=dt_days)
+    router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
     # Reorder input to DiffRoute's DFS order, run routing, reorder output back to RAPID2 order
     runoff = reorder_to_diffroute(sandbox_runoff, riv).to(DEVICE)
@@ -518,6 +518,7 @@ def test_generate_hydrograph_plot(
 
     # Save to tmp directory
     plot_path = tmp_path / "diffroute_hydrograph.png"
+    # plot_path = Path("/projects/mhpi/tbindas/ddr/tests/benchmarks") / "diffroute_hydrograph.png"
     fig.savefig(plot_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
 

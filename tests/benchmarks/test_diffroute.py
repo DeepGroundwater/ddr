@@ -28,6 +28,42 @@ IRF_PARAMS = {
     "hayami": ["D", "L", "c"],
 }
 
+# Reach IDs in the Sandbox network (RAPID2 ordering)
+REACH_IDS = [10, 20, 30, 40, 50]
+
+
+def reorder_to_diffroute(data: torch.Tensor, riv) -> torch.Tensor:
+    """Reorder data from RAPID2 ordering [10,20,30,40,50] to DiffRoute's DFS ordering.
+
+    Args:
+        data: Tensor with node dim at index 1, in RAPID2 order
+        riv: RivTree with nodes_idx mapping reach_id -> internal_index
+
+    Returns:
+        Tensor reordered for DiffRoute input
+    """
+    rapid2_to_idx = {rid: i for i, rid in enumerate(REACH_IDS)}
+    # For each DFS position, get which RAPID2 index to pull from
+    reorder_idx = [rapid2_to_idx[rid] for rid in riv.nodes_idx.index]
+    return data[:, reorder_idx, :]
+
+
+def reorder_to_rapid2(data: torch.Tensor, riv) -> torch.Tensor:
+    """Reorder data from DiffRoute's DFS ordering back to RAPID2 ordering [10,20,30,40,50].
+
+    Args:
+        data: Tensor with node dim at index 0 or 1, in DiffRoute's DFS order
+        riv: RivTree with nodes_idx mapping reach_id -> internal_index
+
+    Returns:
+        Tensor reordered to RAPID2 order for comparison with fixtures
+    """
+    # For each RAPID2 position (0-4), get which DFS index to pull from
+    reorder_idx = [int(riv.nodes_idx.loc[rid]) for rid in REACH_IDS]
+    if data.dim() == 2:
+        return data[reorder_idx, :]
+    return data[:, reorder_idx, :]
+
 
 @pytest.fixture
 def sandbox_network() -> tuple[nx.DiGraph, pd.DataFrame]:
@@ -206,7 +242,6 @@ def test_compare_with_rapid2_reference(
     from diffroute import LTIRouter, RivTree
 
     G, param_df = sandbox_network
-    runoff = sandbox_runoff.to(DEVICE)  # (1, 5, 80)
 
     # RAPID uses dt=900s = 0.25 hours. k=9000s = 0.104 days
     # dt in days = 900 / 86400 = 0.0104167 days
@@ -214,20 +249,18 @@ def test_compare_with_rapid2_reference(
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
     router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
+    # Reorder input to DiffRoute's DFS order, run routing, reorder output back to RAPID2 order
+    runoff = reorder_to_diffroute(sandbox_runoff, riv).to(DEVICE)
     discharge = router(runoff, riv)  # (1, 5, 80)
-    discharge_cpu = discharge.squeeze(0).cpu()  # (5, 80)
-
-    # RAPID2 Qout is (80, 5), DiffRoute output after squeeze is (5, 80)
-    # Transpose DiffRoute output to match RAPID2 shape
-    discharge_t = discharge_cpu.T  # (80, 5)
+    discharge_cpu = reorder_to_rapid2(discharge.squeeze(0).cpu(), riv)  # (5, 80) in RAPID2 order
 
     # After spin-up period (skip first 20 timesteps), compare the later values
     # The system should approach similar steady-state behavior
     spin_up = 20
 
-    # Compare at outlet (reach 50, index 4) after spin-up
+    # Compare at outlet (reach 50 = index 4 in RAPID2 order)
     rapid2_outlet = sandbox_expected_qout[spin_up:, 4]
-    diffroute_outlet = discharge_t[spin_up:, 4]
+    diffroute_outlet = discharge_cpu[4, spin_up:]
 
     # Check correlation - should be highly correlated since both follow Qext pattern
     correlation = torch.corrcoef(torch.stack([rapid2_outlet, diffroute_outlet]))[0, 1]
@@ -237,7 +270,7 @@ def test_compare_with_rapid2_reference(
     # Check that DiffRoute converges toward RAPID2 at the end (last 10 timesteps)
     # when both should be approaching steady state
     end_rapid2 = sandbox_expected_qout[-10:, 4].mean()
-    end_diffroute = discharge_t[-10:, 4].mean()
+    end_diffroute = discharge_cpu[4, -10:].mean()
 
     # Allow 10% relative tolerance for steady-state convergence
     rel_diff = abs(end_rapid2 - end_diffroute) / end_rapid2
@@ -261,16 +294,17 @@ def test_downstream_accumulation(
     from diffroute import LTIRouter, RivTree
 
     G, param_df = sandbox_network
-    runoff = sandbox_runoff.to(DEVICE)
 
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
     router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
+    # Reorder input to DiffRoute's DFS order, run routing, reorder output back to RAPID2 order
+    runoff = reorder_to_diffroute(sandbox_runoff, riv).to(DEVICE)
     discharge = router(runoff, riv)  # (1, 5, 80)
-    discharge_cpu = discharge.squeeze(0).cpu()  # (5, 80) - nodes x time
+    discharge_cpu = reorder_to_rapid2(discharge.squeeze(0).cpu(), riv)  # (5, 80) in RAPID2 order
 
-    # Reach order in fixture: [10, 20, 30, 40, 50] -> indices [0, 1, 2, 3, 4]
+    # Now indices 0-4 correspond to reaches [10, 20, 30, 40, 50]
     q10 = discharge_cpu[0, :]  # reach 10
     q20 = discharge_cpu[1, :]  # reach 20
     q30 = discharge_cpu[2, :]  # reach 30 (confluence of 10, 20)
@@ -309,19 +343,20 @@ def test_mass_balance(
     from diffroute import LTIRouter, RivTree
 
     G, param_df = sandbox_network
-    runoff = sandbox_runoff.to(DEVICE)
 
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
     router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
+    # Reorder input to DiffRoute's DFS order, run routing, reorder output back to RAPID2 order
+    runoff = reorder_to_diffroute(sandbox_runoff, riv).to(DEVICE)
     discharge = router(runoff, riv)  # (1, 5, 80)
-    discharge_cpu = discharge.squeeze(0).cpu()  # (5, 80)
+    discharge_cpu = reorder_to_rapid2(discharge.squeeze(0).cpu(), riv)  # (5, 80) in RAPID2 order
 
     # Total input: sum of all Qext across all reaches and timesteps
     total_input = sandbox_qext.sum().item()
 
-    # Total output: sum of discharge at outlet (reach 50, index 4) over all timesteps
+    # Total output: sum of discharge at outlet (reach 50 = index 4) over all timesteps
     total_outlet = discharge_cpu[4, :].sum().item()
 
     # Mass balance check with 15% tolerance
@@ -350,21 +385,23 @@ def test_steady_state_convergence(
 
     G, param_df = sandbox_network
 
-    # Create constant Qext matching the final values from Sandbox
-    # This should drive the system toward Qinit values at steady state
-    n_timesteps = 200  # Long enough to reach steady state
-    constant_qext = torch.tensor([9.0, 9.0, 9.0, 18.0, 18.0])  # Per-reach lateral inflow
-    qext = constant_qext.unsqueeze(0).unsqueeze(2).expand(1, 5, n_timesteps)  # (1, 5, 200)
-    qext = qext.to(DEVICE)
-
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
     router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
-    discharge = router(qext, riv)  # (1, 5, 200)
-    discharge_cpu = discharge.squeeze(0).cpu()  # (5, 200)
+    # Create constant Qext matching the final values from Sandbox
+    # This should drive the system toward Qinit values at steady state
+    # RAPID2 ordering: [10, 20, 30, 40, 50] with Qext = [9, 9, 9, 18, 18]
+    n_timesteps = 200  # Long enough to reach steady state
+    constant_qext = torch.tensor([9.0, 9.0, 9.0, 18.0, 18.0])  # Per-reach lateral inflow in RAPID2 order
+    qext_rapid2 = constant_qext.unsqueeze(0).unsqueeze(2).expand(1, 5, n_timesteps)  # (1, 5, 200)
 
-    # Expected steady-state discharge (from Qinit):
+    # Reorder input to DiffRoute's DFS order, run routing, reorder output back to RAPID2 order
+    qext = reorder_to_diffroute(qext_rapid2, riv).to(DEVICE)
+    discharge = router(qext, riv)  # (1, 5, 200)
+    discharge_cpu = reorder_to_rapid2(discharge.squeeze(0).cpu(), riv)  # (5, 200) in RAPID2 order
+
+    # Expected steady-state discharge in RAPID2 order [10, 20, 30, 40, 50]:
     # Reach 10: 9 (just its own Qext)
     # Reach 20: 9 (just its own Qext)
     # Reach 30: 9 + 9 + 9 = 27 (upstream 10 + 20 + own Qext)
@@ -379,7 +416,7 @@ def test_steady_state_convergence(
     for i, (actual, expected) in enumerate(zip(final_discharge, expected_steady_state, strict=True)):
         rel_diff = abs(actual - expected) / expected
         assert rel_diff < 0.15, (
-            f"Reach {i} did not converge to steady state: actual={actual:.2f}, expected={expected:.2f}"
+            f"Reach {REACH_IDS[i]} did not converge to steady state: actual={actual:.2f}, expected={expected:.2f}"
         )
 
 
@@ -408,17 +445,18 @@ def test_generate_hydrograph_plot(
     from diffroute import LTIRouter, RivTree
 
     G, param_df = sandbox_network
-    runoff = sandbox_runoff.to(DEVICE)
 
     dt_days = 900 / 86400
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
     router = LTIRouter(max_delay=100, dt=dt_days)
 
+    # Reorder input to DiffRoute's DFS order, run routing, reorder output back to RAPID2 order
+    runoff = reorder_to_diffroute(sandbox_runoff, riv).to(DEVICE)
     discharge = router(runoff, riv)
-    discharge_cpu = discharge.squeeze(0).cpu().numpy()  # (5, 80)
-    discharge_t = discharge_cpu.T  # (80, 5)
+    discharge_cpu = reorder_to_rapid2(discharge.squeeze(0).cpu(), riv).numpy()  # (5, 80) in RAPID2 order
+    discharge_t = discharge_cpu.T  # (80, 5) to match RAPID2 shape
 
-    rapid2_qout = sandbox_expected_qout.numpy()  # (80, 5)
+    rapid2_qout = sandbox_expected_qout.numpy()  # (80, 5) in RAPID2 order [10, 20, 30, 40, 50]
     qext = sandbox_qext.numpy()  # (80, 5)
 
     # Sum of Qext across all reaches at each timestep
@@ -434,7 +472,7 @@ def test_generate_hydrograph_plot(
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
     # Panel 1: Total Qext vs routed outlet discharge
-    # This shows how routing attenuates and delays the total lateral inflow signal
+    # Now indices match RAPID2: 0=10, 1=20, 2=30, 3=40, 4=50
     ax1 = axes[0, 0]
     ax1.plot(time_hours, qext_total, "g-", label="Total Qext (sum all reaches)", linewidth=2)
     ax1.plot(time_hours, discharge_t[:, 4], "r--", label="DiffRoute Outlet (Reach 50)", linewidth=2)
@@ -445,7 +483,7 @@ def test_generate_hydrograph_plot(
     ax1.legend(loc="upper right")
     ax1.grid(True, alpha=0.3)
 
-    # Panel 2: Outlet comparison (reach 50)
+    # Panel 2: Outlet comparison (reach 50 = index 4)
     ax2 = axes[0, 1]
     ax2.plot(time_hours, rapid2_qout[:, 4], "b-", label="RAPID2", linewidth=2)
     ax2.plot(time_hours, discharge_t[:, 4], "r--", label="DiffRoute", linewidth=2)
@@ -455,7 +493,7 @@ def test_generate_hydrograph_plot(
     ax2.legend(loc="upper right")
     ax2.grid(True, alpha=0.3)
 
-    # Panel 3: Confluence comparison (reach 30)
+    # Panel 3: Confluence comparison (reach 30 = index 2)
     ax3 = axes[1, 0]
     ax3.plot(time_hours, rapid2_qout[:, 2], "b-", label="RAPID2", linewidth=2)
     ax3.plot(time_hours, discharge_t[:, 2], "r--", label="DiffRoute", linewidth=2)

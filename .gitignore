@@ -205,3 +205,4 @@ Claude.md
 # misc
 .qodo/
 .ruff_cache/
+!benchmarks/config/

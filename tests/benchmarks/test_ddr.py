@@ -76,7 +76,7 @@ def test_ddr_routing_mass_balance(
     # Calculate relative error
     rel_error = abs(total_outlet - total_qprime) / total_qprime
 
-    # Allow 15% tolerance for mass balance
+    # Allow 5% tolerance for mass balance
     # (some error expected due to initial conditions and numerical differences)
     assert rel_error < 0.05, (
         f"Mass balance error too large: "

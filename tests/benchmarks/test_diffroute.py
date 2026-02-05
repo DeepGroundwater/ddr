@@ -284,10 +284,10 @@ def test_mass_balance(
     # Total output: sum of discharge at outlet (reach 50 = index 4) over all timesteps
     total_outlet = discharge_cpu[4, :].sum().item()
 
-    # Mass balance check with 15% tolerance
+    # Mass balance check with 5% tolerance
     # (DiffRoute may differ due to initial conditions and numerical differences)
     rel_error = abs(total_outlet - total_input) / total_input
-    assert rel_error < 0.15, (
+    assert rel_error < 0.1, (
         f"Mass balance error too large: input={total_input:.2f}, "
         f"outlet={total_outlet:.2f}, rel_error={rel_error:.2%}"
     )

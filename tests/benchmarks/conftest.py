@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import geopandas as gpd
+import networkx as nx
 import numpy as np
 import pandas as pd
 import pytest
@@ -200,3 +201,133 @@ def sandbox_qext() -> torch.Tensor:
     qext = ds["Qext"].values  # (80, 5)
     ds.close()
     return torch.from_numpy(qext).float()
+
+
+@pytest.fixture(scope="session")
+def sandbox_hourly_qprime(sandbox_qext: torch.Tensor) -> torch.Tensor:
+    """Interpolate Qext from 3-hourly (80 timesteps) to hourly.
+
+    Linear interpolation from 80 timesteps to 238 hourly timesteps.
+    Original 80 points cover hours [0, 3, 6, ..., 237].
+    Interpolated points cover hours [0, 1, 2, ..., 237].
+
+    Returns
+    -------
+    torch.Tensor
+        Interpolated Q', shape (238, 5) for (time, reaches)
+    """
+    from scipy.interpolate import interp1d
+
+    qext_np = sandbox_qext.numpy()  # (80, 5)
+    n_original = qext_np.shape[0]  # 80
+    n_reaches = qext_np.shape[1]  # 5
+
+    # Original time points (3-hourly): 0, 3, 6, ..., 237
+    t_original = np.arange(n_original) * 3  # [0, 3, 6, ..., 237]
+
+    # Target time points (hourly): 0, 1, 2, ..., 237
+    t_hourly = np.arange(t_original[-1] + 1)  # [0, 1, ..., 237] = 238 points
+
+    # Interpolate each reach
+    qprime_hourly = np.zeros((len(t_hourly), n_reaches), dtype=np.float32)
+    for i in range(n_reaches):
+        f = interp1d(t_original, qext_np[:, i], kind="linear")
+        qprime_hourly[:, i] = f(t_hourly)
+
+    return torch.from_numpy(qprime_hourly).float()
+
+
+# =============================================================================
+# DiffRoute Network Fixtures
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def sandbox_network() -> tuple[nx.DiGraph, pd.DataFrame]:
+    """Load RAPID Sandbox network topology as NetworkX DiGraph and params DataFrame.
+
+    Returns
+    -------
+    tuple[nx.DiGraph, pd.DataFrame]
+        Tuple of (graph, param_df) where param_df has Muskingum parameters indexed by reach ID.
+    """
+    # Read connectivity: columns are [COMID, NextDownID]
+    connect_df = pd.read_csv(
+        SANDBOX_DIR / "rapid_connect_Sandbox.csv", header=None, names=["comid", "next_down"]
+    )
+
+    # Read reach IDs
+    reach_ids = pd.read_csv(SANDBOX_DIR / "riv_bas_id_Sandbox.csv", header=None).squeeze().tolist()
+
+    # Read Muskingum parameters
+    k_vals = pd.read_csv(SANDBOX_DIR / "k_Sandbox.csv", header=None).squeeze().tolist()
+    x_vals = pd.read_csv(SANDBOX_DIR / "x_Sandbox.csv", header=None).squeeze().tolist()
+
+    # Build graph (upstream -> downstream)
+    G = nx.DiGraph()
+    for i, rid in enumerate(reach_ids):
+        # Store parameters on nodes for compatibility
+        G.add_node(
+            rid,
+            k=float(k_vals[i]),
+            x=float(x_vals[i]),
+            tau=float(k_vals[i]),  # tau for linear_storage
+            delay=float(k_vals[i]),  # delay for pure_lag
+        )
+
+    # Add edges (from COMID to NextDownID, but 0 means outlet)
+    for _, row in connect_df.iterrows():
+        if row["next_down"] != 0:  # 0 means outlet
+            G.add_edge(row["comid"], row["next_down"])
+
+    # Build param_df indexed by reach ID with Muskingum parameters
+    # DiffRoute expects k in days (RAPID k is in seconds)
+    param_df = pd.DataFrame(
+        {
+            "k": [k / (3600 * 24) for k in k_vals],  # Convert seconds to days
+            "x": x_vals,
+            "tau": [k / (3600 * 24) for k in k_vals],  # tau for linear_storage
+            "delay": [k / (3600 * 24) for k in k_vals],  # delay for pure_lag
+        },
+        index=reach_ids,
+    )
+
+    return G, param_df
+
+
+@pytest.fixture(scope="session")
+def sandbox_runoff(sandbox_qext: torch.Tensor) -> torch.Tensor:
+    """Load RAPID Sandbox runoff data as PyTorch tensor for DiffRoute.
+
+    DiffRoute expects input shape (batch, nodes, time).
+
+    Returns
+    -------
+    torch.Tensor
+        Runoff tensor, shape (1, 5, 80) for (batch, reaches, time)
+    """
+    # DiffRoute expects (batch, nodes, time)
+    # sandbox_qext is (80, 5), so transpose and add batch dimension
+    runoff = sandbox_qext.T.unsqueeze(0).float()  # (1, 5, 80)
+    return runoff
+
+
+# =============================================================================
+# DDR Routing Fixtures
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def ddr_discharge(sandbox_zarr_path: Path, sandbox_hourly_qprime: torch.Tensor) -> np.ndarray:
+    """Run DDR routing and return discharge output.
+
+    This fixture provides DDR discharge for use in comparison plots.
+
+    Returns
+    -------
+    np.ndarray
+        Discharge output, shape (5, 238) for (reaches, timesteps)
+    """
+    from tests.benchmarks.test_ddr import run_ddr_routing
+
+    return run_ddr_routing(sandbox_zarr_path, sandbox_hourly_qprime)

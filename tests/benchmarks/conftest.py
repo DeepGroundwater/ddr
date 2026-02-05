@@ -312,6 +312,23 @@ def sandbox_runoff(sandbox_qext: torch.Tensor) -> torch.Tensor:
     return runoff
 
 
+@pytest.fixture(scope="session")
+def sandbox_hourly_runoff(sandbox_hourly_qprime: torch.Tensor) -> torch.Tensor:
+    """Interpolated hourly runoff data as PyTorch tensor for DiffRoute.
+
+    DiffRoute expects input shape (batch, nodes, time).
+
+    Returns
+    -------
+    torch.Tensor
+        Runoff tensor, shape (1, 5, 238) for (batch, reaches, time)
+    """
+    # DiffRoute expects (batch, nodes, time)
+    # sandbox_hourly_qprime is (238, 5), so transpose and add batch dimension
+    runoff = sandbox_hourly_qprime.T.unsqueeze(0).float()  # (1, 5, 238)
+    return runoff
+
+
 # =============================================================================
 # DDR Mock Classes
 # =============================================================================

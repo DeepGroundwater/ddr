@@ -86,6 +86,6 @@ def test_ddr_routing_mass_balance(
 
     # Print mass balance info for debugging
     print(
-        f"\nMass balance: Q' total={total_qprime:.2f}, Outlet total={total_outlet:.2f}, "
+        f"\nDDR Mass balance: Q' total={total_qprime:.2f}, Outlet total={total_outlet:.2f}, "
         f"rel_error={rel_error:.2%}"
     )

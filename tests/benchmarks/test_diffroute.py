@@ -291,6 +291,11 @@ def test_mass_balance(
         f"Mass balance error too large: input={total_input:.2f}, "
         f"outlet={total_outlet:.2f}, rel_error={rel_error:.2%}"
     )
+    # Print mass balance info for debugging
+    print(
+        f"\ndiffroute Mass balance: Q' total={total_input:.2f}, Outlet total={total_outlet:.2f}, "
+        f"rel_error={rel_error:.2%}"
+    )
 
 
 @requires_cuda

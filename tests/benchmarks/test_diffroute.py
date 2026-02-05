@@ -287,7 +287,7 @@ def test_mass_balance(
     # Mass balance check with 5% tolerance
     # (DiffRoute may differ due to initial conditions and numerical differences)
     rel_error = abs(total_outlet - total_input) / total_input
-    assert rel_error < 0.1, (
+    assert rel_error < 0.05, (
         f"Mass balance error too large: input={total_input:.2f}, "
         f"outlet={total_outlet:.2f}, rel_error={rel_error:.2%}"
     )

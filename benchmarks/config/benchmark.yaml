@@ -9,11 +9,11 @@ defaults:
 mode: testing
 geodataset: merit
 name: benchmark-${now:%Y-%m-%d_%H-%M-%S}
-device: cpu
+device: 4
 
 data_sources:
   attributes: /projects/mhpi/tbindas/ddr/data/merit_global_attributes_v2.nc
-  geospatial_fabric_gpkg: /projects/mhpi/data/MERIT/raw/continent/riv_pfaf_7_MERIT_Hydro.shp
+  geospatial_fabric_gpkg: /projects/mhpi/data/MERIT/raw/continent/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp
   conus_adjacency: /projects/mhpi/tbindas/ddr/data/merit_conus_adjacency.zarr
   gages_adjacency: /projects/mhpi/tbindas/ddr/data/merit_gages_conus_adjacency.zarr
   statistics: /projects/mhpi/tbindas/ddr/data/statistics

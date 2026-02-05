@@ -7,6 +7,11 @@ from ddr_benchmarks.benchmark import (
     run_ddr,
     run_diffroute,
 )
+from ddr_benchmarks.configs import (
+    BenchmarkConfig,
+    DiffRouteConfig,
+    validate_benchmark_config,
+)
 from ddr_benchmarks.diffroute_adapter import (
     build_diffroute_inputs,
     coo_to_networkx,
@@ -32,4 +37,8 @@ __all__ = [
     "reorder_to_topo",
     "run_ddr",
     "run_diffroute",
+    # Config classes
+    "BenchmarkConfig",
+    "DiffRouteConfig",
+    "validate_benchmark_config",
 ]

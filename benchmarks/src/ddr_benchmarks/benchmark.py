@@ -28,7 +28,10 @@ from torch.utils.data import DataLoader, SequentialSampler
 from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
-from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, utils, validate_config
+from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, utils
+
+# Benchmark config validation
+from ddr_benchmarks.configs import DiffRouteConfig, validate_benchmark_config
 
 # EXISTING adapter functions - already handles COO -> NetworkX conversion
 from ddr_benchmarks.diffroute_adapter import create_param_df, zarr_to_networkx
@@ -118,7 +121,7 @@ def run_diffroute(
     cfg: Config,
     flow: streamflow,
     routing_dataclass: RoutingDataclass,
-    diffroute_cfg: dict[str, Any],
+    diffroute_cfg: DiffRouteConfig,
     zarr_path: str | Path,
 ) -> NDArray[np.floating[Any]]:
     """Run DiffRoute model on same data as DDR.
@@ -149,18 +152,14 @@ def run_diffroute(
     # Stability requires: k >= dt / (2*(1-x))
     # For dt=1hr=0.0417 days, x=0.3: k_min ≈ 0.03 days
     # Default k = dt (1 hour) is a reasonable starting point
-    dt = diffroute_cfg.get("dt", 3600 / 86400)  # 1 hour in days
-    k = diffroute_cfg.get("k")
-    if k is None:
-        k = np.full(len(order), dt)  # default: same as timestep (1 hour in days)
-    else:
-        k = np.full(len(order), k)
-    x = diffroute_cfg.get("x", 0.3)
+    dt = diffroute_cfg.dt
+    k = np.full(len(order), diffroute_cfg.k if diffroute_cfg.k is not None else dt)
+    x = diffroute_cfg.x
     param_df = create_param_df(order, k=k, x=np.full(len(order), x), k_units="days")
 
     # Build DiffRoute components
-    irf_fn = diffroute_cfg.get("irf_fn", "muskingum")
-    max_delay = diffroute_cfg.get("max_delay", 100)
+    irf_fn = diffroute_cfg.irf_fn
+    max_delay = diffroute_cfg.max_delay
 
     riv = RivTree(G, irf_fn=irf_fn, param_df=param_df)
     router = LTIRouter(max_delay=max_delay, dt=dt)
@@ -316,7 +315,7 @@ def benchmark(
     flow: streamflow,
     routing_model: dmc,
     nn: kan,
-    diffroute_cfg: dict[str, Any],
+    diffroute_cfg: DiffRouteConfig,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -365,7 +364,7 @@ def benchmark(
 
     # Get zarr path for DiffRoute adapter
     zarr_path = cfg.data_sources.gages_adjacency
-    diffroute_enabled = diffroute_cfg.get("enabled", True)
+    diffroute_enabled = diffroute_cfg.enabled
 
     # === RUN BOTH MODELS ON SAME routing_dataclass ===
     log.info("Starting benchmark evaluation...")
@@ -429,7 +428,12 @@ def main(cfg: DictConfig) -> None:
     """Main function - adapted from scripts/test.py:main()."""
     cfg.params.save_path = Path(HydraConfig.get().run.dir)
     (cfg.params.save_path / "plots").mkdir(exist_ok=True)
-    config = validate_config(cfg)
+
+    # Validate benchmark config (DDR + model-specific)
+    benchmark_cfg = validate_benchmark_config(cfg)
+    config = benchmark_cfg.ddr
+    diffroute_cfg = benchmark_cfg.diffroute
+
     start_time = time.perf_counter()
 
     try:
@@ -446,9 +450,6 @@ def main(cfg: DictConfig) -> None:
         )
         routing_model = dmc(cfg=config, device=config.device)
         flow = streamflow(config)
-
-        # DiffRoute config from benchmark.yaml
-        diffroute_cfg = dict(cfg.get("diffroute", {}))
 
         benchmark(cfg=config, flow=flow, routing_model=routing_model, nn=nn, diffroute_cfg=diffroute_cfg)
 

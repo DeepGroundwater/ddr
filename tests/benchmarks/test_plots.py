@@ -130,7 +130,6 @@ def test_generate_diffroute_hydrograph_plot(
     assert plot_path.stat().st_size > 0, "Plot file is empty"
 
 
-@requires_cuda
 def test_generate_ddr_hydrograph_plot(
     ddr_discharge: np.ndarray,
     sandbox_expected_qout: torch.Tensor,
@@ -138,6 +137,8 @@ def test_generate_ddr_hydrograph_plot(
     tmp_path: Path,
 ) -> None:
     """Generate hydrograph comparison plot of DDR vs RAPID2.
+
+    Note: This test does not require CUDA as DDR runs on CPU.
 
     Creates a multi-panel figure showing:
     - Panel 1: Total Qext vs DDR outlet discharge

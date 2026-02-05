@@ -145,9 +145,14 @@ def run_diffroute(
     order = root["order"][:]
 
     # Create param DataFrame using EXISTING adapter (diffroute_adapter.py:144)
+    # Muskingum k is travel time through reach (in days, same units as dt)
+    # Stability requires: k >= dt / (2*(1-x))
+    # For dt=1hr=0.0417 days, x=0.3: k_min ≈ 0.03 days
+    # Default k = dt (1 hour) is a reasonable starting point
+    dt = diffroute_cfg.get("dt", 3600 / 86400)  # 1 hour in days
     k = diffroute_cfg.get("k")
     if k is None:
-        k = np.full(len(order), 0.5)  # default: 0.5 days
+        k = np.full(len(order), dt)  # default: same as timestep (1 hour in days)
     else:
         k = np.full(len(order), k)
     x = diffroute_cfg.get("x", 0.3)
@@ -155,7 +160,6 @@ def run_diffroute(
 
     # Build DiffRoute components
     irf_fn = diffroute_cfg.get("irf_fn", "muskingum")
-    dt = diffroute_cfg.get("dt", 3600 / 86400)  # 1 hour in days
     max_delay = diffroute_cfg.get("max_delay", 100)
 
     riv = RivTree(G, irf_fn=irf_fn, param_df=param_df)

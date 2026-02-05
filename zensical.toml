@@ -27,6 +27,11 @@ nav = [
      "usage/routing.md",
      "usage/summed_q_prime.md",
      "usage/examples.md",
+  ]},
+  {"Benchmarks" = [
+     "benchmarks/index.md",
+     "benchmarks/diffroute.md",
+     "benchmarks/config.md",
   ]}
 ]
 

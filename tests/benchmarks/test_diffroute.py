@@ -253,33 +253,31 @@ def test_downstream_accumulation(
 @requires_cuda
 def test_mass_balance(
     sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
-    sandbox_runoff: torch.Tensor,
-    sandbox_qext: torch.Tensor,
+    sandbox_hourly_runoff: torch.Tensor,
+    sandbox_hourly_qprime: torch.Tensor,
 ) -> None:
     """Verify mass conservation through the network.
 
-    Total water input (sum of Qext) should approximately equal total water
+    Total water input (sum of Q') should approximately equal total water
     output at the outlet, accounting for storage changes in the network.
 
-    For the Sandbox data:
-    - Total Qext = 5600 m³/s·timesteps
-    - RAPID2 outlet sum = 5600 m³/s·timesteps (perfect balance)
+    Uses hourly interpolated data (238 timesteps) for consistency with DDR.
     """
     from diffroute import LTIRouter, RivTree
 
     G, param_df = sandbox_network
 
-    dt_days = 900 / 86400
+    dt_days = 3600 / 86400  # 1 hour in days
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
     router = LTIRouter(max_delay=100, dt=dt_days).to(DEVICE)
 
     # Reorder input to DiffRoute's DFS order, run routing, reorder output back to RAPID2 order
-    runoff = reorder_to_diffroute(sandbox_runoff, riv).to(DEVICE)
-    discharge = router(runoff, riv)  # (1, 5, 80)
-    discharge_cpu = reorder_to_rapid2(discharge.squeeze(0).cpu(), riv)  # (5, 80) in RAPID2 order
+    runoff = reorder_to_diffroute(sandbox_hourly_runoff, riv).to(DEVICE)
+    discharge = router(runoff, riv)  # (1, 5, 238)
+    discharge_cpu = reorder_to_rapid2(discharge.squeeze(0).cpu(), riv)  # (5, 238) in RAPID2 order
 
-    # Total input: sum of all Qext across all reaches and timesteps
-    total_input = sandbox_qext.sum().item()
+    # Total input: sum of all Q' across all reaches and timesteps
+    total_input = sandbox_hourly_qprime.sum().item()
 
     # Total output: sum of discharge at outlet (reach 50 = index 4) over all timesteps
     total_outlet = discharge_cpu[4, :].sum().item()

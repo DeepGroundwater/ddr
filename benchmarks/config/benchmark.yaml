@@ -22,6 +22,7 @@ data_sources:
   gages: /projects/mhpi/tbindas/ddr/streamflow_datasets/gage_info/dhbv2_gages.csv
 
 params:
+  save_path: ./
   parameter_ranges:
     n: [0.02, 0.2]
     q_spatial: [0.0, 1.0]

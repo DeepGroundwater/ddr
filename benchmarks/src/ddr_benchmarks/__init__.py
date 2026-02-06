@@ -5,6 +5,7 @@ from ddr_benchmarks.benchmark import (
     reorder_to_diffroute,
     reorder_to_topo,
     run_ddr,
+    run_diffroute_benchmark,
 )
 from ddr_benchmarks.configs import (
     BenchmarkConfig,
@@ -13,7 +14,6 @@ from ddr_benchmarks.configs import (
 )
 from ddr_benchmarks.diffroute_adapter import (
     build_diffroute_inputs,
-    coo_to_networkx,
     create_param_df,
     load_rapid_params,
     zarr_group_to_networkx,
@@ -25,7 +25,6 @@ __version__ = "0.1.0"
 __all__ = [
     # Adapter functions
     "build_diffroute_inputs",
-    "coo_to_networkx",
     "create_param_df",
     "load_rapid_params",
     "zarr_group_to_networkx",
@@ -35,6 +34,7 @@ __all__ = [
     "reorder_to_diffroute",
     "reorder_to_topo",
     "run_ddr",
+    "run_diffroute_benchmark",
     # Config classes
     "BenchmarkConfig",
     "DiffRouteConfig",

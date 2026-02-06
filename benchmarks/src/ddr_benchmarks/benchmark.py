@@ -34,11 +34,11 @@ from ddr.io.readers import read_zarr
 from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, plot_gauge_map, plot_time_series, utils
 from ddr.validation.enums import GeoDataset
 
-# Benchmark config validation
-from ddr_benchmarks.configs import DiffRouteConfig, validate_benchmark_config
-
 # Adapter functions
 from ddr_benchmarks.diffroute_adapter import create_param_df
+
+# Benchmark config validation
+from ddr_benchmarks.validation import DiffRouteConfig, validate_benchmark_config
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -746,7 +746,7 @@ def benchmark(
     log.info("Benchmark complete!")
 
 
-@hydra.main(version_base="1.3", config_path="../../../config", config_name="benchmark")
+@hydra.main(version_base="1.3", config_path="../../config", config_name="benchmark")
 def main(cfg: DictConfig) -> None:
     """Main function - adapted from scripts/test.py:main()."""
     cfg.params.save_path = Path(HydraConfig.get().run.dir)

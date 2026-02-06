@@ -31,6 +31,12 @@ class BenchmarkConfig(BaseModel):
     )
     # Future: rapid: RAPIDConfig, etc.
 
+    # Optional baseline comparison
+    summed_q_prime: str | None = Field(
+        default=None,
+        description="Path to pre-computed summed Q' zarr store for baseline comparison",
+    )
+
 
 def validate_benchmark_config(cfg: DictConfig, save_config: bool = True) -> BenchmarkConfig:
     """Validate benchmark config, separating DDR fields from model-specific fields.
@@ -52,6 +58,7 @@ def validate_benchmark_config(cfg: DictConfig, save_config: bool = True) -> Benc
 
         # Extract model-specific configs
         diffroute_cfg = config_dict.pop("diffroute", {})
+        summed_q_prime = config_dict.pop("summed_q_prime", None)
         # Future: rapid_cfg = config_dict.pop("rapid", {})
 
         # Remaining fields are DDR config
@@ -62,6 +69,7 @@ def validate_benchmark_config(cfg: DictConfig, save_config: bool = True) -> Benc
         benchmark_config = BenchmarkConfig(
             ddr=ddr_config,
             diffroute=DiffRouteConfig(**diffroute_cfg),
+            summed_q_prime=summed_q_prime,
         )
 
         if save_config:

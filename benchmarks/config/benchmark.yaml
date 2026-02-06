@@ -87,3 +87,6 @@ diffroute:
   # Muskingum x parameter (weighting factor, typically 0-0.5)
   # x=0 gives pure reservoir behavior, x=0.5 gives pure translation
   x: 0.3
+
+# === Optional baseline comparison ===
+summed_q_prime: /projects/mhpi/tbindas/ddr/output/ddr-v0.3.2.dev7+gc99a0926d.d20260205-merit-q_prime/2026-02-05_21-39-26/summed_q_prime.zarr

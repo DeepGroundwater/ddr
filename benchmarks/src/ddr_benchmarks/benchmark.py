@@ -22,6 +22,7 @@ import xarray as xr
 from diffroute import LTIRouter, RivTree
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
 # Reuse ALL DDR imports
@@ -219,6 +220,60 @@ def run_diffroute_benchmark(
     return output
 
 
+def load_summed_q_prime(
+    summed_q_prime_path: str,
+    gage_ids: np.ndarray,
+    daily_obs: NDArray[np.floating[Any]],
+    warmup: int,
+) -> tuple[Metrics, NDArray[np.floating[Any]]] | None:
+    """Load pre-computed summed Q' predictions and compute metrics.
+
+    Parameters
+    ----------
+    summed_q_prime_path : str
+        Path to the summed Q' zarr store (from scripts/summed_q_prime.py)
+    gage_ids : np.ndarray
+        Benchmark gage IDs to align with
+    daily_obs : np.ndarray
+        Daily observations aligned with gage_ids, shape (num_gages, num_days)
+    warmup : int
+        Number of warmup days to skip
+
+    Returns
+    -------
+    tuple[Metrics, np.ndarray] or None
+        Metrics and daily predictions for common gages, or None if loading fails
+    """
+    try:
+        ds = xr.open_zarr(summed_q_prime_path)
+    except (FileNotFoundError, ValueError, KeyError):
+        log.warning(f"Failed to open summed Q' store at {summed_q_prime_path}")
+        return None
+
+    sqp_gage_ids = ds.gage_ids.values
+    sqp_preds = ds.predictions.values  # (num_sqp_gages, num_days)
+
+    # Find common gages and align ordering
+    common_mask = np.isin(gage_ids, sqp_gage_ids)
+    if not common_mask.any():
+        log.warning("No common gages between benchmark and summed Q' store")
+        return None
+
+    common_gages = gage_ids[common_mask]
+    sqp_idx = [np.where(sqp_gage_ids == g)[0][0] for g in common_gages]
+    bench_idx = np.where(common_mask)[0]
+
+    # Use the shorter of the two time dimensions
+    num_days = min(sqp_preds.shape[1], daily_obs.shape[1])
+    sqp_aligned = sqp_preds[sqp_idx, :num_days]
+    obs_aligned = daily_obs[bench_idx, :num_days]
+
+    log.info(f"Summed Q': {len(common_gages)}/{len(gage_ids)} gages matched, {num_days} days")
+
+    metrics = Metrics(pred=sqp_aligned[:, warmup:], target=obs_aligned[:, warmup:])
+    return metrics, sqp_aligned
+
+
 # ============================================================================
 # Plotting utilities
 # ============================================================================
@@ -228,49 +283,61 @@ def generate_comparison_plots(
     cfg: Config,
     ddr_metrics: Metrics,
     diffroute_metrics: Metrics,
+    sqp_metrics: Metrics | None = None,
 ) -> None:
-    """Generate comparison plots for DDR vs DiffRoute.
+    """Generate comparison plots for DDR vs DiffRoute (and optionally summed Q').
 
     Args:
         cfg: Validated config object with save_path
         ddr_metrics: Metrics object for DDR predictions
         diffroute_metrics: Metrics object for DiffRoute predictions
+        sqp_metrics: Optional Metrics object for summed Q' baseline
     """
+    import matplotlib.pyplot as plt
+
     plot_path = cfg.params.save_path / "plots"
+
+    # Build data lists for plots
+    nse_data = [ddr_metrics.nse, diffroute_metrics.nse]
+    kge_data = [ddr_metrics.kge, diffroute_metrics.kge]
+    labels = ["DDR", "DiffRoute"]
+    colors = ["#4878D0", "#D65F5F"]
+
+    if sqp_metrics is not None:
+        nse_data.append(sqp_metrics.nse)
+        kge_data.append(sqp_metrics.kge)
+        labels.append("Summed Q'")
+        colors.append("#59A14F")
 
     # CDF plot for NSE comparison
     fig, ax = plot_cdf(
-        data_list=[ddr_metrics.nse, diffroute_metrics.nse],
-        legend_labels=["DDR", "DiffRoute"],
-        title="NSE Comparison: DDR vs DiffRoute",
+        data_list=nse_data,
+        legend_labels=labels,
+        title="NSE Comparison",
         xlabel="NSE",
         ylabel="CDF",
         xlim=(-1, 1),
     )
     if fig is not None:
         fig.savefig(plot_path / "nse_cdf_comparison.png", dpi=300, bbox_inches="tight")
-        import matplotlib.pyplot as plt
-
         plt.close(fig)
 
     # Box plot comparison
     fig = plot_box_fig(
-        data=[[ddr_metrics.nse, diffroute_metrics.nse]],
+        data=[nse_data],
         xlabel_list=["NSE"],
-        legend_labels=["DDR", "DiffRoute"],
-        color_list=["#4878D0", "#D65F5F"],
-        title="NSE Distribution: DDR vs DiffRoute",
+        legend_labels=labels,
+        color_list=colors,
+        title="NSE Distribution",
     )
     fig.savefig(plot_path / "nse_boxplot_comparison.png", dpi=300, bbox_inches="tight")
-    import matplotlib.pyplot as plt
-
     plt.close(fig)
 
     # KGE comparison
     fig, ax = plot_cdf(
-        data_list=[ddr_metrics.kge, diffroute_metrics.kge],
-        legend_labels=["DDR", "DiffRoute"],
-        title="KGE Comparison: DDR vs DiffRoute",
+        data_list=kge_data,
+        legend_labels=labels,
+        title="KGE Comparison",
         xlabel="KGE",
         ylabel="CDF",
         xlim=(-1, 1),
@@ -352,6 +419,7 @@ def benchmark(
     routing_model: dmc,
     nn: kan,
     diffroute_cfg: DiffRouteConfig,
+    summed_q_prime_path: str | None = None,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -361,6 +429,7 @@ def benchmark(
         routing_model: DMC routing model
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
+        summed_q_prime_path: Optional path to summed Q' zarr store
     """
     assert cfg.geodataset == GeoDataset.MERIT, (
         f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
@@ -387,16 +456,15 @@ def benchmark(
 
     nn = nn.eval()
 
-    # TODO: uncomment dataloader after DiffRoute verification
-    # sampler = SequentialSampler(data_source=dataset)
-    # dataloader = DataLoader(
-    #     dataset=dataset,
-    #     batch_size=cfg.experiment.batch_size,
-    #     num_workers=0,
-    #     sampler=sampler,
-    #     collate_fn=dataset.collate_fn,
-    #     drop_last=False,
-    # )
+    sampler = SequentialSampler(data_source=dataset)
+    dataloader = DataLoader(
+        dataset=dataset,
+        batch_size=cfg.experiment.batch_size,
+        num_workers=0,
+        sampler=sampler,
+        collate_fn=dataset.collate_fn,
+        drop_last=False,
+    )
 
     warmup = cfg.experiment.warmup
     assert dataset.routing_dataclass is not None, "Routing dataclass not defined in dataset"
@@ -409,22 +477,21 @@ def benchmark(
     diffroute_enabled = diffroute_cfg.enabled
 
     # === PHASE 1: DDR (same loop as test.py) ===
-    # TODO: uncomment DDR loop after DiffRoute verification
-    # log.info("Starting DDR evaluation...")
-    # with torch.no_grad():
-    #     for i, routing_dataclass in enumerate(tqdm(dataloader, desc="DDR batches"), start=0):
-    #         routing_model.set_progress_info(epoch=0, mini_batch=i)
-    #
-    #         streamflow_predictions = flow(
-    #             routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-    #         )
-    #         spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
-    #         dmc_output = routing_model(
-    #             routing_dataclass=routing_dataclass,
-    #             spatial_parameters=spatial_params,
-    #             streamflow=streamflow_predictions,
-    #         )
-    #         ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
+    log.info("Starting DDR evaluation...")
+    with torch.no_grad():
+        for i, routing_dataclass in enumerate(tqdm(dataloader, desc="DDR batches"), start=0):
+            routing_model.set_progress_info(epoch=0, mini_batch=i)
+
+            streamflow_predictions = flow(
+                routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+            )
+            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
+            dmc_output = routing_model(
+                routing_dataclass=routing_dataclass,
+                spatial_parameters=spatial_params,
+                streamflow=streamflow_predictions,
+            )
+            ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
     # === PHASE 2: DiffRoute per-gage ===
     if diffroute_enabled:
@@ -442,11 +509,10 @@ def benchmark(
     # === EVALUATION (same as test.py) ===
     num_days = len(ddr_predictions[0][13 : (-11 + cfg.params.tau)]) // 24
 
-    # TODO: uncomment DDR downsample after DiffRoute verification
-    # ddr_daily = ddr_functions.downsample(
-    #     torch.tensor(ddr_predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
-    #     rho=num_days,
-    # ).numpy()
+    ddr_daily = ddr_functions.downsample(
+        torch.tensor(ddr_predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
+        rho=num_days,
+    ).numpy()
 
     diffroute_daily = ddr_functions.downsample(
         torch.tensor(diffroute_predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
@@ -456,14 +522,14 @@ def benchmark(
     daily_obs = observations[:, 1:-1]
 
     # Compute metrics using DDR's Metrics class
-    # TODO: uncomment DDR metrics after DiffRoute verification
-    # log.info("=" * 50)
-    # log.info("=== DDR Metrics ===")
-    # ddr_metrics = Metrics(pred=ddr_daily[:, warmup:], target=daily_obs[:, warmup:])
-    # _nse = ddr_metrics.nse
-    # nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
-    # utils.log_metrics(nse, ddr_metrics.rmse, ddr_metrics.kge)
+    log.info("=" * 50)
+    log.info("=== DDR Metrics ===")
+    ddr_metrics = Metrics(pred=ddr_daily[:, warmup:], target=daily_obs[:, warmup:])
+    _nse = ddr_metrics.nse
+    nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
+    utils.log_metrics(nse, ddr_metrics.rmse, ddr_metrics.kge)
 
+    diffroute_metrics = None
     if diffroute_enabled:
         log.info("=" * 50)
         log.info("=== DiffRoute Metrics ===")
@@ -472,11 +538,24 @@ def benchmark(
         nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
         utils.log_metrics(nse, diffroute_metrics.rmse, diffroute_metrics.kge)
 
-        # TODO: uncomment comparison plots after DDR is re-enabled
-        # generate_comparison_plots(cfg, ddr_metrics, diffroute_metrics)
+    # Optional summed Q' baseline
+    sqp_metrics = None
+    if summed_q_prime_path is not None:
+        log.info("=" * 50)
+        log.info("=== Summed Q' Metrics ===")
+        result = load_summed_q_prime(summed_q_prime_path, all_gage_ids, daily_obs, warmup)
+        if result is not None:
+            sqp_metrics = result[0]
+            _nse = sqp_metrics.nse
+            nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
+            utils.log_metrics(nse, sqp_metrics.rmse, sqp_metrics.kge)
 
-    # TODO: uncomment save after DDR is re-enabled
-    # save_results(cfg, ddr_daily, diffroute_daily, daily_obs, all_gage_ids, dataset.dates)
+    # Generate comparison plots
+    if diffroute_metrics is not None:
+        generate_comparison_plots(cfg, ddr_metrics, diffroute_metrics, sqp_metrics)
+
+    # Save results to zarr
+    save_results(cfg, ddr_daily, diffroute_daily, daily_obs, all_gage_ids, dataset.dates)
 
     log.info("=" * 50)
     log.info("Benchmark complete!")
@@ -510,7 +589,14 @@ def main(cfg: DictConfig) -> None:
         routing_model = dmc(cfg=config, device=config.device)
         flow = streamflow(config)
 
-        benchmark(cfg=config, flow=flow, routing_model=routing_model, nn=nn, diffroute_cfg=diffroute_cfg)
+        benchmark(
+            cfg=config,
+            flow=flow,
+            routing_model=routing_model,
+            nn=nn,
+            diffroute_cfg=diffroute_cfg,
+            summed_q_prime_path=benchmark_cfg.summed_q_prime,
+        )
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

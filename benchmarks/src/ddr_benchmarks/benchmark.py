@@ -8,11 +8,9 @@ performance metrics.
 from __future__ import annotations
 
 import logging
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import hydra
 import networkx as nx
 import numpy as np
 import pandas as pd
@@ -21,8 +19,6 @@ import xarray as xr
 
 # DiffRoute imports
 from diffroute import LTIRouter, RivTree
-from hydra.core.hydra_config import HydraConfig
-from omegaconf import DictConfig
 from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
@@ -38,7 +34,7 @@ from ddr.validation.enums import GeoDataset
 from ddr_benchmarks.diffroute_adapter import create_param_df
 
 # Benchmark config validation
-from ddr_benchmarks.validation import DiffRouteConfig, validate_benchmark_config
+from ddr_benchmarks.validation import DiffRouteConfig
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -744,53 +740,3 @@ def benchmark(
 
     log.info("=" * 50)
     log.info("Benchmark complete!")
-
-
-@hydra.main(version_base="1.3", config_path="../../../config", config_name="benchmark")
-def main(cfg: DictConfig) -> None:
-    """Main function - adapted from scripts/test.py:main()."""
-    cfg.params.save_path = Path(HydraConfig.get().run.dir)
-    (cfg.params.save_path / "plots").mkdir(exist_ok=True)
-
-    # Validate benchmark config (DDR + model-specific)
-    benchmark_cfg = validate_benchmark_config(cfg)
-    config = benchmark_cfg.ddr
-    diffroute_cfg = benchmark_cfg.diffroute
-
-    start_time = time.perf_counter()
-
-    try:
-        # Initialize DDR models (same as test.py)
-        nn = kan(
-            input_var_names=config.kan.input_var_names,
-            learnable_parameters=config.kan.learnable_parameters,
-            hidden_size=config.kan.hidden_size,
-            num_hidden_layers=config.kan.num_hidden_layers,
-            grid=config.kan.grid,
-            k=config.kan.k,
-            seed=config.seed,
-            device=config.device,
-        )
-        routing_model = dmc(cfg=config, device=config.device)
-        flow = streamflow(config)
-
-        benchmark(
-            cfg=config,
-            flow=flow,
-            routing_model=routing_model,
-            nn=nn,
-            diffroute_cfg=diffroute_cfg,
-            summed_q_prime_path=benchmark_cfg.summed_q_prime,
-        )
-
-    except KeyboardInterrupt:
-        log.info("Keyboard interrupt received")
-
-    finally:
-        log.info("Cleaning up...")
-        total_time = time.perf_counter() - start_time
-        log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
-
-
-if __name__ == "__main__":
-    main()

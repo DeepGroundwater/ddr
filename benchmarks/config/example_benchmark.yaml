@@ -8,7 +8,7 @@
 # HOW TO USE:
 #   1. Copy this file:  cp example_benchmark.yaml benchmark.yaml
 #   2. Replace every /path/to/... with real paths for your environment
-#   3. Run:  uv run python -m ddr_benchmarks --config-name benchmark
+#   3. Run:  uv run python scripts/benchmark.py --config-name benchmark
 #
 # WHAT IT PRODUCES (in output/<name>/<timestamp>/):
 #   plots/

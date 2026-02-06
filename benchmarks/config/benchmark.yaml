@@ -8,7 +8,7 @@ defaults:
 # Standard DDR config (same as example_config.yaml)
 mode: testing
 geodataset: merit
-name: benchmark-${now:%Y-%m-%d_%H-%M-%S}
+name: benchmarks-${geodataset}-${now:%Y-%m-%d_%H-%M-%S}
 device: 4
 
 data_sources:
@@ -34,7 +34,7 @@ params:
   tau: 3
 
 experiment:
-  batch_size: 64
+  batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3

@@ -16,12 +16,12 @@ import hydra
 import numpy as np
 import torch
 import xarray as xr
-import zarr
 
 # DiffRoute imports
 from diffroute import LTIRouter, RivTree
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from scipy import sparse
 from torch.utils.data import DataLoader, SequentialSampler
 
 # Reuse ALL DDR imports
@@ -33,8 +33,8 @@ from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, utils
 # Benchmark config validation
 from ddr_benchmarks.configs import DiffRouteConfig, validate_benchmark_config
 
-# EXISTING adapter functions - already handles COO -> NetworkX conversion
-from ddr_benchmarks.diffroute_adapter import create_param_df, zarr_to_networkx
+# EXISTING adapter functions - COO -> NetworkX conversion
+from ddr_benchmarks.diffroute_adapter import coo_to_networkx, create_param_df
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -115,72 +115,6 @@ def run_ddr(
         streamflow=streamflow_predictions,
     )
     return dmc_output["runoff"].cpu().numpy()
-
-
-def run_diffroute(
-    cfg: Config,
-    flow: streamflow,
-    routing_dataclass: RoutingDataclass,
-    diffroute_cfg: DiffRouteConfig,
-    zarr_path: str | Path,
-) -> NDArray[np.floating[Any]]:
-    """Run DiffRoute model on same data as DDR.
-
-    Uses EXISTING diffroute_adapter.py functions for COO -> NetworkX conversion.
-
-    Args:
-        cfg: Validated config object
-        flow: Streamflow reader (same as DDR uses)
-        routing_dataclass: RoutingDataclass with all routing data
-        diffroute_cfg: DiffRoute-specific configuration
-        zarr_path: Path to zarr store with adjacency matrix
-
-    Returns
-    -------
-        Array of routed discharge predictions in DDR topological order
-    """
-    # Build DiffRoute graph using EXISTING adapter (diffroute_adapter.py:124)
-    G = zarr_to_networkx(zarr_path)
-    topo_order = routing_dataclass.divide_ids
-
-    # Load order from zarr for param_df creation
-    root = zarr.open_group(store=zarr_path, mode="r")
-    order = root["order"][:]
-
-    # Create param DataFrame using EXISTING adapter (diffroute_adapter.py:144)
-    # Muskingum k is travel time through reach (in days, same units as dt)
-    # Stability requires: k >= dt / (2*(1-x))
-    # For dt=1hr=0.0417 days, x=0.3: k_min ≈ 0.03 days
-    # Default k = dt (1 hour) is a reasonable starting point
-    dt = diffroute_cfg.dt
-    k = np.full(len(order), diffroute_cfg.k if diffroute_cfg.k is not None else dt)
-    x = diffroute_cfg.x
-    param_df = create_param_df(order, k=k, x=np.full(len(order), x), k_units="days")
-
-    # Build DiffRoute components
-    irf_fn = diffroute_cfg.irf_fn
-    max_delay = diffroute_cfg.max_delay
-
-    riv = RivTree(G, irf_fn=irf_fn, param_df=param_df)
-    router = LTIRouter(max_delay=max_delay, dt=dt)
-
-    # Move to device
-    riv = riv.to(cfg.device)
-
-    # Get Q' from DDR's streamflow reader (SAME DATA!)
-    qprime = flow(routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32)
-
-    # DiffRoute expects (batch, nodes, time) - reorder using test pattern
-    runoff = qprime.T.unsqueeze(0)  # (1, reaches, timesteps)
-    runoff_reordered = reorder_to_diffroute(runoff, topo_order, riv)
-    runoff_reordered = runoff_reordered.to(cfg.device)
-
-    # Run routing
-    discharge = router(runoff_reordered, riv)  # (1, nodes, time)
-
-    # Reorder back to DDR topological order
-    discharge_topo = reorder_to_topo(discharge.squeeze(0).cpu(), topo_order, riv)
-    return discharge_topo.numpy()
 
 
 # ============================================================================
@@ -361,26 +295,70 @@ def benchmark(
     all_gage_ids = dataset.routing_dataclass.observations.gage_id.values
     ddr_predictions = np.zeros([len(all_gage_ids), len(dataset.dates.hourly_time_range)])
     diffroute_predictions = np.zeros_like(ddr_predictions)
-
-    # Get zarr path for DiffRoute adapter
-    zarr_path = cfg.data_sources.gages_adjacency
     diffroute_enabled = diffroute_cfg.enabled
 
-    # === RUN BOTH MODELS ON SAME routing_dataclass ===
+    # === BUILD DIFFROUTE NETWORK (once, before loop) ===
+    if diffroute_enabled:
+        log.info("Building DiffRoute network from adjacency matrix...")
+        assert dataset.routing_dataclass.adjacency_matrix is not None
+        adj_coo = dataset.routing_dataclass.adjacency_matrix.to_sparse_coo().coalesce()
+        indices = adj_coo.indices().numpy()
+        values = adj_coo.values().numpy()
+        coo = sparse.coo_matrix((values, (indices[0], indices[1])), shape=tuple(adj_coo.shape))
+
+        topo_order = dataset.routing_dataclass.divide_ids
+        G = coo_to_networkx(coo, topo_order)
+
+        dt = diffroute_cfg.dt
+        k_val = diffroute_cfg.k if diffroute_cfg.k is not None else dt
+        k_arr = np.full(len(topo_order), k_val)
+        x_arr = np.full(len(topo_order), diffroute_cfg.x)
+        param_df = create_param_df(topo_order, k=k_arr, x=x_arr, k_units="days")
+
+        riv = RivTree(G, irf_fn=diffroute_cfg.irf_fn, param_df=param_df)
+        router = LTIRouter(max_delay=diffroute_cfg.max_delay, dt=dt)
+        riv = riv.to(cfg.device)
+
+        # Map gage_catchment IDs to indices in divide_ids for gage extraction
+        assert dataset.routing_dataclass.gage_catchment is not None
+        divide_id_to_idx = {int(did): i for i, did in enumerate(topo_order)}
+        gage_indices = [divide_id_to_idx[int(gc)] for gc in dataset.routing_dataclass.gage_catchment]
+        log.info("DiffRoute network ready.")
+
+    # === RUN BOTH MODELS ON SAME DATA (same loop as test.py) ===
     log.info("Starting benchmark evaluation...")
     with torch.no_grad():
         for i, routing_dataclass in enumerate(dataloader, start=0):
             routing_model.set_progress_info(epoch=0, mini_batch=i)
             log.info(f"Processing batch {i + 1}")
 
-            # Run DDR
-            ddr_output = run_ddr(cfg, flow, routing_model, nn, routing_dataclass)
-            ddr_predictions[:, dataset.dates.hourly_indices] = ddr_output
+            # Lateral inflows (shared by both models)
+            streamflow_predictions = flow(
+                routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+            )
 
-            # Run DiffRoute on SAME data
+            # --- DDR (same as test.py) ---
+            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
+            dmc_output = routing_model(
+                routing_dataclass=routing_dataclass,
+                spatial_parameters=spatial_params,
+                streamflow=streamflow_predictions,
+            )
+            ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
+
+            # --- DiffRoute (on same lateral inflows) ---
             if diffroute_enabled:
-                diffroute_output = run_diffroute(cfg, flow, routing_dataclass, diffroute_cfg, zarr_path)
-                diffroute_predictions[:, dataset.dates.hourly_indices] = diffroute_output
+                runoff = streamflow_predictions.T.unsqueeze(0)  # (1, reaches, timesteps)
+                runoff_reordered = reorder_to_diffroute(runoff, topo_order, riv)
+                runoff_reordered = runoff_reordered.to(cfg.device)
+
+                discharge = router(runoff_reordered, riv)  # (1, nodes, time)
+                discharge_topo = reorder_to_topo(discharge.squeeze(0).cpu(), topo_order, riv)
+
+                # Extract discharge at gage nodes
+                diffroute_predictions[:, dataset.dates.hourly_indices] = discharge_topo[
+                    gage_indices, :
+                ].numpy()
 
     # === EVALUATION (same as test.py) ===
     num_days = len(ddr_predictions[0][13 : (-11 + cfg.params.tau)]) // 24

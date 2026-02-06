@@ -5,7 +5,6 @@ from ddr_benchmarks.benchmark import (
     reorder_to_diffroute,
     reorder_to_topo,
     run_ddr,
-    run_diffroute,
 )
 from ddr_benchmarks.configs import (
     BenchmarkConfig,
@@ -36,7 +35,6 @@ __all__ = [
     "reorder_to_diffroute",
     "reorder_to_topo",
     "run_ddr",
-    "run_diffroute",
     # Config classes
     "BenchmarkConfig",
     "DiffRouteConfig",

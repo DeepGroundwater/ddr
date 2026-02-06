@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import hydra
+import networkx as nx
 import numpy as np
 import torch
 import xarray as xr
@@ -29,12 +30,13 @@ from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
 from ddr.io.readers import read_zarr
 from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, utils
+from ddr.validation.enums import GeoDataset
 
 # Benchmark config validation
 from ddr_benchmarks.configs import DiffRouteConfig, validate_benchmark_config
 
-# Adapter functions - zarr -> NetworkX conversion
-from ddr_benchmarks.diffroute_adapter import create_param_df, zarr_group_to_networkx
+# Adapter functions
+from ddr_benchmarks.diffroute_adapter import create_param_df
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -149,6 +151,12 @@ def run_diffroute_benchmark(
     assert cfg.data_sources.gages_adjacency is not None, "gages_adjacency path required for DiffRoute"
     gages_adj = read_zarr(Path(cfg.data_sources.gages_adjacency))
 
+    # Load CONUS order to map CONUS-level indices → COMIDs.
+    # Gage subgroup indices_0/indices_1 are CONUS-level (into the full ~77K order),
+    # not local to the subgroup's order array. See docs/engine/binsparse.md.
+    conus_adj = read_zarr(Path(cfg.data_sources.conus_adjacency))
+    conus_order = conus_adj["order"][:]
+
     # Reset dates to full range (DDR loop leaves it on last batch)
     dates.set_batch_time(dates.daily_time_range)
 
@@ -165,10 +173,21 @@ def run_diffroute_benchmark(
 
         gage_group = gages_adj[gage_id]
 
-        # Build connected graph from this gage's subgroup
-        G = zarr_group_to_networkx(gage_group)
+        # Build connected graph from this gage's subgroup.
+        # indices_0/indices_1 are CONUS-level indices, so we use conus_order
+        # to resolve them to COMIDs.
+        row = gage_group["indices_0"][:]
+        col = gage_group["indices_1"][:]
         order = gage_group["order"][:]
         gage_catchment = gage_group.attrs["gage_catchment"]
+
+        G = nx.DiGraph()
+        for node_id in order:
+            G.add_node(int(node_id))
+        for row_idx, col_idx in zip(row, col, strict=False):
+            upstream_id = int(conus_order[col_idx])
+            downstream_id = int(conus_order[row_idx])
+            G.add_edge(upstream_id, downstream_id)
 
         # Build params and RivTree for this gage's subgraph
         k_arr = np.full(len(order), k_val)
@@ -347,6 +366,10 @@ def benchmark(
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
     """
+    assert cfg.geodataset == GeoDataset.MERIT, (
+        f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
+    )
+
     # Set CUDA device for all operations
     if torch.cuda.is_available() and isinstance(cfg.device, int):
         torch.cuda.set_device(cfg.device)

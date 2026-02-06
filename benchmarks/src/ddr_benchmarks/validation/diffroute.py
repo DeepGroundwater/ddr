@@ -28,7 +28,7 @@ class DiffRouteConfig(BaseModel):
     )
     k: float | None = Field(
         default=None,
-        description="Muskingum k (wave travel time) in days. None = use dt",
+        description="Muskingum k (wave travel time) in days. None = use 0.1042 (9000s, RAPID default)",
     )
     x: float = Field(
         default=0.3,

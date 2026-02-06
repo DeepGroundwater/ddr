@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import colormaps as cmaps
 import contextily as ctx
@@ -19,7 +20,7 @@ def plot_time_series(
     path: Path,
     warmup: int = 3,
     title: str | None = None,
-    additional_predictions: list[tuple[np.ndarray, str]] | None = None,
+    additional_predictions: Any | None = None,
 ) -> None:
     """Plot time series for a single prediction
 
@@ -36,7 +37,7 @@ def plot_time_series(
     name : str
         The name of the gage
     metrics : dict
-        The metrics dictionary
+        The metrics dictionary for the main prediction
     path : Path
         Path to save the plot
     warmup : int, optional
@@ -45,25 +46,43 @@ def plot_time_series(
         Custom plot title. If None, uses default format.
     additional_predictions : list[tuple[np.ndarray, str]], optional
         Additional prediction lines as (data, label) tuples.
+        Each tuple can optionally be (data, label, metrics_dict) to
+        include per-model metrics in the legend.
     """
     fig = plt.figure(figsize=(10, 5))
     prediction_to_plot = prediction[warmup:]
     observation_to_plot = observation[warmup:]
-    plt.plot(time_range[warmup:], observation_to_plot, label="Observation")
-    plt.plot(time_range[warmup:], prediction_to_plot, label="Routed Streamflow")
+
+    obs_mass = float(np.nansum(observation_to_plot))
+    pred_mass = float(np.nansum(prediction_to_plot))
+    nse = metrics["nse"]
+    plt.plot(time_range[warmup:], observation_to_plot, label=f"Observation [ΣQ={obs_mass:.1f}]")
+    plt.plot(
+        time_range[warmup:],
+        prediction_to_plot,
+        label=f"Routed Streamflow [ΣQ={pred_mass:.1f}, NSE: {nse:.4f}]",
+    )
 
     if additional_predictions is not None:
-        for add_pred, add_label in additional_predictions:
-            plt.plot(time_range[warmup:], add_pred[warmup:], label=add_label)
+        for entry in additional_predictions:
+            add_pred, add_label = entry[0], entry[1]
+            add_metrics = entry[2] if len(entry) > 2 else None
+            add_plot = add_pred[warmup:]
+            add_mass = float(np.nansum(add_plot))
+            if add_metrics is not None and "nse" in add_metrics:
+                add_nse = add_metrics["nse"]
+                label = f"{add_label} [ΣQ={add_mass:.1f}, NSE: {add_nse:.4f}]"
+            else:
+                label = f"{add_label} [ΣQ={add_mass:.1f}]"
+            plt.plot(time_range[warmup:], add_plot, label=label)
 
-    nse = metrics["nse"]
     if title is not None:
         plt.title(title)
     else:
         plt.title(f"Train time period Hydrograph - GAGE ID: {gage_id} - Name: {name}")
     plt.xlabel("Time (hours)")
     plt.ylabel(r"Discharge $m^3/s$")
-    plt.legend(title=f"NSE: {nse:.4f}")
+    plt.legend()
     plt.savefig(path)
     plt.close(fig)
 

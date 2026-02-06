@@ -79,10 +79,9 @@ diffroute:
 
   # Muskingum k parameter (wave travel time through reach) in days
   # Must be in same units as dt. For stability: k >= dt / (2*(1-x))
-  # null = use dt (1 hour), or specify uniform value in days
-  # For reference: k = reach_length / wave_celerity
-  # Example: 0.0416667 days = 1 hour (same as dt)
-  k: 0.0416667
+  # k = reach_length / wave_celerity
+  # 0.1042 days = 9000s = 2.5 hours (RAPID default)
+  k: 0.1042
 
   # Muskingum x parameter (weighting factor, typically 0-0.5)
   # x=0 gives pure reservoir behavior, x=0.5 gives pure translation

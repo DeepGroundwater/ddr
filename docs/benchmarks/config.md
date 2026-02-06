@@ -28,7 +28,7 @@ defaults:
 
 mode: testing
 geodataset: merit
-name: benchmark-${now:%Y-%m-%d_%H-%M-%S}
+name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
 device: 0
 
 data_sources:
@@ -39,7 +39,7 @@ data_sources:
   statistics: /path/to/statistics
   streamflow: /path/to/streamflow
   observations: /path/to/observations
-  gages: /path/to/gages.csv
+  gages: /path/to/gages.csv   # Required for gauge maps (needs STAID, LAT_GAGE, LNG_GAGE)
 
 params:
   parameter_ranges:
@@ -88,7 +88,7 @@ diffroute:
   irf_fn: muskingum
   max_delay: 100
   dt: 0.0416667
-  k: 0.0416667
+  k: 0.1042
   x: 0.3
 
 # === Optional Baseline ===
@@ -146,7 +146,7 @@ Common values:
 ### `diffroute.k`
 
 **Type**: `float` or `null`
-**Default**: `0.0416667` (1 hour in days)
+**Default**: `0.1042` (9000s = 2.5 hours, RAPID default)
 
 Muskingum k parameter (wave travel time through reach) in **days**.
 
@@ -154,7 +154,7 @@ Muskingum k parameter (wave travel time through reach) in **days**.
 - For stability: `k >= dt / (2*(1-x))`
 - Physical interpretation: `k = reach_length / wave_celerity`
 
-If `null`, defaults to the value of `dt`.
+If `null`, defaults to `0.1042` days (RAPID default of 9000 seconds).
 
 ### `diffroute.x`
 
@@ -191,7 +191,8 @@ This is useful for quantifying how much value routing adds over raw lateral infl
 python scripts/summed_q_prime.py
 
 # Use in benchmark
-python -m ddr_benchmarks \
+cd benchmarks
+uv run python scripts/benchmark.py \
     summed_q_prime=/path/to/summed_q_prime.zarr
 ```
 
@@ -200,26 +201,28 @@ python -m ddr_benchmarks \
 Override any configuration option from the command line:
 
 ```bash
+cd benchmarks
+
 # Change DiffRoute parameters
-python -m ddr_benchmarks diffroute.k=0.1 diffroute.x=0.2
+uv run python scripts/benchmark.py diffroute.k=0.1 diffroute.x=0.2
 
 # Change experiment settings
-python -m ddr_benchmarks \
+uv run python scripts/benchmark.py \
     experiment.start_time=2000/10/01 \
     experiment.end_time=2005/09/30
 
 # Use different checkpoint
-python -m ddr_benchmarks \
+uv run python scripts/benchmark.py \
     experiment.checkpoint=/path/to/other_model.pt
 
-# Run on GPU
-python -m ddr_benchmarks device=0
+# Run on specific GPU
+uv run python scripts/benchmark.py device=0
 
 # Disable DiffRoute (DDR only)
-python -m ddr_benchmarks diffroute.enabled=false
+uv run python scripts/benchmark.py diffroute.enabled=false
 
 # Include summed Q' baseline
-python -m ddr_benchmarks summed_q_prime=/path/to/summed_q_prime.zarr
+uv run python scripts/benchmark.py summed_q_prime=/path/to/summed_q_prime.zarr
 ```
 
 ## Output Directory
@@ -227,11 +230,17 @@ python -m ddr_benchmarks summed_q_prime=/path/to/summed_q_prime.zarr
 Results are saved to:
 
 ```
-output/benchmark-<timestamp>/
+output/benchmarks-v0.1.0-merit/2026-02-06_12-00-00/
 ├── plots/
-│   ├── nse_cdf_comparison.png
-│   ├── nse_boxplot_comparison.png
-│   └── kge_cdf_comparison.png
+│   ├── nse_cdf_comparison.png            # CDF of NSE across all gauges
+│   ├── kge_cdf_comparison.png            # CDF of KGE across all gauges
+│   ├── metric_boxplot_comparison.png     # 6-panel boxplot (bias, rmse, fhv, flv, nse, kge)
+│   ├── gauge_map_ddr_NSE.png            # Map colored by DDR NSE
+│   ├── gauge_map_diffroute_NSE.png      # Map colored by DiffRoute NSE
+│   ├── gauge_map_sqp_NSE.png            # Map colored by summed Q' NSE (if enabled)
+│   └── hydrographs/                     # Per-gage time series with all models overlaid
+│       ├── 01234567.png
+│       └── ...
 ├── benchmark_results.zarr
 └── .hydra/
     ├── config.yaml

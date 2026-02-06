@@ -70,7 +70,7 @@ def test_diffroute_with_sandbox_network(
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df)
 
     # LTIRouter takes routing configuration, not the RivTree
-    router = LTIRouter(max_delay=100, dt=1)
+    router = LTIRouter(max_delay=100, dt=3600 / 86400)
 
     assert router is not None
     assert len(riv) == 5
@@ -88,7 +88,7 @@ def test_diffroute_routing_sandbox(
     runoff = sandbox_runoff.to(DEVICE)  # (1, 5, 80)
 
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
-    router = LTIRouter(max_delay=100, dt=1)
+    router = LTIRouter(max_delay=100, dt=3600 / 86400)
 
     # Forward pass takes both runoff and the RivTree
     discharge = router(runoff, riv)
@@ -112,7 +112,7 @@ def test_diffroute_gradient_sandbox(
     runoff = sandbox_runoff.clone().to(DEVICE).requires_grad_(True)
 
     riv = RivTree(G, irf_fn="muskingum", param_df=param_df).to(DEVICE)
-    router = LTIRouter(max_delay=100, dt=1)
+    router = LTIRouter(max_delay=100, dt=3600 / 86400)
 
     discharge = router(runoff, riv)
     loss = discharge.sum()
@@ -138,7 +138,7 @@ def test_diffroute_multiple_models(
     for model_name in models:
         # Create RivTree with the appropriate IRF function
         riv = RivTree(G, irf_fn=model_name, param_df=param_df).to(DEVICE)
-        router = LTIRouter(max_delay=100, dt=1)
+        router = LTIRouter(max_delay=100, dt=3600 / 86400)
 
         # Forward pass takes both runoff and the RivTree
         discharge = router(runoff, riv)

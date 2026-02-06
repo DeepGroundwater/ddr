@@ -161,7 +161,7 @@ def run_diffroute_benchmark(
 
     # Shared stateless router
     dt = diffroute_cfg.dt
-    k_val = diffroute_cfg.k if diffroute_cfg.k is not None else dt
+    k_val = diffroute_cfg.k if diffroute_cfg.k is not None else 0.1042
     router = LTIRouter(max_delay=diffroute_cfg.max_delay, dt=dt).to(device)
 
     for gage_idx, gage_id in enumerate(tqdm(gage_ids, desc="DiffRoute per-gage")):
@@ -464,10 +464,22 @@ def generate_comparison_plots(
 
         for gage_idx, gage_id in enumerate(tqdm(gage_ids, desc="Generating hydrographs")):
             additional = []
-            if diffroute_daily is not None:
-                additional.append((diffroute_daily[gage_idx], dr_label))
-            if sqp_daily is not None:
-                additional.append((sqp_daily[gage_idx], sqp_label))
+            if diffroute_daily is not None and diffroute_metrics is not None:
+                additional.append(
+                    (
+                        diffroute_daily[gage_idx],
+                        dr_label,
+                        {"nse": float(diffroute_metrics.nse[gage_idx])},
+                    )
+                )
+            if sqp_daily is not None and sqp_metrics is not None:
+                additional.append(
+                    (
+                        sqp_daily[gage_idx],
+                        sqp_label,
+                        {"nse": float(sqp_metrics.nse[gage_idx])},
+                    )
+                )
 
             plot_time_series(
                 prediction=ddr_daily[gage_idx],

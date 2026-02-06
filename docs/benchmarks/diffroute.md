@@ -84,8 +84,8 @@ diffroute:
   dt: 0.0416667
 
   # Muskingum k parameter (wave travel time) in days
-  # Example: 0.0416667 days = 1 hour (same as dt)
-  k: 0.0416667
+  # 0.1042 days = 9000s = 2.5 hours (RAPID default)
+  k: 0.1042
 
   # Muskingum x parameter (weighting factor)
   x: 0.3
@@ -97,27 +97,27 @@ diffroute:
 
 ```bash
 cd benchmarks
-python -m ddr_benchmarks
+uv run python scripts/benchmark.py
 ```
 
 ### With Custom Parameters
 
 ```bash
 # Faster wave propagation (smaller k)
-python -m ddr_benchmarks diffroute.k=0.02
+uv run python scripts/benchmark.py diffroute.k=0.02
 
 # More attenuation (smaller x)
-python -m ddr_benchmarks diffroute.x=0.1
+uv run python scripts/benchmark.py diffroute.x=0.1
 
 # Different IRF model
-python -m ddr_benchmarks diffroute.irf_fn=linear_storage
+uv run python scripts/benchmark.py diffroute.irf_fn=linear_storage
 ```
 
 ### Disable DiffRoute
 
 ```bash
 # Run DDR only (useful on CPU-only systems)
-python -m ddr_benchmarks diffroute.enabled=false
+uv run python scripts/benchmark.py diffroute.enabled=false
 ```
 
 ## Output
@@ -147,13 +147,28 @@ NSE        |       0.6891 |       0.7456
 ...
 ```
 
+### Mass Balance (logged)
+
+```
+=== Mass Balance Accumulation Comparison ===
+DDR vs Obs       — Mean rel. error: 0.1234, Median: 0.0567
+DiffRoute vs Obs — Mean rel. error: 0.2345, Median: 0.1234
+DDR vs summed Q' — Mean rel. error: 0.0456, Median: 0.0234
+```
+
 ### Plots (saved to `output/<run>/plots/`)
 
-- `nse_cdf_comparison.png` - CDF comparison of NSE distributions
-- `nse_boxplot_comparison.png` - Box plot of NSE distributions
-- `kge_cdf_comparison.png` - CDF comparison of KGE distributions
+| File | Description |
+|------|-------------|
+| `nse_cdf_comparison.png` | CDF comparison of NSE distributions |
+| `kge_cdf_comparison.png` | CDF comparison of KGE distributions |
+| `metric_boxplot_comparison.png` | 6-panel boxplot (Bias, RMSE, FHV, FLV, NSE, KGE) |
+| `gauge_map_ddr_NSE.png` | Map of gauges colored by DDR NSE |
+| `gauge_map_diffroute_NSE.png` | Map of gauges colored by DiffRoute NSE |
+| `gauge_map_sqp_NSE.png` | Map of gauges colored by summed Q' NSE (if enabled) |
+| `hydrographs/*.png` | Per-gage hydrographs with all models overlaid |
 
-When summed Q' is enabled, all plots include it as a third series.
+When summed Q' is enabled, all plots include it as an additional series.
 
 ### Results (saved to `output/<run>/benchmark_results.zarr`)
 
@@ -208,6 +223,14 @@ Phase 1: DDR                          Phase 2: DiffRoute
               ┌─────────────────┐
               │ Metrics Class   │
               │ (NSE, KGE, RMSE)│
+              └────────┬────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │ Plots & Results │
+              │ (CDF, boxplots, │
+              │  gauge maps,    │
+              │  hydrographs)   │
               └─────────────────┘
 ```
 

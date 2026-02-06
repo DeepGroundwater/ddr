@@ -151,8 +151,9 @@ diffroute:
   # Muskingum k parameter (wave travel time through a reach) in days.
   # Must be in same units as dt.
   # Stability constraint: k >= dt / (2*(1-x))
-  # Set to null to default to dt value.
-  k: 0.0416667
+  # 0.1042 days = 9000s = 2.5 hours (RAPID default)
+  # Set to null to default to 0.1042.
+  k: 0.1042
 
   # Muskingum x parameter (weighting factor).
   # Range: 0 to 0.5

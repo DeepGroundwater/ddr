@@ -18,6 +18,8 @@ def plot_time_series(
     metrics: dict[str, float],
     path: Path,
     warmup: int = 3,
+    title: str | None = None,
+    additional_predictions: list[tuple[np.ndarray, str]] | None = None,
 ) -> None:
     """Plot time series for a single prediction
 
@@ -39,14 +41,26 @@ def plot_time_series(
         Path to save the plot
     warmup : int, optional
         Number of warmup timesteps to exclude, by default 3
+    title : str, optional
+        Custom plot title. If None, uses default format.
+    additional_predictions : list[tuple[np.ndarray, str]], optional
+        Additional prediction lines as (data, label) tuples.
     """
     fig = plt.figure(figsize=(10, 5))
     prediction_to_plot = prediction[warmup:]
     observation_to_plot = observation[warmup:]
     plt.plot(time_range[warmup:], observation_to_plot, label="Observation")
     plt.plot(time_range[warmup:], prediction_to_plot, label="Routed Streamflow")
+
+    if additional_predictions is not None:
+        for add_pred, add_label in additional_predictions:
+            plt.plot(time_range[warmup:], add_pred[warmup:], label=add_label)
+
     nse = metrics["nse"]
-    plt.title(f"Train time period Hydrograph - GAGE ID: {gage_id} - Name: {name}")
+    if title is not None:
+        plt.title(title)
+    else:
+        plt.title(f"Train time period Hydrograph - GAGE ID: {gage_id} - Name: {name}")
     plt.xlabel("Time (hours)")
     plt.ylabel(r"Discharge $m^3/s$")
     plt.legend(title=f"NSE: {nse:.4f}")

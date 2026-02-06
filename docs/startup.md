@@ -2,10 +2,6 @@
 icon: lucide/rocket
 ---
 
----
-icon: lucide/rocket
----
-
 # Getting Started
 
 This guide will walk you through installing DDR and running your first routing experiment.
@@ -46,8 +42,8 @@ Choose the appropriate installation based on your needs:
 === "Full Workspace"
 
     ```bash
-    # Installs ddr, ddr-engine, and ddr-benchmarks
-    uv sync --all-packages
+    # Installs ddr, ddr-engine, and ddr-benchmarks, all dev tools, local doc builds
+    uv sync --all-packages --all-extras
     ```
 
 === "Core Only"
@@ -61,7 +57,7 @@ Choose the appropriate installation based on your needs:
 
     ```bash
     # Full workspace with GPU support
-    uv sync --all-packages --extra cuda
+    uv sync --all-packages
     ```
 
 The full workspace is recommended for development and paper verification. Use core-only for production routing.

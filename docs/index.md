@@ -1,5 +1,5 @@
 # What is DDR?
-Distributed Differentiable Routing (DDR) is a end-to-end differentiable Muskingum Cunge flow router (`src/ddr`) + geospatial scaffolding/wrapper (`/engine`) for building graphs from geospatial fabrics. This work is brought to you by contributers/developers of the $\delta$MC, [$\delta$MC-Juniata-hydroDL2](https://github.com/mhpi/dMC-Juniata-hydroDL2), and [T-Route](https://github.com/NOAA-OWP/t-route). The goal of this project is to provide an open-sourced, easy to follow, routing module that can be applied to a wide variety of geospatial flow networks and input lateral flow datasets.
+Distributed Differentiable Routing (DDR) is a end-to-end differentiable Muskingum Cunge flow router (`src/ddr`) + geospatial scaffolding (`/engine`) for building sparse graphs from geospatial fabrics. This work is brought to you by contributers/developers of the $\delta$MC, [$\delta$MC-Juniata-hydroDL2](https://github.com/mhpi/dMC-Juniata-hydroDL2), $\delta$MG](https://github.com/mhpi/generic_deltamodel) and [T-Route](https://github.com/NOAA-OWP/t-route).
 
 The goal of this project is to provide an open-sourced, easy to follow, routing module that can be applied to a wide variety of geospatial flow networks and input lateral flow datasets.
 

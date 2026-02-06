@@ -260,6 +260,10 @@ def benchmark(
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
     """
+    # Set CUDA device for all operations
+    if torch.cuda.is_available() and isinstance(cfg.device, int):
+        torch.cuda.set_device(cfg.device)
+
     # === REUSE DDR DATA LOADING (same as test.py) ===
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
@@ -318,7 +322,6 @@ def benchmark(
         riv = RivTree(G, irf_fn=diffroute_cfg.irf_fn, param_df=param_df)
         router = LTIRouter(max_delay=diffroute_cfg.max_delay, dt=dt)
         riv = riv.to(cfg.device)
-        router = router.to(cfg.device)
 
         # Map gage_catchment IDs to indices in divide_ids for gage extraction
         assert dataset.routing_dataclass.gage_catchment is not None

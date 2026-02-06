@@ -36,7 +36,7 @@ params:
 experiment:
   batch_size: 365
   start_time: 1995/10/01
-  end_time: 1996/09/30
+  end_time: 2010/09/30
   warmup: 3
   checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.3.1-merit-training/2026-01-24_10-44-13/saved_models/_ddr-v0.3.1-merit-training_epoch_5_mb_42.pt
 

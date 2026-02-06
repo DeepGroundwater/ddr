@@ -318,6 +318,7 @@ def benchmark(
         riv = RivTree(G, irf_fn=diffroute_cfg.irf_fn, param_df=param_df)
         router = LTIRouter(max_delay=diffroute_cfg.max_delay, dt=dt)
         riv = riv.to(cfg.device)
+        router = router.to(cfg.device)
 
         # Map gage_catchment IDs to indices in divide_ids for gage extraction
         assert dataset.routing_dataclass.gage_catchment is not None
@@ -441,5 +442,10 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    print(f"Running DDR Benchmark with version: {__version__}")
+    import os
+
+    import ddr_benchmarks
+
+    os.environ["BENCHMARKS_VERSION"] = ddr_benchmarks.__version__
+    print(f"Running DDR Benchmark v{ddr_benchmarks.__version__} (DDR {__version__})")
     main()

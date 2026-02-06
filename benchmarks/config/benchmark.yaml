@@ -8,7 +8,7 @@ defaults:
 # Standard DDR config (same as example_config.yaml)
 mode: testing
 geodataset: merit
-name: benchmarks-${geodataset}-${now:%Y-%m-%d_%H-%M-%S}
+name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
 device: 4
 
 data_sources:
@@ -38,7 +38,7 @@ experiment:
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: null  # Set path to trained DDR model checkpoint
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.3.1-merit-training/2026-01-24_10-44-13/saved_models/_ddr-v0.3.1-merit-training_epoch_5_mb_42.pt
 
 kan:
   hidden_size: 21

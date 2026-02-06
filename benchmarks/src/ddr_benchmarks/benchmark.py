@@ -442,6 +442,24 @@ def generate_comparison_plots(
                     path=plot_path / "gauge_map_diffroute_NSE.png",
                 )
 
+                # Difference map: DDR - DiffRoute (positive = DDR better)
+                nse_diff = ddr_metrics.nse[reorder] - diffroute_metrics.nse[reorder]
+                nse_diff = np.clip(nse_diff, -1, 1)
+                selected_gages["nse_diff"] = nse_diff
+                vlim = max(abs(nse_diff.min()), abs(nse_diff.max()), 0.1)
+                plot_gauge_map(
+                    gages=selected_gages,
+                    metric_column="nse_diff",
+                    title=f"NSE Difference ({ddr_label} - {dr_label})",
+                    colormap="RdBu",
+                    colorbar_label="ΔNSE (positive = DDR better)",
+                    figsize=(16, 8),
+                    point_size=30,
+                    vmin=-vlim,
+                    vmax=vlim,
+                    path=plot_path / "gauge_map_nse_diff.png",
+                )
+
             if sqp_metrics is not None:
                 selected_gages["sqp_NSE"] = np.clip(sqp_metrics.nse[reorder], 0, 1)
                 plot_gauge_map(
@@ -638,6 +656,7 @@ def benchmark(
                 routing_dataclass=routing_dataclass,
                 spatial_parameters=spatial_params,
                 streamflow=streamflow_predictions,
+                carry_state=i > 0,
             )
             ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 

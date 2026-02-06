@@ -177,9 +177,21 @@ class MuskingumCunge:
         self.mini_batch = mini_batch
 
     def setup_inputs(
-        self, routing_dataclass: Any, streamflow: torch.Tensor, spatial_parameters: dict[str, torch.Tensor]
+        self,
+        routing_dataclass: Any,
+        streamflow: torch.Tensor,
+        spatial_parameters: dict[str, torch.Tensor],
+        carry_state: bool = False,
     ) -> None:
-        """Setup all inputs for routing including routing_dataclass, streamflow, and parameters."""
+        """Setup all inputs for routing including routing_dataclass, streamflow, and parameters.
+
+        Parameters
+        ----------
+        carry_state : bool
+            If True, preserve discharge state from the previous batch instead of
+            reinitializing from q_prime[0]. Set to True for sequential inference
+            (testing/benchmarking) so that batches maintain physical continuity.
+        """
         # Store routing_dataclass
         self.routing_dataclass = routing_dataclass
         self.output_indices = routing_dataclass.outflow_idx
@@ -235,8 +247,17 @@ class MuskingumCunge:
         else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
-        # Initialize discharge
-        self._discharge_t = self.q_prime[0].to(self.device)
+        # Initialize discharge: carry over from previous batch if requested,
+        # otherwise start from the first timestep's lateral inflow.
+        # TODO: A better cold-start initialization would use summed Q' (upstream
+        # accumulation via the adjacency matrix) instead of local q_prime[0].
+        # This would give a physically reasonable initial discharge at each node.
+        # Needs to be computed in the dataset to avoid per-batch matrix ops on
+        # large networks (~77K nodes for CONUS).
+        if carry_state and self._discharge_t is not None:
+            pass
+        else:
+            self._discharge_t = self.q_prime[0].to(self.device)
 
         # Precompute scatter_add indices for ragged output_indices (gages mode)
         if self.output_indices is not None and len(self.output_indices) != len(self._discharge_t):

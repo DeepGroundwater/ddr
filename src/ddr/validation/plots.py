@@ -596,6 +596,8 @@ def plot_gauge_map(
     padding: float = 0.5,
     basemap_source: str = "CartoDB.Positron",
     colorbar_label: str = "NSE",
+    vmin: float | None = None,
+    vmax: float | None = None,
     path: Path | None = None,
     show_plot: bool = False,
 ) -> Figure:
@@ -657,6 +659,8 @@ def plot_gauge_map(
         s=point_size,
         alpha=alpha,
         edgecolor="none",
+        vmin=vmin,
+        vmax=vmax,
     )
 
     cbar = plt.colorbar(scatter, ax=ax)

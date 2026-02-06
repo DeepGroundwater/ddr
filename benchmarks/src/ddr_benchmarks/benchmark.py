@@ -313,6 +313,18 @@ def benchmark(
         topo_order = dataset.routing_dataclass.divide_ids
         G = coo_to_networkx(coo, topo_order)
 
+        # Graph diagnostics
+        import networkx as nx
+
+        log.info(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+        log.info(f"Is DAG: {nx.is_directed_acyclic_graph(G)}")
+        components = list(nx.weakly_connected_components(G))
+        component_sizes = sorted([len(c) for c in components], reverse=True)
+        log.info(
+            f"Connected components: {len(components)}, largest: {component_sizes[0]}, "
+            f"top-5 sizes: {component_sizes[:5]}"
+        )
+
         dt = diffroute_cfg.dt
         k_val = diffroute_cfg.k if diffroute_cfg.k is not None else dt
         k_arr = np.full(len(topo_order), k_val)

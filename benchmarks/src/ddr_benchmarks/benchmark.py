@@ -301,7 +301,7 @@ def benchmark(
     if diffroute_enabled:
         log.info("Building DiffRoute network from adjacency matrix...")
         assert dataset.routing_dataclass.adjacency_matrix is not None
-        adj_coo = dataset.routing_dataclass.adjacency_matrix.to_sparse_coo().coalesce()
+        adj_coo = dataset.routing_dataclass.adjacency_matrix.cpu().to_sparse_coo().coalesce()
         indices = adj_coo.indices().numpy()
         values = adj_coo.values().numpy()
         coo = sparse.coo_matrix((values, (indices[0], indices[1])), shape=tuple(adj_coo.shape))

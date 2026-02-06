@@ -22,7 +22,7 @@ import xarray as xr
 from diffroute import LTIRouter, RivTree
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
-from torch.utils.data import DataLoader, SequentialSampler
+from tqdm import tqdm
 
 # Reuse ALL DDR imports
 from ddr import ddr_functions, dmc, kan, streamflow
@@ -163,10 +163,9 @@ def run_diffroute_benchmark(
     # Shared stateless router
     dt = diffroute_cfg.dt
     k_val = diffroute_cfg.k if diffroute_cfg.k is not None else dt
-    router = LTIRouter(max_delay=diffroute_cfg.max_delay, dt=dt)
+    router = LTIRouter(max_delay=diffroute_cfg.max_delay, dt=dt).to(device)
 
-    log.info(f"Running DiffRoute per-gage for {len(gage_ids)} gages...")
-    for gage_idx, gage_id in enumerate(gage_ids):
+    for gage_idx, gage_id in enumerate(tqdm(gage_ids, desc="DiffRoute per-gage")):
         if gage_id not in gages_adj:
             log.warning(f"Gage {gage_id} not found in gages_adjacency, skipping")
             continue
@@ -216,9 +215,6 @@ def run_diffroute_benchmark(
         # Extract gage node discharge
         gage_node_idx = np.where(order == int(gage_catchment))[0][0]
         output[gage_idx, :] = discharge_topo[gage_node_idx, :].numpy()
-
-        if (gage_idx + 1) % 50 == 0 or gage_idx == len(gage_ids) - 1:
-            log.info(f"  Processed {gage_idx + 1}/{len(gage_ids)} gages")
 
     return output
 
@@ -391,15 +387,16 @@ def benchmark(
 
     nn = nn.eval()
 
-    sampler = SequentialSampler(data_source=dataset)
-    dataloader = DataLoader(
-        dataset=dataset,
-        batch_size=cfg.experiment.batch_size,
-        num_workers=0,
-        sampler=sampler,
-        collate_fn=dataset.collate_fn,
-        drop_last=False,
-    )
+    # TODO: uncomment dataloader after DiffRoute verification
+    # sampler = SequentialSampler(data_source=dataset)
+    # dataloader = DataLoader(
+    #     dataset=dataset,
+    #     batch_size=cfg.experiment.batch_size,
+    #     num_workers=0,
+    #     sampler=sampler,
+    #     collate_fn=dataset.collate_fn,
+    #     drop_last=False,
+    # )
 
     warmup = cfg.experiment.warmup
     assert dataset.routing_dataclass is not None, "Routing dataclass not defined in dataset"
@@ -412,22 +409,22 @@ def benchmark(
     diffroute_enabled = diffroute_cfg.enabled
 
     # === PHASE 1: DDR (same loop as test.py) ===
-    log.info("Starting DDR evaluation...")
-    with torch.no_grad():
-        for i, routing_dataclass in enumerate(dataloader, start=0):
-            routing_model.set_progress_info(epoch=0, mini_batch=i)
-            log.info(f"Processing batch {i + 1}")
-
-            streamflow_predictions = flow(
-                routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-            )
-            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
-            dmc_output = routing_model(
-                routing_dataclass=routing_dataclass,
-                spatial_parameters=spatial_params,
-                streamflow=streamflow_predictions,
-            )
-            ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
+    # TODO: uncomment DDR loop after DiffRoute verification
+    # log.info("Starting DDR evaluation...")
+    # with torch.no_grad():
+    #     for i, routing_dataclass in enumerate(tqdm(dataloader, desc="DDR batches"), start=0):
+    #         routing_model.set_progress_info(epoch=0, mini_batch=i)
+    #
+    #         streamflow_predictions = flow(
+    #             routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+    #         )
+    #         spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
+    #         dmc_output = routing_model(
+    #             routing_dataclass=routing_dataclass,
+    #             spatial_parameters=spatial_params,
+    #             streamflow=streamflow_predictions,
+    #         )
+    #         ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
     # === PHASE 2: DiffRoute per-gage ===
     if diffroute_enabled:
@@ -445,10 +442,11 @@ def benchmark(
     # === EVALUATION (same as test.py) ===
     num_days = len(ddr_predictions[0][13 : (-11 + cfg.params.tau)]) // 24
 
-    ddr_daily = ddr_functions.downsample(
-        torch.tensor(ddr_predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
-        rho=num_days,
-    ).numpy()
+    # TODO: uncomment DDR downsample after DiffRoute verification
+    # ddr_daily = ddr_functions.downsample(
+    #     torch.tensor(ddr_predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
+    #     rho=num_days,
+    # ).numpy()
 
     diffroute_daily = ddr_functions.downsample(
         torch.tensor(diffroute_predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
@@ -458,12 +456,13 @@ def benchmark(
     daily_obs = observations[:, 1:-1]
 
     # Compute metrics using DDR's Metrics class
-    log.info("=" * 50)
-    log.info("=== DDR Metrics ===")
-    ddr_metrics = Metrics(pred=ddr_daily[:, warmup:], target=daily_obs[:, warmup:])
-    _nse = ddr_metrics.nse
-    nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
-    utils.log_metrics(nse, ddr_metrics.rmse, ddr_metrics.kge)
+    # TODO: uncomment DDR metrics after DiffRoute verification
+    # log.info("=" * 50)
+    # log.info("=== DDR Metrics ===")
+    # ddr_metrics = Metrics(pred=ddr_daily[:, warmup:], target=daily_obs[:, warmup:])
+    # _nse = ddr_metrics.nse
+    # nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
+    # utils.log_metrics(nse, ddr_metrics.rmse, ddr_metrics.kge)
 
     if diffroute_enabled:
         log.info("=" * 50)
@@ -473,11 +472,11 @@ def benchmark(
         nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
         utils.log_metrics(nse, diffroute_metrics.rmse, diffroute_metrics.kge)
 
-        # Generate comparison plots using DDR's plotting
-        generate_comparison_plots(cfg, ddr_metrics, diffroute_metrics)
+        # TODO: uncomment comparison plots after DDR is re-enabled
+        # generate_comparison_plots(cfg, ddr_metrics, diffroute_metrics)
 
-    # Save results to zarr
-    save_results(cfg, ddr_daily, diffroute_daily, daily_obs, all_gage_ids, dataset.dates)
+    # TODO: uncomment save after DDR is re-enabled
+    # save_results(cfg, ddr_daily, diffroute_daily, daily_obs, all_gage_ids, dataset.dates)
 
     log.info("=" * 50)
     log.info("Benchmark complete!")

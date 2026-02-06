@@ -17,6 +17,20 @@ Both DDR and DiffRoute implement differentiable routing, but with different appr
 | **Learning** | Neural network predicts physical params | Parameters can be learned or fixed |
 | **Timestep** | Typically 1 hour | Configurable (dt in days) |
 
+## Per-Gage Routing Architecture
+
+The benchmark routes each gage independently using its zarr subgroup from `gages_adjacency`. This avoids the disconnected-graph problem that arises when loading the full CONUS adjacency matrix (~77K nodes) as a single NetworkX graph.
+
+For each gage:
+
+1. Load the gage's subgroup from `gages_adjacency.zarr`
+2. Resolve CONUS-level sparse indices to COMIDs using the full `conus_adjacency` order array (see [Binsparse format](../engine/binsparse.md))
+3. Build a connected NetworkX DiGraph for the gage's upstream catchment
+4. Create a `RivTree` and route lateral inflows through it
+5. Extract discharge at the gage node
+
+This per-gage approach means each subgraph is small (dozens to hundreds of nodes), keeping memory usage low and ensuring valid graph connectivity.
+
 ## Muskingum Parameters
 
 DiffRoute's Muskingum IRF uses two parameters:
@@ -83,27 +97,27 @@ diffroute:
 
 ```bash
 cd benchmarks
-python -m ddr_benchmarks.benchmark
+python -m ddr_benchmarks
 ```
 
 ### With Custom Parameters
 
 ```bash
 # Faster wave propagation (smaller k)
-python -m ddr_benchmarks.benchmark diffroute.k=0.02
+python -m ddr_benchmarks diffroute.k=0.02
 
 # More attenuation (smaller x)
-python -m ddr_benchmarks.benchmark diffroute.x=0.1
+python -m ddr_benchmarks diffroute.x=0.1
 
 # Different IRF model
-python -m ddr_benchmarks.benchmark diffroute.irf_fn=linear_storage
+python -m ddr_benchmarks diffroute.irf_fn=linear_storage
 ```
 
 ### Disable DiffRoute
 
 ```bash
 # Run DDR only (useful on CPU-only systems)
-python -m ddr_benchmarks.benchmark diffroute.enabled=false
+python -m ddr_benchmarks diffroute.enabled=false
 ```
 
 ## Output
@@ -128,6 +142,9 @@ Metric     |         Mean |       Median
 ----------------------------------------
 NSE        |       0.6891 |       0.7456
 ...
+
+=== Summed Q' Metrics ===
+...
 ```
 
 ### Plots (saved to `output/<run>/plots/`)
@@ -135,6 +152,8 @@ NSE        |       0.6891 |       0.7456
 - `nse_cdf_comparison.png` - CDF comparison of NSE distributions
 - `nse_boxplot_comparison.png` - Box plot of NSE distributions
 - `kge_cdf_comparison.png` - CDF comparison of KGE distributions
+
+When summed Q' is enabled, all plots include it as a third series.
 
 ### Results (saved to `output/<run>/benchmark_results.zarr`)
 
@@ -153,43 +172,43 @@ print(ds)
 
 ## Data Flow
 
-The benchmark ensures both models receive identical inputs:
+The benchmark uses a two-phase architecture to ensure both models receive identical lateral inflows:
 
 ```
-                    ┌─────────────────┐
-                    │ DDR Dataset     │
-                    │ (routing_       │
-                    │  dataclass)     │
-                    └────────┬────────┘
-                             │
-              ┌──────────────┴──────────────┐
-              │                             │
-              ▼                             ▼
-    ┌─────────────────┐           ┌─────────────────┐
-    │ StreamflowReader│           │ StreamflowReader│
-    │ (Q' lateral     │           │ (same Q')       │
-    │  inflows)       │           │                 │
-    └────────┬────────┘           └────────┬────────┘
-             │                             │
-             ▼                             ▼
-    ┌─────────────────┐           ┌─────────────────┐
-    │ DDR (DMC)       │           │ DiffRoute       │
-    │ + KAN params    │           │ (LTIRouter)     │
-    └────────┬────────┘           └────────┬────────┘
-             │                             │
-             ▼                             ▼
-    ┌─────────────────┐           ┌─────────────────┐
-    │ DDR Discharge   │           │ DiffRoute       │
-    │                 │           │ Discharge       │
-    └────────┬────────┘           └────────┬────────┘
-             │                             │
-             └──────────────┬──────────────┘
-                            │
-                            ▼
-                  ┌─────────────────┐
-                  │ Metrics Class   │
-                  │ (NSE, KGE, RMSE)│
-                  └─────────────────┘
+Phase 1: DDR                          Phase 2: DiffRoute
+──────────────────                    ─────────────────────
+
+┌─────────────────┐                   For each gage:
+│ DDR Dataset     │                   ┌─────────────────┐
+│ (DataLoader,    │                   │ Gage Zarr       │
+│  365-day batch) │                   │ Subgroup        │
+└────────┬────────┘                   └────────┬────────┘
+         │                                     │
+         ▼                                     ▼
+┌─────────────────┐                   ┌─────────────────┐
+│ StreamflowReader│                   │ Build connected │
+│ (full CONUS Q') │                   │ NX DiGraph      │
+└────────┬────────┘                   └────────┬────────┘
+         │                                     │
+         ▼                                     ▼
+┌─────────────────┐                   ┌─────────────────┐
+│ KAN → DMC       │                   │ StreamflowReader│
+│ (learned params)│                   │ (gage subset Q')│
+└────────┬────────┘                   └────────┬────────┘
+         │                                     │
+         ▼                                     ▼
+┌─────────────────┐                   ┌─────────────────┐
+│ DDR Predictions │                   │ LTIRouter +     │
+│ (all gages)     │                   │ RivTree         │
+└────────┬────────┘                   └────────┬────────┘
+         │                                     │
+         └──────────────┬──────────────────────┘
+                        │
+                        ▼
+              ┌─────────────────┐
+              │ Metrics Class   │
+              │ (NSE, KGE, RMSE)│
+              └─────────────────┘
 ```
 
 ## Reordering

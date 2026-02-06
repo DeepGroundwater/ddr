@@ -1,0 +1,93 @@
+# Example benchmark configuration for comparing DDR vs DiffRoute
+# Copy this file and customize paths for your environment.
+# Extends standard DDR config format with DiffRoute and baseline options.
+
+defaults:
+  - _self_
+  - hydra: settings
+
+# Only MERIT is currently supported for benchmarking
+mode: testing
+geodataset: merit
+name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
+device: 0
+
+data_sources:
+  attributes: /path/to/merit_global_attributes.nc
+  geospatial_fabric_gpkg: /path/to/merit_river_network.shp
+  conus_adjacency: /path/to/merit_conus_adjacency.zarr
+  gages_adjacency: /path/to/merit_gages_conus_adjacency.zarr
+  statistics: /path/to/statistics
+  streamflow: /path/to/merit_streamflow
+  observations: /path/to/usgs_daily_observations
+  gages: /path/to/gages.csv
+
+params:
+  save_path: ./
+  parameter_ranges:
+    n: [0.02, 0.2]
+    q_spatial: [0.0, 1.0]
+    top_width: [1.0, 6000.0]
+    side_slope: [0.5, 50.0]
+  log_space_parameters: [top_width, side_slope]
+  defaults:
+    p_spatial: 21
+  tau: 3
+
+experiment:
+  batch_size: 365
+  start_time: 1995/10/01
+  end_time: 2010/09/30
+  warmup: 3
+  checkpoint: /path/to/trained_model.pt
+
+kan:
+  hidden_size: 21
+  input_var_names:
+    - SoilGrids1km_clay
+    - aridity
+    - meanelevation
+    - meanP
+    - NDVI
+    - meanslope
+    - log10_uparea
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
+  num_hidden_layers: 2
+  learnable_parameters:
+    - n
+    - q_spatial
+    - top_width
+    - side_slope
+  grid: 50
+  k: 2
+
+# === DiffRoute-specific configuration ===
+diffroute:
+  # Enable/disable DiffRoute comparison
+  enabled: true
+
+  # Impulse Response Function model
+  # Options: muskingum, linear_storage, nash_cascade, pure_lag, hayami
+  irf_fn: muskingum
+
+  # Maximum delay for LTI router (number of timesteps)
+  max_delay: 100
+
+  # Timestep in days (3600/86400 = 1 hour)
+  dt: 0.0416667
+
+  # Muskingum k parameter (wave travel time through reach) in days
+  # Must be in same units as dt. For stability: k >= dt / (2*(1-x))
+  # null = use dt (1 hour), or specify uniform value in days
+  k: 0.0416667
+
+  # Muskingum x parameter (weighting factor, typically 0-0.5)
+  # x=0 gives pure reservoir behavior, x=0.5 gives pure translation
+  x: 0.3
+
+# === Optional baseline comparison ===
+# Path to a pre-computed summed Q' zarr store (from scripts/summed_q_prime.py).
+# Set to null to skip summed Q' comparison.
+summed_q_prime: null

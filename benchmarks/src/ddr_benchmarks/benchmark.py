@@ -479,7 +479,7 @@ def benchmark(
     # === PHASE 1: DDR (same loop as test.py) ===
     log.info("Starting DDR evaluation...")
     with torch.no_grad():
-        for i, routing_dataclass in enumerate(tqdm(dataloader, desc="DDR batches"), start=0):
+        for i, routing_dataclass in enumerate(dataloader, start=0):
             routing_model.set_progress_info(epoch=0, mini_batch=i)
 
             streamflow_predictions = flow(
@@ -605,13 +605,3 @@ def main(cfg: DictConfig) -> None:
         log.info("Cleaning up...")
         total_time = time.perf_counter() - start_time
         log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
-
-
-if __name__ == "__main__":
-    import os
-
-    import ddr_benchmarks
-
-    os.environ["BENCHMARKS_VERSION"] = ddr_benchmarks.__version__
-    print(f"Running DDR Benchmark v{ddr_benchmarks.__version__} (DDR {__version__})")
-    main()

@@ -746,7 +746,7 @@ def benchmark(
     log.info("Benchmark complete!")
 
 
-@hydra.main(version_base="1.3", config_path="../../config", config_name="benchmark")
+@hydra.main(version_base="1.3", config_path="../../../config", config_name="benchmark")
 def main(cfg: DictConfig) -> None:
     """Main function - adapted from scripts/test.py:main()."""
     cfg.params.save_path = Path(HydraConfig.get().run.dir)
@@ -790,3 +790,7 @@ def main(cfg: DictConfig) -> None:
         log.info("Cleaning up...")
         total_time = time.perf_counter() - start_time
         log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
+
+
+if __name__ == "__main__":
+    main()

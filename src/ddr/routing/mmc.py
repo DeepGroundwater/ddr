@@ -22,6 +22,50 @@ from ddr.validation.configs import Config
 log = logging.getLogger(__name__)
 
 
+def compute_hotstart_discharge(
+    q_prime_t0: torch.Tensor,
+    mapper: PatternMapper,
+    discharge_lb: torch.Tensor,
+    device: str | torch.device,
+) -> torch.Tensor:
+    """Compute initial discharge via topological accumulation of lateral inflows.
+
+    Solves (I - N) @ Q = q_prime_t0, where N is the adjacency matrix.
+    This gives each node the sum of all upstream lateral inflows,
+    providing a physically reasonable cold-start initialization.
+
+    Parameters
+    ----------
+    q_prime_t0 : torch.Tensor
+        Lateral inflow at the first timestep, shape (num_segments,).
+    mapper : PatternMapper
+        Pattern mapper encoding the network topology.
+    discharge_lb : torch.Tensor
+        Lower bound for discharge clamping.
+    device : str or torch.device
+        Computation device.
+
+    Returns
+    -------
+    torch.Tensor
+        Accumulated discharge, shape (num_segments,).
+    """
+    num_segments = q_prime_t0.shape[0]
+    neg_ones = -torch.ones(num_segments, device=device)
+    neg_ones[0] = 1.0  # diagonal maps to datvec[0]; keeps identity
+    A_values = mapper.map(neg_ones)
+    discharge = triangular_sparse_solve(
+        A_values,
+        mapper.crow_indices,
+        mapper.col_indices,
+        q_prime_t0,
+        True,  # lower
+        False,  # unit_diagonal
+        device,
+    )
+    return torch.clamp(discharge, min=discharge_lb)
+
+
 def _log_base_q(x: torch.Tensor, q: float) -> torch.Tensor:
     """Calculate logarithm with base q."""
     return torch.log(x) / torch.log(torch.tensor(q, dtype=x.dtype))
@@ -248,16 +292,17 @@ class MuskingumCunge:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
         # Initialize discharge: carry over from previous batch if requested,
-        # otherwise start from the first timestep's lateral inflow.
-        # TODO: A better cold-start initialization would use summed Q' (upstream
-        # accumulation via the adjacency matrix) instead of local q_prime[0].
-        # This would give a physically reasonable initial discharge at each node.
-        # Needs to be computed in the dataset to avoid per-batch matrix ops on
-        # large networks (~77K nodes for CONUS).
+        # otherwise compute summed Q' via topological accumulation.
         if carry_state and self._discharge_t is not None:
             pass
         else:
-            self._discharge_t = self.q_prime[0].to(self.device)
+            mapper, _, _ = self.create_pattern_mapper()
+            self._discharge_t = compute_hotstart_discharge(
+                self.q_prime[0].to(self.device),
+                mapper,
+                self.discharge_lb,
+                self.device,
+            )
 
         # Precompute scatter_add indices for ragged output_indices (gages mode)
         if self.output_indices is not None and len(self.output_indices) != len(self._discharge_t):

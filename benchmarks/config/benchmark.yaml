@@ -19,7 +19,7 @@ data_sources:
   statistics: /projects/mhpi/tbindas/ddr/data/statistics
   streamflow: /projects/mhpi/tbindas/ddr/data/merit_dhbv2_UH_retrospective
   observations: /projects/mhpi/data/icechunk/usgs_daily_observations
-  gages: /projects/mhpi/tbindas/ddr/streamflow_datasets/gage_info/dhbv2_gages.csv
+  gages: /projects/mhpi/tbindas/ddr/references/gage_info/dhbv2_gages.csv
 
 params:
   save_path: ./

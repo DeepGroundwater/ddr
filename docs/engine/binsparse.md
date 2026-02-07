@@ -233,7 +233,7 @@ The engine provides scripts to build adjacency matrices from raw hydrofabric dat
 ```bash
 uv run python -m ddr_engine.merit /path/to/riv_pfaf_X_MERIT_Hydro.shp \
     --path data/ \
-    --gages streamflow_datasets/gage_info/dhbv2_gages.csv
+    --gages references/gage_info/dhbv2_gages.csv
 ```
 
 ### Lynker Hydrofabric v2.2
@@ -241,7 +241,7 @@ uv run python -m ddr_engine.merit /path/to/riv_pfaf_X_MERIT_Hydro.shp \
 ```bash
 uv run python -m ddr_engine.lynker_hydrofabric /path/to/conus_nextgen.gpkg \
     --path data/ \
-    --gages streamflow_datasets/gage_info/dhbv2_gages.csv
+    --gages references/gage_info/dhbv2_gages.csv
 ```
 
 Both commands create:

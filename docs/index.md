@@ -62,7 +62,7 @@ ddr/
 │   └── scripts/                # Matrix building scripts
 ├── benchmarks/                 # Model benchmarking tools (ddr-benchmarks)
 │   └── src/ddr_benchmarks/     # Benchmarking library
-└── streamflow_datasets/        # Dataset download utilities
+└── references/                 # Reference datasets and gage info
 ```
 
 ## Citation

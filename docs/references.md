@@ -66,6 +66,79 @@ year = {2024}
 }
 ```
 
+## Datasets
+
+Below are citations for the gage datasets used in DDR benchmarking (see `references/gage_info/`).
+
+### CAMELS — Newman et al. (2014)
+
+**File:** `camels_670.csv`
+
+**Citation:**
+```bibtex
+@misc{newman_large-sample_2014,
+    title = {A large-sample watershed-scale hydrometeorological dataset for the contiguous {USA}},
+    author = {Newman, A. and Sampson, K. and Clark, M. P. and Bock, A. and Viger, R. J. and Blodgett, D.},
+    year = {2014},
+    publisher = {UCAR/NCAR},
+    address = {Boulder, CO},
+    doi = {10.5065/D6MW2F4D},
+    url = {https://dx.doi.org/10.5065/D6MW2F4D},
+}
+```
+
+### GAGES-II — Falcone (2011)
+
+**File:** `GAGES-II.csv`
+
+**Citation:**
+```bibtex
+@misc{falcone_gages-ii_2011,
+    title = {{GAGES-II}: {Geospatial} {Attributes} of {Gages} for {Evaluating} {Streamflow}},
+    author = {Falcone, J. A.},
+    year = {2011},
+    doi = {10.3133/70046617},
+    url = {https://doi.org/10.3133/70046617},
+}
+```
+
+### Ouyang et al. (2021)
+
+**File:** `gages_3000.csv`
+
+**Citation:**
+```bibtex
+@article{ouyang_continental-scale_2021,
+    title = {Continental-scale streamflow modeling of basins with reservoirs: {Towards} a coherent deep-learning-based strategy},
+    volume = {599},
+    doi = {10.1016/j.jhydrol.2021.126455},
+    url = {https://doi.org/10.1016/j.jhydrol.2021.126455},
+    journal = {Journal of Hydrology},
+    author = {Ouyang, Wenyu and Lawson, Kathryn and Feng, Dapeng and Ye, Lei and Zhang, Chi and Shen, Chaopeng},
+    year = {2021},
+    pages = {126455},
+}
+```
+
+### MERIT Hydro — Lin et al. (2021)
+
+**Usage:** COMID mapping for gage datasets
+
+**Citation:**
+```bibtex
+@article{lin_new_2021,
+    title = {A new vector-based global river network dataset accounting for variable drainage density},
+    volume = {8},
+    number = {1},
+    doi = {10.1038/s41597-021-00819-9},
+    url = {https://doi.org/10.1038/s41597-021-00819-9},
+    journal = {Scientific Data},
+    author = {Lin, Peirong and Pan, Ming and Wood, Eric F. and Yamazaki, Dai and Allen, George H.},
+    year = {2021},
+    pages = {28},
+}
+```
+
 ## Related Works
 
 Below are citations of papers which were influential in the creation of DDR.

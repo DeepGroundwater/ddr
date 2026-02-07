@@ -101,7 +101,7 @@ Create a CSV file with gauge information. Required columns:
 
 __NOTE:__ to use MERIT you will need to have COMID also specified and mapped to each river gage
 
-You can find pre-prepared gauge lists in the [streamflow_datasets repository](https://github.com/DeepGroundwater/datasets).
+You can find pre-prepared gauge lists in the [references repository](https://github.com/DeepGroundwater/datasets).
 
 ### Step 3: Build Adjacency Matrices
 
@@ -113,7 +113,7 @@ Run the engine script to create the sparse network matrices:
     uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py \
         <PATH/TO/conus_nextgen.gpkg> \
         data/ \
-        --gages streamflow_datasets/mhpi/dHBV2.0UH/training_gauges.csv
+        --gages references/mhpi/dHBV2.0UH/training_gauges.csv
     ```
 
 === "MERIT Hydro"

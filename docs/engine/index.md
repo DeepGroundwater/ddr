@@ -57,7 +57,7 @@ which will install the `ddr-engine` package
 
 NOTE: by default:
 - `--path` will be set to `data/`
-- `--gages` will be set to `streamflow_datasets/gage_info/dhbv2_gages.csv`
+- `--gages` will be set to `references/gage_info/dhbv2_gages.csv`
 
 
 ### CONUS v2.2 Hydrofabric
@@ -75,5 +75,5 @@ uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py <PATH/TO/conus_n
     Dataset is not included in the repo and can be downloded from the [following location](https://drive.google.com/drive/folders/1DhLXCdMYVkRtlgHBHkiFmpPjTQJX5k1g?usp=sharing)
 
 ```sh
-uv run python -m ddr_engine.merit /path/to/riv_pfaf_X_MERIT_Hydro_v07_Basins_v01_bugfix1.shp --path data/ --gages streamflow_datasets/gage_info/dhbv2_gages.csv
+uv run python -m ddr_engine.merit /path/to/riv_pfaf_X_MERIT_Hydro_v07_Basins_v01_bugfix1.shp --path data/ --gages references/gage_info/dhbv2_gages.csv
 ```

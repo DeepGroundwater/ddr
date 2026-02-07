@@ -250,7 +250,15 @@ STAID,STANAME,DRAIN_SQKM,LAT_GAGE,LNG_GAGE
 | `STANAME` | Station name |
 | `COMID` | MERIT catchment ID (required for MERIT dataset) |
 
-You can find pre-prepared gauge lists in the [streamflow_datasets repository](https://github.com/DeepGroundwater/datasets).
+Pre-prepared gauge lists are available in `references/gage_info/`:
+
+| File | Gages | Source |
+|------|-------|--------|
+| `camels_670.csv` | 670 | CAMELS / HCDN-2009 ([Newman et al., 2014](https://dx.doi.org/10.5065/D6MW2F4D)) |
+| `gages_3000.csv` | 3211 | [Ouyang et al., 2021](https://doi.org/10.1016/j.jhydrol.2021.126455) |
+| `GAGES-II.csv` | 8945 | GAGES-II ([Falcone, 2011](https://doi.org/10.3133/70046617)) |
+
+See `references/gage_info/README.md` for derivation details.
 
 ## Data Sources
 
@@ -319,5 +327,5 @@ session.commit("Initial commit")
 
 ## External Resources
 
-- **Gauge Lists**: [DeepGroundwater/datasets](https://github.com/DeepGroundwater/ddr/streamflow_datasets/gage_info/dhbv2_gages.csv)
+- **Gauge Lists**: [DeepGroundwater/datasets](https://github.com/DeepGroundwater/ddr/references/gage_info/dhbv2_gages.csv)
 - **MERIT Hydro**: [University of Tokyo](http://hydro.iis.u-tokyo.ac.jp/~yamadai/MERIT_Hydro/)

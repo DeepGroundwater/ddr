@@ -50,29 +50,18 @@ dependencies = [
   "zarr",
 ]
 
-[project.optional-dependencies]
-docs = [
+[dependency-groups]
+cuda = [
+  "cupy-cuda12x>=13.6.0",
+]
+dev = [
+  "ipykernel",
+  "jupyterlab",
   "mkdocs-material>=9.6.15",
   "sympy>=1.14.0",
   "zensical>=0.0.11",
-]
-cuda = [
-  "cupy-cuda12x==13.6.0",
-]
-jupyter = [
-  "ipykernel",
-  "jupyterlab",
-]
-
-[dependency-groups]
-cpu = [
-  "torch>=2.7.1",
-]
-tests = [
   "pytest>=8.4.1",
   "pytest-cov>=6.1.1",
-]
-dev = [
   "ruff>=0.12.2",
   "nbstripout>=0.8.1",
   "pre-commit",
@@ -90,7 +79,7 @@ ddr-benchmarks = { workspace = true }
 diffroute = { git = "https://github.com/TristHas/DiffRoute", tag = "v1.0.0" }
 
 [tool.uv]
-default-groups = ["cpu", "tests", "dev"]
+default-groups = ["dev"]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

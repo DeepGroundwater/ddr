@@ -14,11 +14,11 @@ Benchmarking tools for comparing DDR against other routing models on identical i
 ## Installation
 
 ```bash
-# From repository root - full workspace
+# From repository root - full workspace (CPU)
 uv sync --all-packages
 
-# Or with CUDA support for DiffRoute
-uv sync --all-packages --extra cuda
+# With CUDA support for DiffRoute (adds CuPy)
+uv sync --all-packages --group cuda
 ```
 
 ## Quick Start

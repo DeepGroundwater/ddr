@@ -8,7 +8,7 @@ Tests for functionality of the subset adjacency module
 
 import polars as pl
 import pytest
-from ddr_engine.hydrofabric import find_origin, preprocess_river_network, subset
+from ddr_engine.lynker_hydrofabric import find_origin, preprocess_river_network, subset
 
 from ddr.geodatazoo.dataclasses import Gauge
 

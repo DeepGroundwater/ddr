@@ -16,3 +16,36 @@ These tests will adapt this sandbox network to fit the patterns of any geodatase
 For more information on the sandbox mock data see: https://github.com/c-h-david/rapid2/blob/main/SANDBOX.md
 
 --
+The gage information files in references/gage_info/ are derived from the following sources:
+
+CAMELS (camels_670.csv):
+A. Newman; K. Sampson; M. P. Clark; A. Bock; R. J. Viger; D. Blodgett, 2014.
+A large-sample watershed-scale hydrometeorological dataset for the contiguous USA.
+Boulder, CO: UCAR/NCAR. https://dx.doi.org/10.5065/D6MW2F4D
+
+GAGES-II (GAGES-II.csv):
+Falcone, J. A. GAGES-II: Geospatial Attributes of Gages for Evaluating Streamflow, 2011.
+https://doi.org/10.3133/70046617
+
+Ouyang et al. 2021 (gages_3000.csv):
+Ouyang, W., Lawson, K., Feng, D., Ye, L., Zhang, C., & Shen, C. (2021).
+Continental-scale streamflow modeling of basins with reservoirs: Towards a coherent
+deep-learning-based strategy. Journal of Hydrology, 599, 126455.
+https://doi.org/10.1016/j.jhydrol.2021.126455
+
+MERIT Hydro (COMID mapping):
+Lin, P., Pan, M., Wood, E. F., Yamazaki, D., & Allen, G. H. (2021).
+A new vector-based global river network dataset accounting for variable drainage density.
+Scientific Data, 8(1), 28.
+https://doi.org/10.1038/s41597-021-00819-9
+
+--
+Streamflow information is taken from the following sources
+
+Song, Y.; Bindas, T.; Shen, C.; Ji, H.; Knoben, W. J. M.; Lonzarich, L.; Clark, M. P.; Liu, J.; van Werkhoven, K.;
+Lamont, S.; Denno, M.; Pan, M.; Yang, Y.; Rapp, J.; Kumar, M.; Rahmani, F.; Thébault, C.; Adkins, R.; Halgren, J.;
+Patel, T.; Patel, A.; Sawadekar, K. A.; Lawson, K.
+High-Resolution National-Scale Water Modeling Is Enhanced by Multiscale Differentiable Physics-Informed Machine Learning.
+Water Resour. Res. 2025, 61 (4), e2024WR038928. https://doi.org/10.1029/2024WR038928.
+
+--

@@ -21,13 +21,13 @@ DDR's routing algorithm involves solving sparse triangular linear systems at eac
 
 ```bash
 # Install with GPU support
-uv sync --all-packages --extra cu124
+uv sync --all-packages --group cuda
 ```
 
 This installs:
 
-- **PyTorch** with CUDA 12.4 support
-- **CuPy**: GPU-accelerated NumPy/SciPy
+- **PyTorch**: Included in core dependencies (uses CUDA automatically when available)
+- **CuPy**: GPU-accelerated NumPy/SciPy (added by the `cuda` dependency group)
 - **cupyx.scipy.sparse**: GPU sparse matrix operations
 
 ## Sparse Matrix Implementation

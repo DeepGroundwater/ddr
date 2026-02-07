@@ -16,7 +16,7 @@ An implementation of differentiable river routing methods for the NextGen Framew
 The following commands will allow you to install all required dependencies for DDR
 
 ```sh
-# Full workspace (includes ddr, ddr-engine, and ddr-benchmarks)
+# Full workspace — CPU (includes ddr, ddr-engine, and ddr-benchmarks)
 uv sync --all-packages
 . .venv/bin/activate
 
@@ -24,8 +24,8 @@ uv sync --all-packages
 uv sync --package ddr
 . .venv/bin/activate
 
-# GPU support (CUDA 12.4)
-uv sync --all-packages --extra cuda
+# GPU support (adds CuPy for CUDA 12.4)
+uv sync --all-packages --group cuda
 . .venv/bin/activate
 ```
 
@@ -34,10 +34,10 @@ uv sync --all-packages --extra cuda
 Next, you need to create the necessary data files for running a routing across your domain.
 - The example below is for the NOAA-OWP Hydrofabric v2.2 (Dataset is not included in the repo)
 - This requires the `ddr-engine` local package to be installed (which is done automatically through the above `uv sync`)
-- The gauges.csv can be found [here](https://github.com/DeepGroundwater/streamflow_datasets/tree/master/mhpi/dHBV2.0UH)
+- The gauges.csv can be found [here](https://github.com/DeepGroundwater/references/tree/master/mhpi/dHBV2.0UH)
 
 ```sh
-uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py <PATH/TO/conus_nextgen.gpkg> data/ --gages streamflow_datasets/mhpi/dHBV2.0UH/training_gauges.csv
+uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py <PATH/TO/conus_nextgen.gpkg> data/ --gages references/mhpi/dHBV2.0UH/training_gauges.csv
 ```
 
 This will create two files used for routing

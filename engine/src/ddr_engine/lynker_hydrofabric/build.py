@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import zarr
+from scipy import sparse
 from tqdm import tqdm
 
 from ddr.geodatazoo.dataclasses import GaugeSet
@@ -120,12 +121,11 @@ def build_lynker_hydrofabric_gages_adjacency(
             continue
         connections = subset(origin, wb_network_dict)
         if len(connections) == 0:
-            print(
-                f"Gauge: {gauge.STAID} is a headwater catchment with no upstream catchments. Skipping write"
-            )
-            root.__delitem__(gauge.STAID)
-            continue
-        coo, subset_flowpaths = create_coo(connections, ts_order_dict)
+            print(f"Gauge: {gauge.STAID} is a headwater catchment (single reach)")
+            coo = sparse.coo_matrix((len(ts_order_dict), len(ts_order_dict)), dtype=np.int8)
+            subset_flowpaths = [origin]
+        else:
+            coo, subset_flowpaths = create_coo(connections, ts_order_dict)
         coo_to_zarr_group(
             coo=coo,
             ts_order=subset_flowpaths,

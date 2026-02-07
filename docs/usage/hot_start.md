@@ -85,9 +85,6 @@ The function:
 2. Solves the lower-triangular system via `triangular_sparse_solve`
 3. Clamps the result to `discharge_lb` (physical lower bound)
 
-### Cost
-
-One sparse triangular solve per batch — identical cost to a single routing timestep. This is negligible compared to routing hundreds or thousands of timesteps per batch.
 
 ### Differentiability
 

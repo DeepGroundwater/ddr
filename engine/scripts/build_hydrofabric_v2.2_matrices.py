@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import zarr
-from ddr_engine.hydrofabric import (
+from ddr_engine.lynker_hydrofabric import (
     coo_to_zarr,
     coo_to_zarr_group,
     create_coo,

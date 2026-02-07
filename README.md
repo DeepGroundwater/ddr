@@ -16,7 +16,7 @@ An implementation of differentiable river routing methods for the NextGen Framew
 The following commands will allow you to install all required dependencies for DDR
 
 ```sh
-# Full workspace (includes ddr, ddr-engine, and ddr-benchmarks)
+# Full workspace — CPU (includes ddr, ddr-engine, and ddr-benchmarks)
 uv sync --all-packages
 . .venv/bin/activate
 
@@ -24,8 +24,8 @@ uv sync --all-packages
 uv sync --package ddr
 . .venv/bin/activate
 
-# GPU support (CUDA 12.4)
-uv sync --all-packages --extra cuda
+# GPU support (adds CuPy for CUDA 12.4)
+uv sync --all-packages --group cuda
 . .venv/bin/activate
 ```
 

@@ -259,20 +259,19 @@ def sandbox_network() -> tuple[nx.DiGraph, pd.DataFrame]:
     # Read reach IDs
     reach_ids = pd.read_csv(SANDBOX_DIR / "riv_bas_id_Sandbox.csv", header=None).squeeze().tolist()
 
-    # Read Muskingum parameters
-    k_vals = pd.read_csv(SANDBOX_DIR / "k_Sandbox.csv", header=None).squeeze().tolist()
-    x_vals = pd.read_csv(SANDBOX_DIR / "x_Sandbox.csv", header=None).squeeze().tolist()
+    # Muskingum parameters: k=0.1042 days (9000s, RAPID default), x=0.3
+    k_days = 0.1042
+    x_val = 0.3
 
     # Build graph (upstream -> downstream)
     G = nx.DiGraph()
-    for i, rid in enumerate(reach_ids):
-        # Store parameters on nodes for compatibility
+    for rid in reach_ids:
         G.add_node(
             rid,
-            k=float(k_vals[i]),
-            x=float(x_vals[i]),
-            tau=float(k_vals[i]),  # tau for linear_storage
-            delay=float(k_vals[i]),  # delay for pure_lag
+            k=k_days,
+            x=x_val,
+            tau=k_days,  # tau for linear_storage
+            delay=k_days,  # delay for pure_lag
         )
 
     # Add edges (from COMID to NextDownID, but 0 means outlet)
@@ -280,14 +279,13 @@ def sandbox_network() -> tuple[nx.DiGraph, pd.DataFrame]:
         if row["next_down"] != 0:  # 0 means outlet
             G.add_edge(row["comid"], row["next_down"])
 
-    # Build param_df indexed by reach ID with Muskingum parameters
-    # DiffRoute expects k in days (RAPID k is in seconds)
+    # Build param_df indexed by reach ID with Muskingum parameters (all in days)
     param_df = pd.DataFrame(
         {
-            "k": [k / (3600 * 24) for k in k_vals],  # Convert seconds to days
-            "x": x_vals,
-            "tau": [k / (3600 * 24) for k in k_vals],  # tau for linear_storage
-            "delay": [k / (3600 * 24) for k in k_vals],  # delay for pure_lag
+            "k": [k_days] * len(reach_ids),
+            "x": [x_val] * len(reach_ids),
+            "tau": [k_days] * len(reach_ids),
+            "delay": [k_days] * len(reach_ids),
         },
         index=reach_ids,
     )
@@ -481,7 +479,7 @@ def create_routing_dataclass(sandbox_zarr_path: Path, num_reaches: int = 5):
         adjacency_matrix=adjacency_matrix,
         length=torch.full((num_reaches,), 5000.0),  # 5km reaches
         slope=torch.full((num_reaches,), 0.001),  # 1m per km
-        x=torch.full((num_reaches,), 0.25),  # Storage coefficient from x_Sandbox.csv
+        x=torch.full((num_reaches,), 0.25),  # Muskingum x weighting factor
         top_width=torch.empty(0),  # Learned via spatial_params
         side_slope=torch.empty(0),  # Learned via spatial_params
         divide_ids=np.array(ts_order),

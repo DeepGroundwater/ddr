@@ -239,7 +239,10 @@ class TestdmcForwardPass:
 
             # Check that setup_inputs was called correctly
             mock_setup.assert_called_once_with(
-                routing_dataclass=routing_dataclass, streamflow=streamflow, spatial_parameters=spatial_params
+                routing_dataclass=routing_dataclass,
+                streamflow=streamflow,
+                spatial_parameters=spatial_params,
+                carry_state=False,
             )
 
     def test_forward_compatibility_attributes_update(

@@ -1,0 +1,175 @@
+# =============================================================================
+# DDR Benchmark Configuration
+# =============================================================================
+#
+# This config drives the benchmark runner that compares DDR against DiffRoute
+# (and optionally summed Q') on the same input data and gauge set.
+#
+# HOW TO USE:
+#   1. Copy this file:  cp example_benchmark.yaml benchmark.yaml
+#   2. Replace every /path/to/... with real paths for your environment
+#   3. Run:  uv run python scripts/benchmark.py --config-name benchmark
+#
+# WHAT IT PRODUCES (in output/<name>/<timestamp>/):
+#   plots/
+#     nse_cdf_comparison.png          - CDF of NSE across all gauges
+#     kge_cdf_comparison.png          - CDF of KGE across all gauges
+#     metric_boxplot_comparison.png   - 6-panel boxplot (bias, rmse, fhv, flv, nse, kge)
+#     gauge_map_ddr_NSE.png           - Map of gauges colored by DDR NSE
+#     gauge_map_diffroute_NSE.png     - Map of gauges colored by DiffRoute NSE
+#     gauge_map_sqp_NSE.png           - Map of gauges colored by summed Q' NSE (if enabled)
+#     hydrographs/                    - One hydrograph per gauge with all models overlaid
+#   benchmark_results.zarr            - xarray Dataset with predictions + observations
+#   Console output includes mass balance accumulation comparison between models
+#
+# REQUIREMENTS:
+#   - Only MERIT geodataset is currently supported for benchmarking
+#   - A trained DDR checkpoint is required (experiment.checkpoint)
+#   - gages_adjacency zarr is required for DiffRoute per-gage routing
+#   - gages CSV (with STAID, LAT_GAGE, LNG_GAGE, DRAIN_SQKM) is required for gauge maps
+# =============================================================================
+
+defaults:
+  - _self_
+  - hydra: settings
+
+# --- Core settings ---
+# Only "merit" geodataset is supported for benchmarking.
+# Mode must be "testing" (benchmark runs inference, not training).
+mode: testing
+geodataset: merit
+name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
+
+# GPU device index, or "cpu" for CPU-only.
+# If you have multiple GPUs, set this to the desired index (0, 1, 2, ...).
+device: 0
+
+# --- Data sources ---
+# All paths below must point to existing files/directories.
+# See docs/startup.md for how to prepare these.
+data_sources:
+  # NetCDF of catchment attributes (soils, climate, topography)
+  attributes: /path/to/merit_global_attributes.nc
+
+  # Shapefile or GeoPackage defining the river network connectivity
+  geospatial_fabric_gpkg: /path/to/merit_river_network.shp
+
+  # Sparse adjacency zarr for the full CONUS network (output of engine/)
+  conus_adjacency: /path/to/merit_conus_adjacency.zarr
+
+  # Per-gauge upstream subnetwork zarr (output of engine/ --gages)
+  # Required for DiffRoute per-gage routing
+  gages_adjacency: /path/to/merit_gages_conus_adjacency.zarr
+
+  # Directory with precomputed mean/std statistics for normalization
+  statistics: /path/to/statistics
+
+  # Unit catchment streamflow predictions (input to the routing models)
+  streamflow: /path/to/merit_streamflow
+
+  # USGS daily streamflow observations for evaluation
+  observations: /path/to/usgs_daily_observations
+
+  # CSV with gauge metadata. Required columns:
+  #   STAID      - USGS station ID (will be zero-padded to 8 digits)
+  #   LAT_GAGE   - Gauge latitude  (used for gauge maps)
+  #   LNG_GAGE   - Gauge longitude (used for gauge maps)
+  #   DRAIN_SQKM - Drainage area in km^2 (used for drainage-area boxplots)
+  gages: /path/to/gages.csv
+
+# --- Routing parameters ---
+# These must match what was used during DDR training.
+params:
+  save_path: ./
+  parameter_ranges:
+    n: [0.02, 0.2]               # Manning's roughness coefficient range
+    q_spatial: [0.0, 1.0]        # Spatial parameter range
+    top_width: [1.0, 6000.0]     # Channel top width range (meters)
+    side_slope: [0.5, 50.0]      # Channel side slope range
+  log_space_parameters: [top_width, side_slope]
+  defaults:
+    p_spatial: 21
+  tau: 3                          # Timestep offset for downsampling hourly -> daily
+
+# --- Experiment settings ---
+experiment:
+  batch_size: 365                 # Days per batch (365 = 1 year chunks)
+  start_time: 1995/10/01          # Evaluation period start (YYYY/MM/DD)
+  end_time: 2010/09/30            # Evaluation period end
+  warmup: 3                       # Days to skip at start (model spin-up)
+
+  # Path to a trained DDR checkpoint (.pt file).
+  # This is REQUIRED - without it the model uses random weights.
+  checkpoint: /path/to/trained_model.pt
+
+# --- KAN (spatial parameter network) ---
+# Must match the architecture used during training.
+kan:
+  hidden_size: 21                 # Hidden layer size (recommend 2n+1 where n=num inputs)
+  input_var_names:                # Catchment attributes fed to the KAN
+    - SoilGrids1km_clay
+    - aridity
+    - meanelevation
+    - meanP
+    - NDVI
+    - meanslope
+    - log10_uparea
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
+  num_hidden_layers: 2
+  learnable_parameters:           # DMC parameters predicted by the KAN
+    - n
+    - q_spatial
+    - top_width
+    - side_slope
+  grid: 50                        # B-spline grid resolution
+  k: 2                            # B-spline order
+
+# =============================================================================
+# DiffRoute-specific configuration
+# =============================================================================
+# DiffRoute is a linear time-invariant (LTI) routing baseline.
+# It routes each gauge's upstream subnetwork independently using an
+# impulse response function (IRF) applied at every reach.
+diffroute:
+  # Set to false to skip DiffRoute and only run DDR
+  enabled: true
+
+  # Impulse Response Function model.
+  # Options: muskingum, linear_storage, nash_cascade, pure_lag, hayami
+  irf_fn: muskingum
+
+  # Maximum delay for LTI router (number of timesteps).
+  # Larger values handle longer travel times but use more memory.
+  max_delay: 100
+
+  # Timestep in days. Must match DDR's internal timestep.
+  # 3600/86400 = 0.0416667 days = 1 hour
+  dt: 0.0416667
+
+  # Muskingum k parameter (wave travel time through a reach) in days.
+  # Must be in same units as dt.
+  # Stability constraint: k >= dt / (2*(1-x))
+  # 0.1042 days = 9000s = 2.5 hours (RAPID default)
+  # Set to null to default to 0.1042.
+  k: 0.1042
+
+  # Muskingum x parameter (weighting factor).
+  # Range: 0 to 0.5
+  #   x=0.0 -> pure reservoir (maximum attenuation)
+  #   x=0.5 -> pure translation (no attenuation)
+  x: 0.3
+
+# =============================================================================
+# Optional: Summed Q' baseline
+# =============================================================================
+# Summed Q' is the simplest possible "routing" — it sums all upstream lateral
+# inflows at each gauge without any wave propagation or timing. This provides
+# a lower-bound baseline: any routing model should beat raw summation.
+#
+# To generate a summed Q' zarr store:
+#   uv run python scripts/summed_q_prime.py --config-name your_config
+#
+# Set to null (or remove this line) to skip the summed Q' comparison.
+summed_q_prime: null

@@ -168,8 +168,12 @@ class dmc(torch.nn.Module):
         spatial_parameters = kwargs["spatial_parameters"]
 
         # Setup routing engine with all inputs
+        carry_state = kwargs.get("carry_state", False)
         self.routing_engine.setup_inputs(
-            routing_dataclass=routing_dataclass, streamflow=q_prime, spatial_parameters=spatial_parameters
+            routing_dataclass=routing_dataclass,
+            streamflow=q_prime,
+            spatial_parameters=spatial_parameters,
+            carry_state=carry_state,
         )
 
         # Update compatibility attributes

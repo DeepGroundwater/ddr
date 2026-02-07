@@ -1,0 +1,20 @@
+help:
+  app_name: ddr-benchmark
+  header: == ${hydra.help.app_name} ==
+  template: |-
+    ${hydra.help.header}
+
+    DDR Benchmark - Compare DDR against DiffRoute and other routing models
+
+    ${hydra.help.footer}
+  footer: |-
+    Powered by Hydra (https://hydra.cc)
+    Use --hydra-help to view Hydra specific help
+job:
+  name: ${name}
+  chdir: True
+run:
+  dir: ${hydra:runtime.cwd}/../output/${hydra.job.name}/${now:%Y-%m-%d_%H-%M-%S}
+sweep:
+  dir: multirun
+  subdir: ${hydra.job.override_dirname}

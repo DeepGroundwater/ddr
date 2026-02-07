@@ -87,6 +87,7 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
                 "routing_dataclass": routing_dataclass,
                 "spatial_parameters": spatial_params,
                 "streamflow": streamflow_predictions,
+                "carry_state": i > 0,
             }
             dmc_output = routing_model(**dmc_kwargs)
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()

@@ -724,18 +724,6 @@ def benchmark(
     log.info("=== Mass Balance Accumulation Comparison ===")
 
     ddr_total = ddr_daily[:, warmup:].sum(axis=1)
-    obs_total = daily_obs[:, warmup:].sum(axis=1)
-
-    ddr_rel_err = np.abs(ddr_total - obs_total) / np.where(obs_total != 0, obs_total, 1.0)
-    log.info(f"DDR vs Obs  — Mean rel. error: {ddr_rel_err.mean():.4f}, Median: {np.median(ddr_rel_err):.4f}")
-
-    if diffroute_enabled:
-        dr_total = diffroute_daily[:, warmup:].sum(axis=1)
-        dr_rel_err = np.abs(dr_total - obs_total) / np.where(obs_total != 0, obs_total, 1.0)
-        log.info(
-            f"DiffRoute vs Obs — Mean rel. error: {dr_rel_err.mean():.4f}, Median: {np.median(dr_rel_err):.4f}"
-        )
-
     if sqp_daily is not None:
         sqp_total = sqp_daily[:, warmup:].sum(axis=1)
         ddr_vs_sqp = np.abs(ddr_total - sqp_total) / np.where(sqp_total != 0, sqp_total, 1.0)
@@ -743,6 +731,7 @@ def benchmark(
             f"DDR vs ΣQ' — Mean rel. error: {ddr_vs_sqp.mean():.4f}, Median: {np.median(ddr_vs_sqp):.4f}"
         )
         if diffroute_enabled:
+            dr_total = diffroute_daily[:, warmup:].sum(axis=1)
             dr_vs_sqp = np.abs(dr_total - sqp_total) / np.where(sqp_total != 0, sqp_total, 1.0)
             log.info(
                 f"DiffRoute vs ΣQ' — Mean rel. error: {dr_vs_sqp.mean():.4f}, Median: {np.median(dr_vs_sqp):.4f}"

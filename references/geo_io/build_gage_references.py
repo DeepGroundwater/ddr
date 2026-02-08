@@ -23,8 +23,10 @@ OUTPUT_COLUMNS = [
     "LNG_GAGE",
     "COMID",
     "COMID_DRAIN_SQKM",
+    "COMID_UNITAREA_SQKM",
     "PCT_DIFF",
     "REL_ERR",
+    "ABS_DIFF",
 ]
 
 
@@ -91,7 +93,8 @@ def load_gages(path: Path) -> gpd.GeoDataFrame:
 def spatial_join(gages: gpd.GeoDataFrame, catchments: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """Assign each gage a MERIT COMID via point-in-polygon join."""
     print("Performing spatial join (within)...")
-    joined = gpd.sjoin(gages, catchments[["COMID", "geometry"]], how="left", predicate="within")
+    joined = gpd.sjoin(gages, catchments[["COMID", "unitarea", "geometry"]], how="left", predicate="within")
+    joined = joined.rename(columns={"unitarea": "COMID_UNITAREA_SQKM"})
     # sjoin adds index_right; drop it
     joined = joined.drop(columns=["index_right"], errors="ignore")
     matched = joined["COMID"].notna().sum()
@@ -113,9 +116,10 @@ def merge_uparea(gages: gpd.GeoDataFrame, merit_rivers_path: Path) -> gpd.GeoDat
 
 
 def compute_error_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute PCT_DIFF and REL_ERR between USGS drainage area and MERIT upstream area."""
+    """Compute PCT_DIFF, REL_ERR, and ABS_DIFF between USGS drainage area and MERIT upstream area."""
     df["PCT_DIFF"] = (df["DRAIN_SQKM"] - df["COMID_DRAIN_SQKM"]) / df["DRAIN_SQKM"] * 100
     df["REL_ERR"] = (df["COMID_DRAIN_SQKM"] - df["DRAIN_SQKM"]) / df["DRAIN_SQKM"]
+    df["ABS_DIFF"] = (df["DRAIN_SQKM"] - df["COMID_DRAIN_SQKM"]).abs()
     return df
 
 

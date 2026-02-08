@@ -1,4 +1,4 @@
-"""Tests for ddr.io.readers — convert_ft3_s_to_m3_s, read_gage_info, read_coo, read_zarr."""
+"""Tests for ddr.io.readers — convert_ft3_s_to_m3_s, read_gage_info, filter_gages_by_area_threshold, read_coo, read_zarr."""
 
 import csv
 from pathlib import Path
@@ -8,7 +8,7 @@ import pytest
 import zarr
 import zarr.storage
 
-from ddr.io.readers import convert_ft3_s_to_m3_s, read_gage_info, read_zarr
+from ddr.io.readers import convert_ft3_s_to_m3_s, filter_gages_by_area_threshold, read_gage_info, read_zarr
 
 
 class TestConvertFt3ToM3:
@@ -66,3 +66,146 @@ class TestReadZarr:
     def test_read_zarr_missing(self) -> None:
         with pytest.raises(FileNotFoundError):
             read_zarr(Path("/nonexistent/path/store.zarr"))
+
+
+class TestReadGageInfoOptionalColumns:
+    """Tests for optional column support in read_gage_info()."""
+
+    def test_optional_columns_returned_when_present(self, tmp_path: Path) -> None:
+        """CSV with COMID, ABS_DIFF etc → returned in dict."""
+        csv_path = tmp_path / "gages.csv"
+        with csv_path.open("w", newline="") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "STAID",
+                    "STANAME",
+                    "DRAIN_SQKM",
+                    "LAT_GAGE",
+                    "LNG_GAGE",
+                    "COMID",
+                    "COMID_DRAIN_SQKM",
+                    "ABS_DIFF",
+                ],
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "STAID": "01563500",
+                    "STANAME": "Test",
+                    "DRAIN_SQKM": "100.0",
+                    "LAT_GAGE": "40.0",
+                    "LNG_GAGE": "-77.0",
+                    "COMID": "12345",
+                    "COMID_DRAIN_SQKM": "105.0",
+                    "ABS_DIFF": "5.0",
+                }
+            )
+        result = read_gage_info(csv_path)
+        assert "ABS_DIFF" in result
+        assert result["ABS_DIFF"] == [5.0]
+        assert "COMID" in result
+        assert result["COMID"] == [12345]
+
+    def test_optional_columns_absent_still_works(self, tmp_path: Path) -> None:
+        """CSV without optional columns → dict has only required keys."""
+        csv_path = tmp_path / "gages.csv"
+        with csv_path.open("w", newline="") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=["STAID", "STANAME", "DRAIN_SQKM", "LAT_GAGE", "LNG_GAGE"],
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "STAID": "01563500",
+                    "STANAME": "Test",
+                    "DRAIN_SQKM": "100.0",
+                    "LAT_GAGE": "40.0",
+                    "LNG_GAGE": "-77.0",
+                }
+            )
+        result = read_gage_info(csv_path)
+        assert "ABS_DIFF" not in result
+        assert "STAID" in result
+
+    def test_staname_fallback_with_optional_columns(self, tmp_path: Path) -> None:
+        """CSV missing STANAME but having optional columns → STANAME populated from STAID."""
+        csv_path = tmp_path / "gages.csv"
+        with csv_path.open("w", newline="") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=["STAID", "DRAIN_SQKM", "LAT_GAGE", "LNG_GAGE", "ABS_DIFF"],
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "STAID": "01563500",
+                    "DRAIN_SQKM": "100.0",
+                    "LAT_GAGE": "40.0",
+                    "LNG_GAGE": "-77.0",
+                    "ABS_DIFF": "5.0",
+                }
+            )
+        result = read_gage_info(csv_path)
+        assert "STANAME" in result
+        assert len(result["STANAME"]) == 1
+        assert "ABS_DIFF" in result
+
+
+class TestFilterGagesByAreaThreshold:
+    """Tests for filter_gages_by_area_threshold()."""
+
+    def test_filters_gages_above_threshold(self) -> None:
+        gage_ids = np.array(["00000001", "00000002", "00000003"])
+        gage_dict: dict[str, list] = {
+            "STAID": ["00000001", "00000002", "00000003"],
+            "ABS_DIFF": [10.0, 60.0, 5.0],
+        }
+        filtered, removed = filter_gages_by_area_threshold(gage_ids, gage_dict, 50.0)
+        assert list(filtered) == ["00000001", "00000003"]
+        assert removed == 1
+
+    def test_no_filtering_below_threshold(self) -> None:
+        gage_ids = np.array(["00000001", "00000002"])
+        gage_dict: dict[str, list] = {
+            "STAID": ["00000001", "00000002"],
+            "ABS_DIFF": [10.0, 20.0],
+        }
+        filtered, removed = filter_gages_by_area_threshold(gage_ids, gage_dict, 50.0)
+        assert len(filtered) == 2
+        assert removed == 0
+
+    def test_all_filtered(self) -> None:
+        """If all gages filtered, returns empty array."""
+        gage_ids = np.array(["00000001"])
+        gage_dict: dict[str, list] = {"STAID": ["00000001"], "ABS_DIFF": [100.0]}
+        filtered, removed = filter_gages_by_area_threshold(gage_ids, gage_dict, 5.0)
+        assert len(filtered) == 0
+        assert removed == 1
+
+    def test_missing_abs_diff_raises(self) -> None:
+        gage_ids = np.array(["00000001"])
+        gage_dict: dict[str, list] = {"STAID": ["00000001"]}
+        with pytest.raises(KeyError):
+            filter_gages_by_area_threshold(gage_ids, gage_dict, 50.0)
+
+    def test_zero_threshold_exact_match_only(self) -> None:
+        gage_ids = np.array(["00000001", "00000002"])
+        gage_dict: dict[str, list] = {
+            "STAID": ["00000001", "00000002"],
+            "ABS_DIFF": [0.0, 0.001],
+        }
+        filtered, removed = filter_gages_by_area_threshold(gage_ids, gage_dict, 0.0)
+        assert list(filtered) == ["00000001"]
+
+    def test_gage_ids_subset_of_dict(self) -> None:
+        """gage_ids may be a subset of gage_dict STAIDs."""
+        gage_ids = np.array(["00000002"])
+        gage_dict: dict[str, list] = {
+            "STAID": ["00000001", "00000002", "00000003"],
+            "ABS_DIFF": [10.0, 60.0, 5.0],
+        }
+        filtered, removed = filter_gages_by_area_threshold(gage_ids, gage_dict, 50.0)
+        assert len(filtered) == 0
+        assert removed == 1

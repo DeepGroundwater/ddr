@@ -66,6 +66,7 @@ class TestBenchmarkConfig:
                 "streamflow": "/fake",
                 "observations": "/fake",
                 "conus_adjacency": "/fake",
+                "geospatial_fabric_gpkg": "/fake.gpkg",
             },
             kan={
                 "input_var_names": ["slope"],

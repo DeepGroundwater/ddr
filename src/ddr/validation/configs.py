@@ -170,6 +170,11 @@ class ExperimentConfig(BaseModel):
         default=3,
         description="Number of days excluded from loss calculation as routing starts from dry conditions",
     )
+    max_area_diff_sqkm: float | None = Field(
+        default=50,
+        description="Maximum absolute drainage area difference (km²) between USGS gage and COMID. "
+        "Gages exceeding this threshold are excluded from training/evaluation. None disables filtering.",
+    )
 
     @field_validator("checkpoint", mode="before")
     @classmethod

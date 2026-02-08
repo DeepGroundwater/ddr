@@ -169,6 +169,40 @@ class TestSetSeed:
         assert torch.equal(a, b)
 
 
+class TestExperimentConfigAreaThreshold:
+    """Test max_area_diff_sqkm config field."""
+
+    def test_valid_threshold(self, tmp_path) -> None:
+        """Positive float accepted."""
+        gpkg = tmp_path / "test.gpkg"
+        gpkg.touch()
+        adj = tmp_path / "adj"
+        adj.mkdir()
+
+        d = _minimal_config_dict()
+        d["data_sources"]["geospatial_fabric_gpkg"] = str(gpkg)
+        d["data_sources"]["conus_adjacency"] = str(adj)
+        d["experiment"] = {"max_area_diff_sqkm": 50.0}
+
+        config = Config(**d)
+        assert config.experiment.max_area_diff_sqkm == 50.0
+
+    def test_zero_threshold_valid(self, tmp_path) -> None:
+        """Zero means exact match required."""
+        gpkg = tmp_path / "test.gpkg"
+        gpkg.touch()
+        adj = tmp_path / "adj"
+        adj.mkdir()
+
+        d = _minimal_config_dict()
+        d["data_sources"]["geospatial_fabric_gpkg"] = str(gpkg)
+        d["data_sources"]["conus_adjacency"] = str(adj)
+        d["experiment"] = {"max_area_diff_sqkm": 0.0}
+
+        config = Config(**d)
+        assert config.experiment.max_area_diff_sqkm == 0.0
+
+
 class TestValidateConfig:
     """Test validate_config from DictConfig."""
 

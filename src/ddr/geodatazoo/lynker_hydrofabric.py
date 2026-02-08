@@ -17,7 +17,14 @@ from ddr.io.builders import (
     construct_network_matrix,
     create_hydrofabric_observations,
 )
-from ddr.io.readers import IcechunkUSGSReader, fill_nans, naninfmean, read_ic, read_zarr
+from ddr.io.readers import (
+    IcechunkUSGSReader,
+    fill_nans,
+    filter_gages_by_area_threshold,
+    naninfmean,
+    read_ic,
+    read_zarr,
+)
 from ddr.io.statistics import set_statistics
 from ddr.validation.configs import Config
 from ddr.validation.enums import Mode
@@ -127,6 +134,16 @@ class LynkerHydrofabric(BaseGeoDataset):
         self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
         self.observations = self.obs_reader.read_data(dates=self.dates)
         self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+        if self.cfg.experiment.max_area_diff_sqkm is not None:
+            self.gage_ids, n_removed = filter_gages_by_area_threshold(
+                self.gage_ids,
+                self.obs_reader.gage_dict,
+                self.cfg.experiment.max_area_diff_sqkm,
+            )
+            log.info(
+                f"Filtered {n_removed} gages exceeding area diff threshold "
+                f"of {self.cfg.experiment.max_area_diff_sqkm} km²"
+            )
         self.gages_adjacency = read_zarr(Path(self.cfg.data_sources.gages_adjacency))
         log.info(f"Training mode: routing for {len(self.gage_ids)} gauged locations")
 
@@ -142,6 +159,16 @@ class LynkerHydrofabric(BaseGeoDataset):
             self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
             self.observations = self.obs_reader.read_data(dates=self.dates)
             self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+            if self.cfg.experiment.max_area_diff_sqkm is not None:
+                self.gage_ids, n_removed = filter_gages_by_area_threshold(
+                    self.gage_ids,
+                    self.obs_reader.gage_dict,
+                    self.cfg.experiment.max_area_diff_sqkm,
+                )
+                log.info(
+                    f"Filtered {n_removed} gages exceeding area diff threshold "
+                    f"of {self.cfg.experiment.max_area_diff_sqkm} km²"
+                )
             self.gages_adjacency = read_zarr(Path(self.cfg.data_sources.gages_adjacency))
             log.info(f"Gages mode: {len(self.gage_ids)} gauged locations")
             self.routing_dataclass = self._build_routing_data_gages()

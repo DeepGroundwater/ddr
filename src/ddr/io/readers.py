@@ -82,7 +82,7 @@ def convert_ft3_s_to_m3_s(flow_rates_ft3_s: np.ndarray) -> np.ndarray:
     return flow_rates_ft3_s * conversion_factor
 
 
-def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
+def read_gage_info(gage_info_path: Path) -> dict[str, list]:
     """Reads gage information from a specified file.
 
     Parameters
@@ -92,7 +92,10 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
 
     Returns
     -------
-    Dict[str, List[str]]: A dictionary containing the gage information.
+    dict[str, list]
+        A dictionary containing gage information. Required keys: STAID, STANAME,
+        DRAIN_SQKM, LAT_GAGE, LNG_GAGE. Optional keys (included when present in CSV):
+        COMID, COMID_DRAIN_SQKM, ABS_DIFF, COMID_UNITAREA_SQKM.
 
     Raises
     ------
@@ -106,6 +109,7 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
         "LAT_GAGE",
         "LNG_GAGE",
     ]
+    optional_columns = ["COMID", "COMID_DRAIN_SQKM", "ABS_DIFF", "COMID_UNITAREA_SQKM"]
 
     try:
         df = pd.read_csv(gage_info_path, delimiter=",")
@@ -124,9 +128,54 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list[str]]:
             for field in expected_column_names
             if field in df.columns
         }
+
+        for col in optional_columns:
+            if col in df.columns:
+                out[col] = df[col].values.tolist()
+
         return out
     except FileNotFoundError as e:
         raise FileNotFoundError(f"File not found: {gage_info_path}") from e
+
+
+def filter_gages_by_area_threshold(
+    gage_ids: np.ndarray,
+    gage_dict: dict[str, list],
+    threshold: float,
+) -> tuple[np.ndarray, int]:
+    """Filter gage IDs by absolute drainage area difference.
+
+    Parameters
+    ----------
+    gage_ids : np.ndarray
+        Array of STAID strings
+    gage_dict : dict
+        Dict from read_gage_info() — must contain "STAID" and "ABS_DIFF"
+    threshold : float
+        Maximum absolute area difference in km²
+
+    Returns
+    -------
+    tuple[np.ndarray, int]
+        Filtered gage IDs and count of removed gages
+
+    Raises
+    ------
+    KeyError
+        If gage_dict doesn't contain "ABS_DIFF" key
+    """
+    if "ABS_DIFF" not in gage_dict:
+        raise KeyError("gage_dict must contain 'ABS_DIFF' key for area threshold filtering")
+
+    staid_to_abs_diff = {
+        str(staid): abs_diff
+        for staid, abs_diff in zip(gage_dict["STAID"], gage_dict["ABS_DIFF"], strict=False)
+    }
+
+    keep_mask = np.array([staid_to_abs_diff.get(gid, float("inf")) <= threshold for gid in gage_ids])
+    filtered = gage_ids[keep_mask]
+    n_removed = len(gage_ids) - len(filtered)
+    return filtered, n_removed
 
 
 def naninfmean(arr: np.ndarray) -> np.floating[Any]:

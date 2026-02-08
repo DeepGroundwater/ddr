@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
+from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
@@ -25,24 +26,12 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        file_path = Path(cfg.experiment.checkpoint)
-        device = torch.device(cfg.device)
-        log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
-        state = torch.load(file_path, map_location=device)
-        state_dict = state["model_state_dict"]
-        for key in state_dict.keys():
-            state_dict[key] = state_dict[key].to(device)
-        nn.load_state_dict(state_dict)
+        state = load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
         start_epoch = state["epoch"]
         start_mini_batch = (
             0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
         )  # Start from the next mini-batch
-
-        if start_epoch in cfg.experiment.learning_rate.keys():
-            lr = cfg.experiment.learning_rate[start_epoch]
-        else:
-            key_list = list(cfg.experiment.learning_rate.keys())
-            lr = cfg.experiment.learning_rate[key_list[0]]  # defaults to first LR
+        lr = resolve_learning_rate(cfg.experiment.learning_rate, start_epoch)
     else:
         log.info("Creating new spatial model")
         start_epoch = 1

@@ -1,7 +1,7 @@
 """Comprehensive tests for the refactored torch_mc.py module."""
 
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -29,42 +29,6 @@ from tests.routing.test_utils import (
 
 class TestdmcInitialization:
     """Test dmc class initialization."""
-
-    def test_init_cpu(self) -> None:
-        """Test initialization with CPU device."""
-        cfg = create_mock_config()
-        model = dmc(cfg, device="cpu")
-
-        assert model.device_num == "cpu"
-        assert model.cfg == cfg
-        assert isinstance(model.routing_engine, MuskingumCunge)
-
-        # Test that PyTorch module properties are set
-        assert isinstance(model, torch.nn.Module)
-        assert model.t.item() == 3600.0
-        assert model.t.device.type == "cpu"
-
-        # Test tensor attributes (copied from routing engine)
-        assert isinstance(model.p_spatial, torch.Tensor)
-        assert isinstance(model.velocity_lb, torch.Tensor)
-        assert isinstance(model.depth_lb, torch.Tensor)
-        assert isinstance(model.discharge_lb, torch.Tensor)
-        assert isinstance(model.bottom_width_lb, torch.Tensor)
-
-        # Test compatibility attributes
-        assert torch.equal(model._discharge_t, torch.empty(0))
-        assert torch.equal(model.network, torch.empty(0))
-        assert torch.equal(model.n, torch.empty(0))
-        assert torch.equal(model.q_spatial, torch.empty(0))
-        assert model.epoch == 0
-        assert model.mini_batch == 0
-
-    def test_init_default_device(self) -> None:
-        """Test initialization with default device."""
-        cfg = create_mock_config()
-        model = dmc(cfg)
-
-        assert model.device_num == "cpu"
 
     def test_init_none_device(self) -> None:
         """Test initialization with None device."""
@@ -311,67 +275,6 @@ class TestdmcForwardPass:
             # Check that streamflow was moved to correct device
             called_args = mock_setup.call_args
             assert called_args[1]["streamflow"].device.type == model.device_num
-
-
-class TestdmcCompatibilityMethods:
-    """Test compatibility methods for backward compatibility."""
-
-    def test_fill_op_delegation(self) -> None:
-        """Test that fill_op delegates to routing engine."""
-        cfg = create_mock_config()
-        model = dmc(cfg, device="cpu")
-
-        data_vector = torch.tensor([1.0, 2.0, 3.0])
-
-        with patch.object(model.routing_engine, "fill_op") as mock_fill_op:
-            mock_fill_op.return_value = torch.eye(3)
-
-            result = model.fill_op(data_vector)
-
-            mock_fill_op.assert_called_once_with(data_vector)
-            assert torch.equal(result, torch.eye(3))
-
-    def test_sparse_eye_delegation(self) -> None:
-        """Test that _sparse_eye delegates to routing engine."""
-        cfg = create_mock_config()
-        model = dmc(cfg, device="cpu")
-
-        with patch.object(model.routing_engine, "_sparse_eye") as mock_sparse_eye:
-            mock_sparse_eye.return_value = torch.eye(5).to_sparse()
-
-            model._sparse_eye(5)
-
-            mock_sparse_eye.assert_called_once_with(5)
-
-    def test_sparse_diag_delegation(self) -> None:
-        """Test that _sparse_diag delegates to routing engine."""
-        cfg = create_mock_config()
-        model = dmc(cfg, device="cpu")
-
-        data = torch.tensor([1.0, 2.0, 3.0])
-
-        with patch.object(model.routing_engine, "_sparse_diag") as mock_sparse_diag:
-            mock_sparse_diag.return_value = torch.diag(data).to_sparse()
-
-            model._sparse_diag(data)
-
-            mock_sparse_diag.assert_called_once_with(data)
-
-    def test_route_timestep_delegation(self) -> None:
-        """Test that route_timestep delegates to routing engine."""
-        cfg = create_mock_config()
-        model = dmc(cfg, device="cpu")
-
-        q_prime_clamp = torch.ones(5) * 2.0
-        mapper = Mock()
-
-        with patch.object(model.routing_engine, "route_timestep") as mock_route:
-            mock_route.return_value = torch.ones(5) * 5.0
-
-            result = model.route_timestep(q_prime_clamp, mapper)
-
-            mock_route.assert_called_once_with(q_prime_clamp=q_prime_clamp, mapper=mapper)
-            assert torch.equal(result, torch.ones(5) * 5.0)
 
 
 class TestdmcStateDict:

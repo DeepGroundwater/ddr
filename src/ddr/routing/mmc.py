@@ -236,21 +236,24 @@ class MuskingumCunge:
             reinitializing from q_prime[0]. Set to True for sequential inference
             (testing/benchmarking) so that batches maintain physical continuity.
         """
-        # Store routing_dataclass
+        self._set_network_context(routing_dataclass, streamflow)
+        self._denormalize_spatial_parameters(spatial_parameters)
+        self._init_discharge_state(carry_state)
+        self._precompute_scatter_indices()
+
+    def _set_network_context(self, routing_dataclass: Any, streamflow: torch.Tensor) -> None:
+        """Store routing_dataclass refs, extract/clamp spatial attributes, setup network."""
         self.routing_dataclass = routing_dataclass
         self.output_indices = routing_dataclass.outflow_idx
         self.gage_catchment = routing_dataclass.gage_catchment
 
-        # Handle observations (only present in gages mode)
         if routing_dataclass.observations is not None:
             self.observations = routing_dataclass.observations.gage_id
         else:
             self.observations = None
 
-        # Setup network
         self.network = routing_dataclass.adjacency_matrix
 
-        # Extract and prepare spatial attributes
         self.length = routing_dataclass.length.to(self.device).to(torch.float32)
         self.slope = torch.clamp(
             routing_dataclass.slope.to(self.device).to(torch.float32),
@@ -258,12 +261,13 @@ class MuskingumCunge:
         )
         self.x_storage = routing_dataclass.x.to(self.device).to(torch.float32)
 
-        # Setup streamflow
         self.q_prime = streamflow.to(self.device)
 
-        # Setup spatial parameters
+    def _denormalize_spatial_parameters(self, spatial_parameters: dict[str, torch.Tensor]) -> None:
+        """Denormalize NN [0,1] outputs to physical parameter bounds with log-space handling."""
         self.spatial_parameters = spatial_parameters
         log_space_params = self.cfg.params.log_space_parameters
+
         self.n = denormalize(
             value=spatial_parameters["n"],
             bounds=self.parameter_bounds["n"],
@@ -274,6 +278,8 @@ class MuskingumCunge:
             bounds=self.parameter_bounds["q_spatial"],
             log_space="q_spatial" in log_space_params,
         )
+
+        routing_dataclass = self.routing_dataclass
         if routing_dataclass.top_width.numel() == 0:
             self.top_width = denormalize(
                 value=spatial_parameters["top_width"],
@@ -291,20 +297,22 @@ class MuskingumCunge:
         else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
-        # Initialize discharge: carry over from previous batch if requested,
-        # otherwise compute summed Q' via topological accumulation.
+    def _init_discharge_state(self, carry_state: bool) -> None:
+        """Cold-start via topological accumulation, or carry from previous batch."""
         if carry_state and self._discharge_t is not None:
-            pass
-        else:
-            mapper, _, _ = self.create_pattern_mapper()
-            self._discharge_t = compute_hotstart_discharge(
-                self.q_prime[0].to(self.device),
-                mapper,
-                self.discharge_lb,
-                self.device,
-            )
+            return
+        assert self.q_prime is not None, "q_prime must be set before initializing discharge state"
+        mapper, _, _ = self.create_pattern_mapper()
+        self._discharge_t = compute_hotstart_discharge(
+            self.q_prime[0].to(self.device),
+            mapper,
+            self.discharge_lb,
+            self.device,
+        )
 
-        # Precompute scatter_add indices for ragged output_indices (gages mode)
+    def _precompute_scatter_indices(self) -> None:
+        """Precompute scatter_add indices for ragged output (gages mode)."""
+        assert self._discharge_t is not None, "discharge state must be initialized before scatter indices"
         if self.output_indices is not None and len(self.output_indices) != len(self._discharge_t):
             self._flat_indices = torch.cat(
                 [torch.as_tensor(idx, device=self.device, dtype=torch.long) for idx in self.output_indices]

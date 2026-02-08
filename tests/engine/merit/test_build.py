@@ -2,7 +2,8 @@
 
 import numpy as np
 import pytest
-from ddr_engine.merit import build_merit_adjacency, create_adjacency_matrix
+import zarr
+from ddr_engine.merit import build_gauge_adjacencies, build_merit_adjacency, create_adjacency_matrix
 from scipy import sparse
 
 
@@ -134,3 +135,35 @@ class TestBuildMeritAdjacency:
         out_path = tmp_path / "test_return.zarr"
         result = build_merit_adjacency(mock_merit_fp, out_path)
         assert result == out_path
+
+
+class TestBuildGaugeAdjacencies:
+    """Tests for build_gauge_adjacencies function."""
+
+    def test_creates_per_gauge_groups(self, tmp_path, mock_merit_fp, sandbox_zarr_path, sandbox_gauge_set):
+        """Given GaugeSet with 2 gauges, zarr has 2 subgroups."""
+        out_path = tmp_path / "gages.zarr"
+        build_gauge_adjacencies(mock_merit_fp, sandbox_zarr_path, sandbox_gauge_set, out_path)
+        root = zarr.open_group(store=out_path, mode="r")
+        assert "00000030" in root
+        assert "00000050" in root
+
+    def test_headwater_gauge(self, tmp_path, mock_merit_fp, sandbox_zarr_path):
+        """Headwater COMID gauge (10) → subgroup with 0 edges."""
+        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+
+        headwater_gauges = MockGaugeSet(gauges=[MockGauge(STAID="00000010", COMID=10)])
+        out_path = tmp_path / "hw_gages.zarr"
+        build_gauge_adjacencies(mock_merit_fp, sandbox_zarr_path, headwater_gauges, out_path)
+        root = zarr.open_group(store=out_path, mode="r")
+        assert "00000010" in root
+        # Headwater has no edges (0 nnz in COO)
+        indices_0 = root["00000010"]["indices_0"][:]
+        assert len(indices_0) == 0
+
+    def test_raises_if_exists(self, tmp_path, mock_merit_fp, sandbox_zarr_path, sandbox_gauge_set):
+        """Second call to same path → FileExistsError."""
+        out_path = tmp_path / "gages_dup.zarr"
+        build_gauge_adjacencies(mock_merit_fp, sandbox_zarr_path, sandbox_gauge_set, out_path)
+        with pytest.raises(FileExistsError):
+            build_gauge_adjacencies(mock_merit_fp, sandbox_zarr_path, sandbox_gauge_set, out_path)

@@ -263,6 +263,9 @@ class MuskingumCunge:
 
         self.q_prime = streamflow.to(self.device)
 
+        if routing_dataclass.flow_scale is not None:
+            self.q_prime = self.q_prime * routing_dataclass.flow_scale.unsqueeze(0).to(self.device)
+
     def _denormalize_spatial_parameters(self, spatial_parameters: dict[str, torch.Tensor]) -> None:
         """Denormalize NN [0,1] outputs to physical parameter bounds with log-space handling."""
         self.spatial_parameters = spatial_parameters

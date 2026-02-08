@@ -72,6 +72,15 @@ def create_adjacency_matrix(
         return create_adjacency_matrix(fp_filtered)
 
     id_order = [graph.get_node_data(gidx) for gidx in ts_order]
+
+    # Include isolated COMIDs (single-reach basins with no connections in the data)
+    all_comids = {int(c) for c in fp["COMID"].values}
+    connected_comids = set(id_order)
+    isolated_comids = sorted(all_comids - connected_comids)
+    if isolated_comids:
+        print(f"Adding {len(isolated_comids)} isolated COMIDs (no upstream/downstream connections)")
+    id_order = id_order + isolated_comids
+
     idx_map = {id: idx for idx, id in enumerate(id_order)}
 
     col = []
@@ -88,7 +97,7 @@ def create_adjacency_matrix(
 
     matrix = sparse.coo_matrix(
         (np.ones(len(row), dtype=np.uint8), (row, col)),
-        shape=(len(ts_order), len(ts_order)),
+        shape=(len(id_order), len(id_order)),
         dtype=np.uint8,
     )
 

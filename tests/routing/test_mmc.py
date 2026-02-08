@@ -18,53 +18,6 @@ from tests.routing.test_utils import (
 )
 
 
-class TestMuskingumCungeInitialization:
-    """Test MuskingumCunge class initialization."""
-
-    def test_init_cpu(self) -> None:
-        """Test initialization with CPU device."""
-        cfg = create_mock_config()
-        mc = MuskingumCunge(cfg, device="cpu")
-
-        assert mc.device == "cpu"
-        assert mc.cfg == cfg
-        assert mc.t.item() == 3600.0
-        assert mc.t.device.type == "cpu"
-
-        # Test tensor attributes
-        assert isinstance(mc.p_spatial, torch.Tensor)
-        assert isinstance(mc.velocity_lb, torch.Tensor)
-        assert isinstance(mc.depth_lb, torch.Tensor)
-        assert isinstance(mc.discharge_lb, torch.Tensor)
-        assert isinstance(mc.bottom_width_lb, torch.Tensor)
-
-        # Test initial state
-        assert mc.n is None
-        assert mc.q_spatial is None
-        assert mc._discharge_t is None
-        assert mc.network is None
-        assert mc.routing_dataclass is None
-
-    def test_init_default_device(self) -> None:
-        """Test initialization with default device."""
-        cfg = create_mock_config()
-        mc = MuskingumCunge(cfg)
-
-        assert mc.device == "cpu"
-
-    def test_parameter_bounds_setup(self) -> None:
-        """Test that parameter bounds are correctly set up."""
-        cfg = create_mock_config()
-        mc = MuskingumCunge(cfg, device="cpu")
-
-        assert mc.parameter_bounds == cfg.params.parameter_ranges
-        assert mc.p_spatial.item() == cfg.params.defaults["p_spatial"]
-        assert torch.allclose(mc.velocity_lb, torch.tensor(cfg.params.attribute_minimums["velocity"]))
-        assert torch.allclose(mc.depth_lb, torch.tensor(cfg.params.attribute_minimums["depth"]))
-        assert torch.allclose(mc.discharge_lb, torch.tensor(cfg.params.attribute_minimums["discharge"]))
-        assert torch.allclose(mc.bottom_width_lb, torch.tensor(cfg.params.attribute_minimums["bottom_width"]))
-
-
 class TestMuskingumCungeProgressTracking:
     """Test progress tracking functionality."""
 

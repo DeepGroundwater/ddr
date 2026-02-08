@@ -14,8 +14,9 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, SequentialSampler
 
-from ddr import ddr_functions, dmc, kan, streamflow
+from ddr import dmc, kan, streamflow
 from ddr._version import __version__
+from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
 from ddr.validation import Config, validate_config
 
 log = logging.getLogger(__name__)
@@ -26,15 +27,7 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        file_path = Path(cfg.experiment.checkpoint)
-        device = torch.device(cfg.device)
-        log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
-        state = torch.load(file_path, map_location=device)
-        state_dict = state["model_state_dict"]
-        for key in state_dict.keys():
-            state_dict[key] = state_dict[key].to(device)
-        nn.load_state_dict(state_dict)
-
+        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
     else:
         log.warning("Creating new spatial model for evaluation.")
 
@@ -92,11 +85,7 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
             dmc_output = routing_model(**dmc_kwargs)
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
-    num_days = len(predictions[0][13 : (-11 + cfg.params.tau)]) // 24
-    daily_runoff = ddr_functions.downsample(
-        torch.tensor(predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
-        rho=num_days,
-    ).numpy()
+    daily_runoff = compute_daily_runoff(torch.tensor(predictions), cfg.params.tau)
     time_range = dataset.dates.daily_time_range[1:-1]
 
     pred_da = xr.DataArray(

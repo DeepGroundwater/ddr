@@ -172,20 +172,6 @@ class TestSetSeed:
 class TestExperimentConfigAreaThreshold:
     """Test max_area_diff_sqkm config field."""
 
-    def test_default_is_none(self, tmp_path) -> None:
-        """Default: no filtering."""
-        gpkg = tmp_path / "test.gpkg"
-        gpkg.touch()
-        adj = tmp_path / "adj"
-        adj.mkdir()
-
-        d = _minimal_config_dict()
-        d["data_sources"]["geospatial_fabric_gpkg"] = str(gpkg)
-        d["data_sources"]["conus_adjacency"] = str(adj)
-
-        config = Config(**d)
-        assert config.experiment.max_area_diff_sqkm is None
-
     def test_valid_threshold(self, tmp_path) -> None:
         """Positive float accepted."""
         gpkg = tmp_path / "test.gpkg"

@@ -7,6 +7,13 @@ import pytest
 
 from ddr.validation.metrics import Metrics
 
+# Metrics eagerly computes all statistics (p_bias, FDC, flow splits) which
+# trigger divide-by-zero and empty-slice warnings on small/edge-case inputs.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore::RuntimeWarning"),
+    pytest.mark.filterwarnings("ignore::scipy.stats.ConstantInputWarning"),
+]
+
 
 class TestMetricsPerfectPrediction:
     """Test metrics with perfect predictions."""

@@ -180,5 +180,7 @@ disallow_untyped_defs = false
 filterwarnings =  [
     # Ignore a torch UserWarning about doing std()
     # On a single element...
-    "ignore::UserWarning:.*test_utils.*:"
+    "ignore::UserWarning:.*test_utils.*:",
+    # Sparse CSR tensor support is in beta state (PyTorch internal)
+    "ignore:Sparse CSR tensor support is in beta state:UserWarning",
 ]

@@ -105,6 +105,10 @@ class TestReorderToTopo:
 # ============================================================================
 
 
+@pytest.mark.filterwarnings("ignore::UserWarning:zarr")
+@pytest.mark.filterwarnings("ignore:.*Unstable.*:FutureWarning")
+@pytest.mark.filterwarnings("ignore:.*does not have a Zarr V3 specification")
+@pytest.mark.filterwarnings("ignore:.*Consolidated metadata.*:UserWarning")
 class TestSaveResults:
     """Tests for save_results()."""
 
@@ -168,6 +172,11 @@ class TestSaveResults:
 # ============================================================================
 
 
+@pytest.mark.filterwarnings("ignore::UserWarning:zarr")
+@pytest.mark.filterwarnings("ignore:.*does not have a Zarr V3 specification")
+@pytest.mark.filterwarnings("ignore:.*Consolidated metadata.*:UserWarning")
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+@pytest.mark.filterwarnings("ignore::scipy.stats.ConstantInputWarning")
 class TestLoadSummedQPrime:
     """Tests for load_summed_q_prime()."""
 

@@ -121,7 +121,7 @@ def build_lynker_hydrofabric_gages_adjacency(
             continue
         connections = subset(origin, wb_network_dict)
         if len(connections) == 0:
-            print(f"Gauge: {gauge.STAID} is a headwater catchment (single reach)")
+            # print(f"Gauge: {gauge.STAID} is a headwater catchment (single reach)")
             coo = sparse.coo_matrix((len(ts_order_dict), len(ts_order_dict)), dtype=np.int8)
             subset_flowpaths = [origin]
         else:

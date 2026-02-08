@@ -160,8 +160,10 @@ class TestIsolatedCOMIDs:
             geometry=[LineString([(0, 99), (1, 99)])],
             crs="EPSG:4326",
         )
+        import pandas as pd
+
         return gpd.GeoDataFrame(
-            data=mock_merit_fp._append(isolated_row, ignore_index=True),
+            pd.concat([mock_merit_fp, isolated_row], ignore_index=True),
             crs="EPSG:4326",
         )
 
@@ -233,8 +235,10 @@ class TestHeadwaterGaugeAdjacency:
             geometry=[LineString([(0, 99), (1, 99)])],
             crs="EPSG:4326",
         )
+        import pandas as pd
+
         return gpd.GeoDataFrame(
-            data=mock_merit_fp._append(isolated_row, ignore_index=True),
+            pd.concat([mock_merit_fp, isolated_row], ignore_index=True),
             crs="EPSG:4326",
         )
 

@@ -208,7 +208,7 @@ def eval_q_prime(
         .streamflow.values.astype(np.float32)
     )
     for i, gauge in tqdm(
-        enumerate(valid_gauges), total=len(valid_gauges), desc="Processing gauges", ncols=140
+        enumerate(valid_gauges), total=len(valid_gauges), desc="Processing gauges", ncols=140, ascii=True
     ):
         if cfg.geodataset == GeoDataset.LYNKER_HYDROFABRIC.value:
             basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])

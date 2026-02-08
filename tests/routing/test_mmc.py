@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 import torch
 
-from ddr.routing.mmc import MuskingumCunge
+from ddr.routing.mmc import MuskingumCunge, compute_hotstart_discharge
 from tests.routing.test_utils import (
     assert_no_nan_or_inf,
     assert_tensor_properties,
@@ -122,9 +122,13 @@ class TestMuskingumCungeInputSetup:
         assert_tensor_properties(mc.n, (10,))
         assert_tensor_properties(mc.q_spatial, (10,))
 
-        # Check discharge initialization
+        # Check discharge initialization (hotstart: accumulated upstream inflows)
         assert mc._discharge_t is not None
-        assert torch.equal(mc._discharge_t, streamflow[0])
+        assert mc._discharge_t.shape == (10,)
+        # Headwater (index 0) gets only its own lateral inflow
+        assert torch.isclose(mc._discharge_t[0], streamflow[0][0])
+        # All downstream nodes should accumulate >= their local inflow
+        assert (mc._discharge_t >= streamflow[0] - 1e-6).all()
 
     def test_setup_inputs_slope_clamping(self) -> None:
         """Test that slope is properly clamped during setup."""
@@ -594,3 +598,92 @@ class TestMuskingumCungeErrorHandling:
         # Try to run forward without setup
         with pytest.raises(ValueError):
             mc.forward()
+
+
+class TestComputeHotstartDischarge:
+    """Test compute_hotstart_discharge function."""
+
+    def _setup_mapper(self, num_reaches: int) -> tuple[MuskingumCunge, Any]:
+        """Helper to create a MuskingumCunge with a known linear-chain network and return its mapper."""
+        cfg = create_mock_config()
+        mc = MuskingumCunge(cfg, device="cpu")
+        hydrofabric = create_mock_routing_dataclass(num_reaches=num_reaches)
+        streamflow = torch.ones(12, num_reaches)
+        spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mapper, _, _ = mc.create_pattern_mapper()
+        return mc, mapper
+
+    def test_linear_chain_uniform_inflow(self) -> None:
+        """On a linear chain (0->1->2->3->4) with uniform inflow=2, result is cumsum."""
+        mc, mapper = self._setup_mapper(5)
+        q_prime_t0 = torch.ones(5) * 2.0
+
+        result = compute_hotstart_discharge(q_prime_t0, mapper, mc.discharge_lb, "cpu")
+
+        expected = torch.tensor([2.0, 4.0, 6.0, 8.0, 10.0])
+        assert torch.allclose(result, expected), f"Expected {expected}, got {result}"
+
+    def test_linear_chain_nonuniform_inflow(self) -> None:
+        """On a linear chain with varying inflow, result is cumulative sum."""
+        mc, mapper = self._setup_mapper(4)
+        q_prime_t0 = torch.tensor([3.0, 1.0, 2.0, 4.0])
+
+        result = compute_hotstart_discharge(q_prime_t0, mapper, mc.discharge_lb, "cpu")
+
+        expected = torch.tensor([3.0, 4.0, 6.0, 10.0])
+        assert torch.allclose(result, expected), f"Expected {expected}, got {result}"
+
+    def test_single_reach(self) -> None:
+        """Single reach (no upstream) returns its own lateral inflow."""
+        mc, mapper = self._setup_mapper(1)
+        q_prime_t0 = torch.tensor([5.0])
+
+        result = compute_hotstart_discharge(q_prime_t0, mapper, mc.discharge_lb, "cpu")
+
+        expected = torch.tensor([5.0])
+        assert torch.allclose(result, expected), f"Expected {expected}, got {result}"
+
+    def test_clamping(self) -> None:
+        """Discharge values are clamped to discharge_lb."""
+        mc, mapper = self._setup_mapper(3)
+        q_prime_t0 = torch.tensor([0.00001, 0.00001, 0.00001])
+
+        result = compute_hotstart_discharge(q_prime_t0, mapper, mc.discharge_lb, "cpu")
+
+        min_discharge = mc.discharge_lb.item()
+        assert (result >= min_discharge).all(), f"All values should be >= {min_discharge}"
+
+    def test_setup_inputs_uses_hotstart(self) -> None:
+        """setup_inputs() cold start produces accumulated discharge, not raw q_prime[0]."""
+        cfg = create_mock_config()
+        mc = MuskingumCunge(cfg, device="cpu")
+        num_reaches = 5
+        hydrofabric = create_mock_routing_dataclass(num_reaches=num_reaches)
+        q_val = 2.0
+        streamflow = torch.ones(12, num_reaches) * q_val
+        spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
+
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+
+        expected = torch.tensor([q_val * (i + 1) for i in range(num_reaches)])
+        assert mc._discharge_t is not None
+        assert torch.allclose(mc._discharge_t, expected), (
+            f"Expected accumulated discharge {expected}, got {mc._discharge_t}"
+        )
+
+    def test_carry_state_skips_hotstart(self) -> None:
+        """carry_state=True preserves existing discharge, skipping hotstart."""
+        cfg = create_mock_config()
+        mc = MuskingumCunge(cfg, device="cpu")
+        num_reaches = 5
+        hydrofabric = create_mock_routing_dataclass(num_reaches=num_reaches)
+        streamflow = torch.ones(12, num_reaches) * 2.0
+        spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
+
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc._discharge_t = torch.ones(num_reaches) * 99.0
+
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params, carry_state=True)
+
+        assert torch.allclose(mc._discharge_t, torch.ones(num_reaches) * 99.0)

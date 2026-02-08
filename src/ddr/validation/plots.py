@@ -60,7 +60,7 @@ def plot_time_series(
     plt.plot(
         time_range[warmup:],
         prediction_to_plot,
-        label=f"Routed Streamflow [ΣQ={pred_mass:.1f}, NSE: {nse:.4f}]",
+        label=f"DDR [ΣQ={pred_mass:.1f}, NSE: {nse:.4f}]",
     )
 
     if additional_predictions is not None:

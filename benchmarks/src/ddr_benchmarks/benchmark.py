@@ -130,6 +130,8 @@ def run_diffroute_benchmark(
 
     Each gage gets its own connected NetworkX graph from its zarr subgroup,
     avoiding the disconnected-graph problem of the global adjacency matrix.
+    Headwater gages (single-reach, zero edges) are left as NaN because
+    DiffRoute's RivTree requires at least one edge.
 
     Args:
         cfg: Validated config object
@@ -141,10 +143,11 @@ def run_diffroute_benchmark(
 
     Returns
     -------
-        Array of DiffRoute predictions with shape (num_gages, num_hourly)
+        Array of DiffRoute predictions with shape (num_gages, num_hourly).
+        Rows for headwater/missing gages are NaN.
     """
     device = torch.device(cfg.device)
-    output = np.zeros((len(gage_ids), num_hourly))
+    output = np.full((len(gage_ids), num_hourly), np.nan)
 
     # Open gages_adjacency zarr
     assert cfg.data_sources.gages_adjacency is not None, "gages_adjacency path required for DiffRoute"
@@ -164,7 +167,8 @@ def run_diffroute_benchmark(
     k_val = diffroute_cfg.k if diffroute_cfg.k is not None else 0.1042
     router = LTIRouter(max_delay=diffroute_cfg.max_delay, dt=dt).to(device)
 
-    for gage_idx, gage_id in enumerate(tqdm(gage_ids, desc="DiffRoute per-gage")):
+    num_headwater = 0
+    for gage_idx, gage_id in enumerate(tqdm(gage_ids, desc="DiffRoute per-gage", ncols=140, ascii=True)):
         if gage_id not in gages_adj:
             log.warning(f"Gage {gage_id} not found in gages_adjacency, skipping")
             continue
@@ -178,6 +182,11 @@ def run_diffroute_benchmark(
         col = gage_group["indices_1"][:]
         order = gage_group["order"][:]
         gage_catchment = gage_group.attrs["gage_catchment"]
+
+        # Skip headwater gages — DiffRoute requires at least one edge (stays NaN)
+        if len(row) == 0:
+            num_headwater += 1
+            continue
 
         G = nx.DiGraph()
         for node_id in order:
@@ -215,6 +224,13 @@ def run_diffroute_benchmark(
         gage_node_idx = np.where(order == int(gage_catchment))[0][0]
         output[gage_idx, :] = discharge_topo[gage_node_idx, :].numpy()
 
+    num_routed = int(np.isfinite(output[:, 0]).sum())
+    if num_headwater > 0:
+        log.info(
+            f"DiffRoute skipped {num_headwater} headwater gages (zero edges). "
+            f"Routed {num_routed}/{len(gage_ids)} gages."
+        )
+
     return output
 
 
@@ -223,7 +239,7 @@ def load_summed_q_prime(
     gage_ids: np.ndarray,
     daily_obs: NDArray[np.floating[Any]],
     warmup: int,
-) -> tuple[Metrics, NDArray[np.floating[Any]]] | None:
+) -> tuple[Metrics, NDArray[np.floating[Any]], NDArray[np.bool_]] | None:
     """Load pre-computed summed Q' predictions and compute metrics.
 
     Parameters
@@ -239,8 +255,9 @@ def load_summed_q_prime(
 
     Returns
     -------
-    tuple[Metrics, np.ndarray] or None
-        Metrics and daily predictions for common gages, or None if loading fails
+    tuple[Metrics, np.ndarray, np.ndarray] or None
+        Metrics, daily predictions for common gages, and boolean mask into gage_ids
+        indicating which gages were matched. Returns None if loading fails.
     """
     try:
         ds = xr.open_zarr(summed_q_prime_path)
@@ -269,7 +286,7 @@ def load_summed_q_prime(
     log.info(f"Summed Q': {len(common_gages)}/{len(gage_ids)} gages matched, {num_days} days")
 
     metrics = Metrics(pred=sqp_aligned[:, warmup:], target=obs_aligned[:, warmup:])
-    return metrics, sqp_aligned
+    return metrics, sqp_aligned, common_mask
 
 
 # ============================================================================
@@ -286,6 +303,7 @@ def generate_comparison_plots(
     ddr_daily: NDArray | None = None,
     diffroute_daily: NDArray | None = None,
     sqp_daily: NDArray | None = None,
+    sqp_common_mask: NDArray[np.bool_] | None = None,
     daily_obs: NDArray | None = None,
     dates: Dates | None = None,
     model_labels: list[str] | None = None,
@@ -295,12 +313,13 @@ def generate_comparison_plots(
     Args:
         cfg: Validated config object with save_path
         ddr_metrics: Metrics object for DDR predictions
-        diffroute_metrics: Metrics object for DiffRoute predictions
+        diffroute_metrics: Metrics object for DiffRoute predictions (routed gages only)
         sqp_metrics: Optional Metrics object for summed Q' baseline
         gage_ids: Array of gage IDs
         ddr_daily: Daily DDR predictions
-        diffroute_daily: Daily DiffRoute predictions
-        sqp_daily: Daily summed Q' predictions
+        diffroute_daily: Daily DiffRoute predictions (NaN for headwater gages)
+        sqp_daily: Daily summed Q' predictions (common gages only)
+        sqp_common_mask: Boolean mask into gage_ids for summed Q' common gages
         daily_obs: Daily observations
         dates: Dates object with time range info
         model_labels: Descriptive labels for [DDR, DiffRoute, SummedQ'] models
@@ -430,10 +449,20 @@ def generate_comparison_plots(
                 path=plot_path / "gauge_map_ddr_NSE.png",
             )
 
-            if diffroute_metrics is not None:
-                selected_gages["diffroute_NSE"] = np.clip(diffroute_metrics.nse[reorder], 0, 1)
+            if diffroute_metrics is not None and diffroute_daily is not None:
+                # Expand routed-only metrics back to full gage array (NaN for headwaters)
+                dr_routed_mask = ~np.isnan(diffroute_daily[:, 0])
+                dr_nse_full = np.full(len(gage_ids), np.nan)
+                dr_nse_full[dr_routed_mask] = diffroute_metrics.nse
+
+                # Filter gauge map to only gages DiffRoute actually routed
+                dr_nse_reordered = dr_nse_full[reorder]
+                plot_mask = ~np.isnan(dr_nse_reordered)
+                dr_gages = selected_gages[plot_mask].copy()
+                dr_gages["diffroute_NSE"] = np.clip(dr_nse_reordered[plot_mask], 0, 1)
+
                 plot_gauge_map(
-                    gages=selected_gages,
+                    gages=dr_gages,
                     metric_column="diffroute_NSE",
                     title=f"{dr_label} NSE",
                     colormap="plasma",
@@ -443,12 +472,14 @@ def generate_comparison_plots(
                 )
 
                 # Difference map: DDR - DiffRoute (positive = DDR better)
-                nse_diff = ddr_metrics.nse[reorder] - diffroute_metrics.nse[reorder]
+                # Only include gages DiffRoute actually routed
+                ddr_nse_reordered = ddr_metrics.nse[reorder]
+                nse_diff = ddr_nse_reordered[plot_mask] - dr_nse_reordered[plot_mask]
                 nse_diff = np.clip(nse_diff, -1, 1)
-                selected_gages["nse_diff"] = nse_diff
+                dr_gages["nse_diff"] = nse_diff
                 vlim = max(abs(nse_diff.min()), abs(nse_diff.max()), 0.1)
                 plot_gauge_map(
-                    gages=selected_gages,
+                    gages=dr_gages,
                     metric_column="nse_diff",
                     title=f"NSE Difference ({ddr_label} - {dr_label})",
                     colormap="RdBu",
@@ -460,10 +491,17 @@ def generate_comparison_plots(
                     path=plot_path / "gauge_map_nse_diff.png",
                 )
 
-            if sqp_metrics is not None:
-                selected_gages["sqp_NSE"] = np.clip(sqp_metrics.nse[reorder], 0, 1)
+            if sqp_metrics is not None and sqp_common_mask is not None:
+                # Expand common-gages-only metrics to full gage array (NaN for unmatched)
+                sqp_nse_full = np.full(len(gage_ids), np.nan)
+                sqp_nse_full[sqp_common_mask] = sqp_metrics.nse
+
+                sqp_nse_reordered = sqp_nse_full[reorder]
+                sqp_plot_mask = ~np.isnan(sqp_nse_reordered)
+                sqp_gages = selected_gages[sqp_plot_mask].copy()
+                sqp_gages["sqp_NSE"] = np.clip(sqp_nse_reordered[sqp_plot_mask], 0, 1)
                 plot_gauge_map(
-                    gages=selected_gages,
+                    gages=sqp_gages,
                     metric_column="sqp_NSE",
                     title=f"{sqp_label} NSE",
                     colormap="plasma",
@@ -480,24 +518,44 @@ def generate_comparison_plots(
         hydro_path.mkdir(exist_ok=True)
         time_range = dates.daily_time_range[1:-1]
 
-        for gage_idx, gage_id in enumerate(tqdm(gage_ids, desc="Generating hydrographs")):
+        # Expand subset metrics to full gage arrays for hydrograph labeling
+        dr_nse_full = None
+        if diffroute_metrics is not None and diffroute_daily is not None:
+            dr_routed_mask = ~np.isnan(diffroute_daily[:, 0])
+            dr_nse_full = np.full(len(gage_ids), np.nan)
+            dr_nse_full[dr_routed_mask] = diffroute_metrics.nse
+
+        sqp_nse_full = None
+        if sqp_metrics is not None and sqp_common_mask is not None:
+            sqp_nse_full = np.full(len(gage_ids), np.nan)
+            sqp_nse_full[sqp_common_mask] = sqp_metrics.nse
+
+        for gage_idx, gage_id in enumerate(
+            tqdm(gage_ids, desc="Generating hydrographs", ncols=140, ascii=True)
+        ):
             additional = []
-            if diffroute_daily is not None and diffroute_metrics is not None:
-                additional.append(
-                    (
-                        diffroute_daily[gage_idx],
-                        dr_label,
-                        {"nse": float(diffroute_metrics.nse[gage_idx])},
+            if diffroute_daily is not None and dr_nse_full is not None:
+                # Skip DiffRoute line for headwater gages (NaN predictions)
+                if not np.isnan(diffroute_daily[gage_idx, 0]):
+                    additional.append(
+                        (
+                            diffroute_daily[gage_idx],
+                            dr_label,
+                            {"nse": float(dr_nse_full[gage_idx])},
+                        )
                     )
-                )
-            if sqp_daily is not None and sqp_metrics is not None:
-                additional.append(
-                    (
-                        sqp_daily[gage_idx],
-                        sqp_label,
-                        {"nse": float(sqp_metrics.nse[gage_idx])},
+            if sqp_daily is not None and sqp_nse_full is not None:
+                # Skip summed Q' line for gages not in the summed Q' store
+                if not np.isnan(sqp_nse_full[gage_idx]):
+                    # sqp_daily is indexed by common gages; find position in subset
+                    sqp_sub_idx = int(sqp_common_mask[: gage_idx + 1].sum()) - 1  # type: ignore
+                    additional.append(
+                        (
+                            sqp_daily[sqp_sub_idx],
+                            sqp_label,
+                            {"nse": float(sqp_nse_full[gage_idx])},
+                        )
                     )
-                )
 
             plot_time_series(
                 prediction=ddr_daily[gage_idx],
@@ -639,7 +697,7 @@ def benchmark(
 
     all_gage_ids = dataset.routing_dataclass.observations.gage_id.values
     ddr_predictions = np.zeros([len(all_gage_ids), len(dataset.dates.hourly_time_range)])
-    diffroute_predictions = np.zeros_like(ddr_predictions)
+    diffroute_predictions = np.full_like(ddr_predictions, np.nan)
     diffroute_enabled = diffroute_cfg.enabled
 
     # === PHASE 1: DDR (same loop as test.py) ===
@@ -699,8 +757,17 @@ def benchmark(
     diffroute_metrics = None
     if diffroute_enabled:
         log.info("=" * 50)
-        log.info("=== DiffRoute Metrics ===")
-        diffroute_metrics = Metrics(pred=diffroute_daily[:, warmup:], target=daily_obs[:, warmup:])
+        # Filter to gages DiffRoute actually routed (non-NaN)
+        routed_mask = ~np.isnan(diffroute_daily[:, 0])
+        num_routed = int(routed_mask.sum())
+        num_skipped = len(all_gage_ids) - num_routed
+        log.info(
+            f"=== DiffRoute Metrics ({num_routed}/{len(all_gage_ids)} gages routed, "
+            f"{num_skipped} headwater gages excluded) ==="
+        )
+        dr_pred = diffroute_daily[routed_mask, warmup:]
+        dr_obs = daily_obs[routed_mask, warmup:]
+        diffroute_metrics = Metrics(pred=dr_pred, target=dr_obs)
         _nse = diffroute_metrics.nse
         nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
         utils.log_metrics(nse, diffroute_metrics.rmse, diffroute_metrics.kge)
@@ -708,13 +775,13 @@ def benchmark(
     # Optional summed Q' baseline
     sqp_metrics = None
     sqp_daily = None
+    sqp_common_mask = None
     if summed_q_prime_path is not None:
         log.info("=" * 50)
         log.info("=== Summed Q' Metrics ===")
         result = load_summed_q_prime(summed_q_prime_path, all_gage_ids, daily_obs, warmup)
         if result is not None:
-            sqp_metrics = result[0]
-            sqp_daily = result[1]
+            sqp_metrics, sqp_daily, sqp_common_mask = result
             _nse = sqp_metrics.nse
             nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
             utils.log_metrics(nse, sqp_metrics.rmse, sqp_metrics.kge)
@@ -723,16 +790,23 @@ def benchmark(
     log.info("=" * 50)
     log.info("=== Mass Balance Accumulation Comparison ===")
 
-    ddr_total = ddr_daily[:, warmup:].sum(axis=1)
-    if sqp_daily is not None:
+    if sqp_daily is not None and sqp_common_mask is not None:
         sqp_total = sqp_daily[:, warmup:].sum(axis=1)
-        ddr_vs_sqp = np.abs(ddr_total - sqp_total) / np.where(sqp_total != 0, sqp_total, 1.0)
+        # sqp_daily is indexed by common gages only; subset ddr_daily to match
+        ddr_total_common = ddr_daily[sqp_common_mask, warmup:].sum(axis=1)
+        ddr_vs_sqp = np.abs(ddr_total_common - sqp_total) / np.where(sqp_total != 0, sqp_total, 1.0)
         log.info(
             f"DDR vs ΣQ' — Mean rel. error: {ddr_vs_sqp.mean():.4f}, Median: {np.median(ddr_vs_sqp):.4f}"
         )
         if diffroute_enabled:
-            dr_total = diffroute_daily[:, warmup:].sum(axis=1)
-            dr_vs_sqp = np.abs(dr_total - sqp_total) / np.where(sqp_total != 0, sqp_total, 1.0)
+            # Intersect DiffRoute routed gages with summed Q' common gages
+            dr_routed = ~np.isnan(diffroute_daily[:, 0])
+            both_mask = sqp_common_mask & dr_routed
+            dr_total = diffroute_daily[both_mask, warmup:].sum(axis=1)
+            # sqp_daily is indexed by common gages; subset to those also routed by DiffRoute
+            sqp_both = dr_routed[sqp_common_mask]
+            sqp_total_dr = sqp_total[sqp_both]
+            dr_vs_sqp = np.abs(dr_total - sqp_total_dr) / np.where(sqp_total_dr != 0, sqp_total_dr, 1.0)
             log.info(
                 f"DiffRoute vs ΣQ' — Mean rel. error: {dr_vs_sqp.mean():.4f}, Median: {np.median(dr_vs_sqp):.4f}"
             )
@@ -750,6 +824,7 @@ def benchmark(
         ddr_daily=ddr_daily,
         diffroute_daily=diffroute_daily if diffroute_enabled else None,
         sqp_daily=sqp_daily,
+        sqp_common_mask=sqp_common_mask,
         daily_obs=daily_obs,
         dates=dataset.dates,
         model_labels=model_labels,

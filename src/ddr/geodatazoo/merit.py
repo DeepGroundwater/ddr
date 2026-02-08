@@ -156,15 +156,23 @@ class Merit(BaseGeoDataset):
 
         coo, _gage_idx, gage_catchment = construct_network_matrix(batch, self.gages_adjacency)
 
-        active_indices = np.unique(np.concatenate([coo.row, coo.col]))
+        edge_indices = (
+            np.unique(np.concatenate([coo.row, coo.col])) if coo.nnz > 0 else np.array([], dtype=int)
+        )
+        gage_indices = np.array(_gage_idx, dtype=int)
+        active_indices = np.unique(np.concatenate([edge_indices, gage_indices]))
         index_mapping = {orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(active_indices)}
 
-        compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
-        compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
+        if coo.nnz > 0:
+            compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
+            compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
+        else:
+            compressed_rows = np.array([], dtype=int)
+            compressed_cols = np.array([], dtype=int)
 
         compressed_size = len(active_indices)
         compressed_coo = sparse.coo_matrix(
-            (coo.data, (compressed_rows, compressed_cols)),
+            (coo.data[: len(compressed_rows)], (compressed_rows, compressed_cols)),
             shape=(compressed_size, compressed_size),
         )
         compressed_csr = compressed_coo.tocsr()
@@ -177,7 +185,10 @@ class Merit(BaseGeoDataset):
             mask = np.isin(coo.row, _idx)
             local_gage_inflow_idx = np.where(mask)[0]
             original_col_indices = coo.col[local_gage_inflow_idx]
-            compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
+            if len(original_col_indices) > 0:
+                compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
+            else:
+                compressed_col_indices = np.array([index_mapping[int(_idx)]])
             outflow_idx.append(compressed_col_indices)
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
@@ -383,15 +394,23 @@ class Merit(BaseGeoDataset):
 
         coo, _gage_idx, gage_catchment = construct_network_matrix(batch, self.gages_adjacency)
 
-        active_indices = np.unique(np.concatenate([coo.row, coo.col]))
+        edge_indices = (
+            np.unique(np.concatenate([coo.row, coo.col])) if coo.nnz > 0 else np.array([], dtype=int)
+        )
+        gage_indices = np.array(_gage_idx, dtype=int)
+        active_indices = np.unique(np.concatenate([edge_indices, gage_indices]))
         index_mapping = {orig_idx: compressed_idx for compressed_idx, orig_idx in enumerate(active_indices)}
 
-        compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
-        compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
+        if coo.nnz > 0:
+            compressed_rows = np.array([index_mapping[idx] for idx in coo.row])
+            compressed_cols = np.array([index_mapping[idx] for idx in coo.col])
+        else:
+            compressed_rows = np.array([], dtype=int)
+            compressed_cols = np.array([], dtype=int)
 
         compressed_size = len(active_indices)
         compressed_coo = sparse.coo_matrix(
-            (coo.data, (compressed_rows, compressed_cols)),
+            (coo.data[: len(compressed_rows)], (compressed_rows, compressed_cols)),
             shape=(compressed_size, compressed_size),
         )
         compressed_csr = compressed_coo.tocsr()
@@ -403,7 +422,10 @@ class Merit(BaseGeoDataset):
             mask = np.isin(coo.row, _idx)
             local_gage_inflow_idx = np.where(mask)[0]
             original_col_indices = coo.col[local_gage_inflow_idx]
-            compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
+            if len(original_col_indices) > 0:
+                compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
+            else:
+                compressed_col_indices = np.array([index_mapping[int(_idx)]])
             outflow_idx.append(compressed_col_indices)
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (

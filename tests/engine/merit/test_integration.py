@@ -2,7 +2,9 @@
 
 import numpy as np
 import pytest
+import zarr
 from ddr_engine.merit import (
+    build_gauge_adjacencies,
     build_graph,
     build_merit_adjacency,
     build_upstream_dict,
@@ -135,3 +137,186 @@ class TestEdgeCases:
         build_merit_adjacency(mock_merit_fp, out_path)
 
         assert out_path.exists()
+
+
+class TestIsolatedCOMIDs:
+    """Tests for isolated COMIDs (single-reach basins with no connections)."""
+
+    @pytest.fixture
+    def fp_with_isolated(self, mock_merit_fp):
+        """Sandbox network plus an isolated COMID 99 with no connections."""
+        import geopandas as gpd
+        from shapely.geometry import LineString
+
+        isolated_row = gpd.GeoDataFrame(
+            {
+                "COMID": [99],
+                "NextDownID": [0],
+                "up1": [0],
+                "up2": [0],
+                "up3": [0],
+                "up4": [0],
+            },
+            geometry=[LineString([(0, 99), (1, 99)])],
+            crs="EPSG:4326",
+        )
+        import pandas as pd
+
+        return gpd.GeoDataFrame(
+            pd.concat([mock_merit_fp, isolated_row], ignore_index=True),
+            crs="EPSG:4326",
+        )
+
+    def test_isolated_comid_in_order(self, fp_with_isolated):
+        """Isolated COMID should appear in topological order."""
+        matrix, order = create_adjacency_matrix(fp_with_isolated)
+        assert 99 in order
+
+    def test_isolated_comid_matrix_shape(self, fp_with_isolated):
+        """Matrix should be 6x6 (5 connected + 1 isolated)."""
+        matrix, order = create_adjacency_matrix(fp_with_isolated)
+        assert matrix.shape == (6, 6)
+        assert len(order) == 6
+
+    def test_isolated_comid_no_edges(self, fp_with_isolated):
+        """Isolated COMID should have no edges — same 4 edges as sandbox."""
+        matrix, order = create_adjacency_matrix(fp_with_isolated)
+        assert matrix.nnz == 4
+
+    def test_isolated_comid_lower_triangular(self, fp_with_isolated):
+        """Matrix should still be lower triangular."""
+        matrix, _ = create_adjacency_matrix(fp_with_isolated)
+        assert np.all(matrix.row >= matrix.col)
+
+    def test_connected_comids_unchanged(self, fp_with_isolated):
+        """Connected COMIDs should still have correct edges."""
+        matrix, order = create_adjacency_matrix(fp_with_isolated)
+        idx = {comid: i for i, comid in enumerate(order)}
+        dense = matrix.toarray()
+
+        expected_edges = [
+            (30, 10),
+            (30, 20),
+            (50, 30),
+            (50, 40),
+        ]
+        for downstream, upstream in expected_edges:
+            assert dense[idx[downstream], idx[upstream]] == 1
+
+    def test_isolated_comid_zarr_roundtrip(self, tmp_path, fp_with_isolated):
+        """Isolated COMID should survive zarr roundtrip."""
+        out_path = tmp_path / "isolated_test.zarr"
+        build_merit_adjacency(fp_with_isolated, out_path)
+        coo, ts_order = coo_from_zarr(out_path)
+
+        assert 99 in ts_order
+        assert coo.shape == (6, 6)
+        assert coo.nnz == 4
+
+
+class TestHeadwaterGaugeAdjacency:
+    """Tests for build_gauge_adjacencies with headwater gages."""
+
+    @pytest.fixture
+    def fp_with_isolated(self, mock_merit_fp):
+        """Sandbox network plus isolated COMID 99."""
+        import geopandas as gpd
+        from shapely.geometry import LineString
+
+        isolated_row = gpd.GeoDataFrame(
+            {
+                "COMID": [99],
+                "NextDownID": [0],
+                "up1": [0],
+                "up2": [0],
+                "up3": [0],
+                "up4": [0],
+            },
+            geometry=[LineString([(0, 99), (1, 99)])],
+            crs="EPSG:4326",
+        )
+        import pandas as pd
+
+        return gpd.GeoDataFrame(
+            pd.concat([mock_merit_fp, isolated_row], ignore_index=True),
+            crs="EPSG:4326",
+        )
+
+    @pytest.fixture
+    def merit_zarr_path(self, tmp_path, fp_with_isolated):
+        """Build MERIT adjacency zarr with isolated COMID included."""
+        out_path = tmp_path / "merit_adjacency.zarr"
+        build_merit_adjacency(fp_with_isolated, out_path)
+        return out_path
+
+    def test_headwater_gauge_gets_zarr_group(self, tmp_path, fp_with_isolated, merit_zarr_path):
+        """A gauge at a connected headwater (COMID 10) should produce a zarr subgroup."""
+        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+
+        gauge_set = MockGaugeSet(gauges=[MockGauge(STAID="00000010", COMID=10)])
+        out_path = tmp_path / "gauge_adj.zarr"
+
+        build_gauge_adjacencies(fp_with_isolated, merit_zarr_path, gauge_set, out_path)
+
+        root = zarr.open_group(store=out_path, mode="r")
+        assert "00000010" in list(root.group_keys())
+
+    def test_headwater_gauge_has_empty_coo(self, tmp_path, fp_with_isolated, merit_zarr_path):
+        """Headwater gauge zarr subgroup should have empty indices (no edges)."""
+        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+
+        gauge_set = MockGaugeSet(gauges=[MockGauge(STAID="00000010", COMID=10)])
+        out_path = tmp_path / "gauge_adj_empty.zarr"
+
+        build_gauge_adjacencies(fp_with_isolated, merit_zarr_path, gauge_set, out_path)
+
+        root = zarr.open_group(store=out_path, mode="r")
+        gauge_group = root["00000010"]
+        assert gauge_group["indices_0"][:].shape[0] == 0
+        assert gauge_group["indices_1"][:].shape[0] == 0
+        assert len(gauge_group["order"][:]) == 1
+
+    def test_isolated_gauge_gets_zarr_group(self, tmp_path, fp_with_isolated, merit_zarr_path):
+        """A gauge at an isolated COMID (99) should produce a zarr subgroup."""
+        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+
+        gauge_set = MockGaugeSet(gauges=[MockGauge(STAID="00000099", COMID=99)])
+        out_path = tmp_path / "gauge_adj_isolated.zarr"
+
+        build_gauge_adjacencies(fp_with_isolated, merit_zarr_path, gauge_set, out_path)
+
+        root = zarr.open_group(store=out_path, mode="r")
+        assert "00000099" in list(root.group_keys())
+
+        gauge_group = root["00000099"]
+        assert gauge_group["indices_0"][:].shape[0] == 0
+        assert gauge_group["indices_1"][:].shape[0] == 0
+        assert len(gauge_group["order"][:]) == 1
+        assert gauge_group.attrs["gage_catchment"] == 99
+
+    def test_mixed_gauges_all_present(self, tmp_path, fp_with_isolated, merit_zarr_path):
+        """A batch with connected gauge (50), headwater (10), and isolated (99) should all produce zarr groups."""
+        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+
+        gauge_set = MockGaugeSet(
+            gauges=[
+                MockGauge(STAID="00000050", COMID=50),
+                MockGauge(STAID="00000010", COMID=10),
+                MockGauge(STAID="00000099", COMID=99),
+            ]
+        )
+        out_path = tmp_path / "gauge_adj_mixed.zarr"
+
+        build_gauge_adjacencies(fp_with_isolated, merit_zarr_path, gauge_set, out_path)
+
+        root = zarr.open_group(store=out_path, mode="r")
+        group_keys = list(root.group_keys())
+        assert "00000050" in group_keys
+        assert "00000010" in group_keys
+        assert "00000099" in group_keys
+
+        # Connected gauge should have edges
+        assert root["00000050"]["indices_0"][:].shape[0] > 0
+        # Headwater/isolated should have no edges
+        assert root["00000010"]["indices_0"][:].shape[0] == 0
+        assert root["00000099"]["indices_0"][:].shape[0] == 0

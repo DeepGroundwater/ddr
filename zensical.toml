@@ -25,6 +25,7 @@ nav = [
      "usage/train.md",
      "usage/test.md",
      "usage/routing.md",
+     "usage/hot_start.md",
      "usage/summed_q_prime.md",
      "usage/examples.md",
   ]},

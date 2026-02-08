@@ -100,7 +100,7 @@ def construct_network_matrix(
         rows: list[int] = list(rows_tuple)
         cols: list[int] = list(cols_tuple)
     else:
-        raise ValueError("No coordinate-pairs found. Cannot construct a matrix")
+        rows, cols = [], []
     shape = tuple(_attrs["shape"])
     coo = sparse.coo_matrix(
         (np.ones(len(rows)), (rows, cols)),

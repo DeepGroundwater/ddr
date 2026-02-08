@@ -72,12 +72,21 @@ def create_adjacency_matrix(
         return create_adjacency_matrix(fp_filtered)
 
     id_order = [graph.get_node_data(gidx) for gidx in ts_order]
+
+    # Include isolated COMIDs (single-reach basins with no connections in the data)
+    all_comids = {int(c) for c in fp["COMID"].values}
+    connected_comids = set(id_order)
+    isolated_comids = sorted(all_comids - connected_comids)
+    if isolated_comids:
+        print(f"Adding {len(isolated_comids)} isolated COMIDs (no upstream/downstream connections)")
+    id_order = id_order + isolated_comids
+
     idx_map = {id: idx for idx, id in enumerate(id_order)}
 
     col = []
     row = []
 
-    for node in tqdm(ts_order, desc="Creating sparse matrix indices"):
+    for node in tqdm(ts_order, desc="Creating sparse matrix indices", ncols=140, ascii=True):
         if graph.out_degree(node) == 0:
             continue
         id = graph.get_node_data(node)
@@ -88,7 +97,7 @@ def create_adjacency_matrix(
 
     matrix = sparse.coo_matrix(
         (np.ones(len(row), dtype=np.uint8), (row, col)),
-        shape=(len(ts_order), len(ts_order)),
+        shape=(len(id_order), len(id_order)),
         dtype=np.uint8,
     )
 
@@ -187,7 +196,7 @@ def build_gauge_adjacencies(
     store = zarr.storage.LocalStore(root=out_path)
     root = zarr.create_group(store=store)
 
-    for gauge in tqdm(gauge_set.gauges, desc="Creating Gauge COO matrices"):
+    for gauge in tqdm(gauge_set.gauges, desc="Creating Gauge COO matrices", ncols=140, ascii=True):
         staid = gauge.STAID
         origin_comid = gauge.COMID
 
@@ -204,12 +213,10 @@ def build_gauge_adjacencies(
 
         subset_comids = subset_upstream(origin_comid, graph, node_indices)
 
-        if len(subset_comids) == 1:
-            print(
-                f"Gauge {str(staid).zfill(8)} (COMID {origin_comid}) is a headwater catchment. Skipping write"
-            )
-            root.__delitem__(staid)
-            continue
+        # if len(subset_comids) == 1:
+        #     print(
+        #         f"Gauge {str(staid).zfill(8)} (COMID {origin_comid}) is a headwater catchment (single reach)"
+        #     )
 
         coo, subset_list = create_subset_coo(subset_comids, merit_mapping, graph, node_indices)
 

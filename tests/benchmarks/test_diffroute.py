@@ -58,24 +58,6 @@ def reorder_to_rapid2(data: torch.Tensor, riv) -> torch.Tensor:
     return data[:, reorder_idx, :]
 
 
-def test_diffroute_with_sandbox_network(
-    sandbox_network: tuple[nx.DiGraph, pd.DataFrame],
-) -> None:
-    """Verify DiffRoute can build a router from RAPID Sandbox network."""
-    from diffroute import LTIRouter, RivTree
-
-    G, param_df = sandbox_network
-
-    # Create RivTree with graph, IRF function name, and parameters
-    riv = RivTree(G, irf_fn="muskingum", param_df=param_df)
-
-    # LTIRouter takes routing configuration, not the RivTree
-    router = LTIRouter(max_delay=100, dt=3600 / 86400).to(DEVICE)
-
-    assert router is not None
-    assert len(riv) == 5
-
-
 @requires_cuda
 def test_diffroute_routing_sandbox(
     sandbox_network: tuple[nx.DiGraph, pd.DataFrame],

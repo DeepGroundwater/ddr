@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 from ddr._version import __version__
 from ddr.io.readers import read_ic
+from ddr.scripts_utils import safe_mean, safe_percentile
 from ddr.validation import GeoDataset, Metrics
 
 daily_format: str = "%Y/%m/%d"
@@ -34,22 +35,6 @@ def print_metrics_summary(metrics: Metrics, save_path: Path, valid_gauges: np.nd
     save_path: Path
         The path to save outputs to
     """
-
-    # Calculate summary statistics (removing NaN values)
-    def safe_percentile(arr: np.ndarray, percentile: float) -> np.ndarray:
-        """Calculate percentile ignoring NaN values"""
-        clean_arr = arr[~np.isnan(arr)]
-        if len(clean_arr) == 0:
-            return np.nan
-        return np.percentile(clean_arr, percentile)
-
-    def safe_mean(arr: np.ndarray) -> np.ndarray:
-        """Calculate mean ignoring NaN values"""
-        clean_arr = arr[~np.isnan(arr)]
-        if len(clean_arr) == 0:
-            return np.nan
-        return np.mean(clean_arr)
-
     bias_stats = {
         "median": safe_percentile(metrics.bias, 50),
         "mean": safe_mean(metrics.bias),

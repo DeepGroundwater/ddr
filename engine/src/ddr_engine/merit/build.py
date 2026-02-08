@@ -213,10 +213,10 @@ def build_gauge_adjacencies(
 
         subset_comids = subset_upstream(origin_comid, graph, node_indices)
 
-        if len(subset_comids) == 1:
-            print(
-                f"Gauge {str(staid).zfill(8)} (COMID {origin_comid}) is a headwater catchment (single reach)"
-            )
+        # if len(subset_comids) == 1:
+        #     print(
+        #         f"Gauge {str(staid).zfill(8)} (COMID {origin_comid}) is a headwater catchment (single reach)"
+        #     )
 
         coo, subset_list = create_subset_coo(subset_comids, merit_mapping, graph, node_indices)
 

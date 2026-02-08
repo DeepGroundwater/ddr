@@ -206,3 +206,4 @@ class RoutingDataclass:
         default=None
     )  # Has to be list[np.ndarray] since idx are ragged arrays
     gage_catchment: list[str] | None = field(default=None)
+    flow_scale: torch.Tensor | None = field(default=None)

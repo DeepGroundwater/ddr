@@ -20,6 +20,7 @@ from ddr.io.builders import (
 )
 from ddr.io.readers import (
     IcechunkUSGSReader,
+    build_flow_scale_tensor,
     fill_nans,
     filter_gages_by_area_threshold,
     naninfmean,
@@ -217,6 +218,14 @@ class Merit(BaseGeoDataset):
                 compressed_col_indices = np.array([index_mapping[int(_idx)]])
             outflow_idx.append(compressed_col_indices)
 
+        gage_compressed_indices = [index_mapping[int(idx)] for idx in _gage_idx]
+        flow_scale = build_flow_scale_tensor(
+            batch=batch,
+            gage_dict=self.obs_reader.gage_dict,
+            gage_compressed_indices=gage_compressed_indices,
+            num_segments=compressed_size,
+        )
+
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
             self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
         )
@@ -242,6 +251,7 @@ class Merit(BaseGeoDataset):
             divide_ids=compressed_merit_ids,
             outflow_idx=outflow_idx,
             gage_catchment=gage_catchment,
+            flow_scale=flow_scale,
         )
 
     def _build_common_tensors(
@@ -454,6 +464,14 @@ class Merit(BaseGeoDataset):
                 compressed_col_indices = np.array([index_mapping[int(_idx)]])
             outflow_idx.append(compressed_col_indices)
 
+        gage_compressed_indices = [index_mapping[int(idx)] for idx in _gage_idx]
+        flow_scale = build_flow_scale_tensor(
+            batch=batch,
+            gage_dict=self.obs_reader.gage_dict,
+            gage_compressed_indices=gage_compressed_indices,
+            num_segments=compressed_size,
+        )
+
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
             self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
         )
@@ -479,4 +497,5 @@ class Merit(BaseGeoDataset):
             divide_ids=compressed_merit_ids,
             outflow_idx=outflow_idx,
             gage_catchment=gage_catchment,
+            flow_scale=flow_scale,
         )

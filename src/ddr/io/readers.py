@@ -178,6 +178,96 @@ def filter_gages_by_area_threshold(
     return filtered, n_removed
 
 
+def compute_flow_scale_factor(
+    drain_sqkm: float,
+    comid_drain_sqkm: float,
+    comid_unitarea_sqkm: float,
+) -> float:
+    """Compute the fraction of Q' to keep at a gage's catchment segment.
+
+    When a gage sits partway through a catchment (not at the outlet), the modeled
+    lateral inflow Q' is too large. This function computes a scaling factor [0, 1]
+    that reduces Q' proportionally to the area mismatch.
+
+    Parameters
+    ----------
+    drain_sqkm : float
+        Gage drainage area (DRAIN_SQKM).
+    comid_drain_sqkm : float
+        Total drainage area of the COMID the gage is mapped to (COMID_DRAIN_SQKM).
+    comid_unitarea_sqkm : float
+        Local (unit) catchment area of that COMID (COMID_UNITAREA_SQKM).
+
+    Returns
+    -------
+    float
+        Scaling factor in [0, 1]. Returns 1.0 (no scaling) when the gage drains
+        at least as much area as the COMID, or when inputs are degenerate.
+    """
+    import math
+
+    if math.isnan(drain_sqkm) or math.isnan(comid_drain_sqkm) or math.isnan(comid_unitarea_sqkm):
+        return 1.0
+    if comid_unitarea_sqkm <= 0:
+        return 1.0
+    diff = drain_sqkm - comid_drain_sqkm
+    if diff >= 0:
+        return 1.0
+    if abs(diff) >= comid_unitarea_sqkm:
+        return 1.0
+    return (comid_unitarea_sqkm - abs(diff)) / comid_unitarea_sqkm
+
+
+def build_flow_scale_tensor(
+    batch: list[str],
+    gage_dict: dict[str, list],
+    gage_compressed_indices: list[int],
+    num_segments: int,
+) -> torch.Tensor:
+    """Build a per-segment flow scaling tensor for a batch of gages.
+
+    Parameters
+    ----------
+    batch : list[str]
+        STAID strings for gages in this batch (same order as gage_compressed_indices).
+    gage_dict : dict[str, list]
+        Dict from ``read_gage_info()`` — must contain ``STAID``.
+        If ``COMID_DRAIN_SQKM`` or ``COMID_UNITAREA_SQKM`` are absent,
+        returns an all-ones tensor (graceful skip).
+    gage_compressed_indices : list[int]
+        Compressed segment index for each gage in *batch*.
+    num_segments : int
+        Total number of segments in the compressed network.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape ``(num_segments,)`` with 1.0 everywhere except gage segments
+        that need scaling.
+    """
+    flow_scale = torch.ones(num_segments, dtype=torch.float32)
+
+    if "COMID_DRAIN_SQKM" not in gage_dict or "COMID_UNITAREA_SQKM" not in gage_dict:
+        return flow_scale
+
+    staid_list = [str(s) for s in gage_dict["STAID"]]
+    staid_to_idx = {s: i for i, s in enumerate(staid_list)}
+
+    for gage_staid, seg_idx in zip(batch, gage_compressed_indices, strict=False):
+        lookup_key = str(gage_staid).zfill(8)
+        dict_idx = staid_to_idx.get(lookup_key)
+        if dict_idx is None:
+            continue
+        factor = compute_flow_scale_factor(
+            drain_sqkm=gage_dict["DRAIN_SQKM"][dict_idx],
+            comid_drain_sqkm=gage_dict["COMID_DRAIN_SQKM"][dict_idx],
+            comid_unitarea_sqkm=gage_dict["COMID_UNITAREA_SQKM"][dict_idx],
+        )
+        flow_scale[seg_idx] = factor
+
+    return flow_scale
+
+
 def naninfmean(arr: np.ndarray) -> np.floating[Any]:
     """Finds the mean of an array if there are both nan and inf values
 

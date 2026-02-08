@@ -86,7 +86,7 @@ def create_adjacency_matrix(
     col = []
     row = []
 
-    for node in tqdm(ts_order, desc="Creating sparse matrix indices"):
+    for node in tqdm(ts_order, desc="Creating sparse matrix indices", ncols=140, ascii=True):
         if graph.out_degree(node) == 0:
             continue
         id = graph.get_node_data(node)
@@ -196,7 +196,7 @@ def build_gauge_adjacencies(
     store = zarr.storage.LocalStore(root=out_path)
     root = zarr.create_group(store=store)
 
-    for gauge in tqdm(gauge_set.gauges, desc="Creating Gauge COO matrices"):
+    for gauge in tqdm(gauge_set.gauges, desc="Creating Gauge COO matrices", ncols=140, ascii=True):
         staid = gauge.STAID
         origin_comid = gauge.COMID
 

@@ -94,7 +94,7 @@ def create_matrix(
     # in this graph form -- each waterbody/flowpath is a node and each nexus is a directed edge
     # All flowpaths are nodes, add them upfront...
     gidx = graph.add_nodes_from(fp.keys())
-    for idx in tqdm(gidx, desc="Building network graph"):
+    for idx in tqdm(gidx, desc="Building network graph", ncols=140, ascii=True):
         id = graph.get_node_data(idx)
         nex = fp[id][1]  # the downstream nexus id
         terminal = False
@@ -124,7 +124,7 @@ def create_matrix(
     col = []
     row = []
 
-    for node in tqdm(ts_order, "Creating sparse matrix indicies"):
+    for node in tqdm(ts_order, "Creating sparse matrix indicies", ncols=140, ascii=True):
         if graph.out_degree(node) == 0:  # terminal node
             continue
         id = graph.get_node_data(node)

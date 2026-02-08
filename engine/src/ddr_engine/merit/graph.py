@@ -71,7 +71,7 @@ def build_graph(
     graph = rx.PyDiGraph(check_cycle=False)
     node_indices: dict[int, int] = {}
 
-    for to_comid in tqdm(sorted(upstream_network.keys()), desc="Adding nodes"):
+    for to_comid in tqdm(sorted(upstream_network.keys()), desc="Adding nodes", ncols=140, ascii=True):
         from_comids = upstream_network[to_comid]
         if to_comid not in node_indices:
             node_indices[to_comid] = graph.add_node(to_comid)
@@ -79,7 +79,7 @@ def build_graph(
             if from_comid not in node_indices:
                 node_indices[from_comid] = graph.add_node(from_comid)
 
-    for to_comid, from_comids in tqdm(upstream_network.items(), desc="Adding edges"):
+    for to_comid, from_comids in tqdm(upstream_network.items(), desc="Adding edges", ncols=140, ascii=True):
         for from_comid in from_comids:
             graph.add_edge(node_indices[from_comid], node_indices[to_comid], None)
 

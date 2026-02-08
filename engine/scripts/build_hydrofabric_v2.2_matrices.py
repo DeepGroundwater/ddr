@@ -122,7 +122,7 @@ if __name__ == "__main__":
         else:
             root = zarr.create_group(store=store)
 
-        for gauge in tqdm(gauge_set.gauges, desc="Creating Gauge COO matrices"):
+        for gauge in tqdm(gauge_set.gauges, desc="Creating Gauge COO matrices", ncols=140, ascii=True):
             try:
                 gauge_root = root.create_group(gauge.STAID)
             except zarr.errors.ContainsGroupError:

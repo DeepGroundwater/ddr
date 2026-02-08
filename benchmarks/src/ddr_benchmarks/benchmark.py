@@ -303,6 +303,7 @@ def generate_comparison_plots(
     ddr_daily: NDArray | None = None,
     diffroute_daily: NDArray | None = None,
     sqp_daily: NDArray | None = None,
+    sqp_common_mask: NDArray[np.bool_] | None = None,
     daily_obs: NDArray | None = None,
     dates: Dates | None = None,
     model_labels: list[str] | None = None,
@@ -317,7 +318,8 @@ def generate_comparison_plots(
         gage_ids: Array of gage IDs
         ddr_daily: Daily DDR predictions
         diffroute_daily: Daily DiffRoute predictions (NaN for headwater gages)
-        sqp_daily: Daily summed Q' predictions
+        sqp_daily: Daily summed Q' predictions (common gages only)
+        sqp_common_mask: Boolean mask into gage_ids for summed Q' common gages
         daily_obs: Daily observations
         dates: Dates object with time range info
         model_labels: Descriptive labels for [DDR, DiffRoute, SummedQ'] models
@@ -489,10 +491,17 @@ def generate_comparison_plots(
                     path=plot_path / "gauge_map_nse_diff.png",
                 )
 
-            if sqp_metrics is not None:
-                selected_gages["sqp_NSE"] = np.clip(sqp_metrics.nse[reorder], 0, 1)
+            if sqp_metrics is not None and sqp_common_mask is not None:
+                # Expand common-gages-only metrics to full gage array (NaN for unmatched)
+                sqp_nse_full = np.full(len(gage_ids), np.nan)
+                sqp_nse_full[sqp_common_mask] = sqp_metrics.nse
+
+                sqp_nse_reordered = sqp_nse_full[reorder]
+                sqp_plot_mask = ~np.isnan(sqp_nse_reordered)
+                sqp_gages = selected_gages[sqp_plot_mask].copy()
+                sqp_gages["sqp_NSE"] = np.clip(sqp_nse_reordered[sqp_plot_mask], 0, 1)
                 plot_gauge_map(
-                    gages=selected_gages,
+                    gages=sqp_gages,
                     metric_column="sqp_NSE",
                     title=f"{sqp_label} NSE",
                     colormap="plasma",
@@ -509,12 +518,17 @@ def generate_comparison_plots(
         hydro_path.mkdir(exist_ok=True)
         time_range = dates.daily_time_range[1:-1]
 
-        # Expand DiffRoute metrics to full gage array for hydrograph labeling
+        # Expand subset metrics to full gage arrays for hydrograph labeling
         dr_nse_full = None
         if diffroute_metrics is not None and diffroute_daily is not None:
             dr_routed_mask = ~np.isnan(diffroute_daily[:, 0])
             dr_nse_full = np.full(len(gage_ids), np.nan)
             dr_nse_full[dr_routed_mask] = diffroute_metrics.nse
+
+        sqp_nse_full = None
+        if sqp_metrics is not None and sqp_common_mask is not None:
+            sqp_nse_full = np.full(len(gage_ids), np.nan)
+            sqp_nse_full[sqp_common_mask] = sqp_metrics.nse
 
         for gage_idx, gage_id in enumerate(
             tqdm(gage_ids, desc="Generating hydrographs", ncols=140, ascii=True)
@@ -530,14 +544,18 @@ def generate_comparison_plots(
                             {"nse": float(dr_nse_full[gage_idx])},
                         )
                     )
-            if sqp_daily is not None and sqp_metrics is not None:
-                additional.append(
-                    (
-                        sqp_daily[gage_idx],
-                        sqp_label,
-                        {"nse": float(sqp_metrics.nse[gage_idx])},
+            if sqp_daily is not None and sqp_nse_full is not None:
+                # Skip summed Q' line for gages not in the summed Q' store
+                if not np.isnan(sqp_nse_full[gage_idx]):
+                    # sqp_daily is indexed by common gages; find position in subset
+                    sqp_sub_idx = int(sqp_common_mask[: gage_idx + 1].sum()) - 1  # type: ignore
+                    additional.append(
+                        (
+                            sqp_daily[sqp_sub_idx],
+                            sqp_label,
+                            {"nse": float(sqp_nse_full[gage_idx])},
+                        )
                     )
-                )
 
             plot_time_series(
                 prediction=ddr_daily[gage_idx],
@@ -806,6 +824,7 @@ def benchmark(
         ddr_daily=ddr_daily,
         diffroute_daily=diffroute_daily if diffroute_enabled else None,
         sqp_daily=sqp_daily,
+        sqp_common_mask=sqp_common_mask,
         daily_obs=daily_obs,
         dates=dataset.dates,
         model_labels=model_labels,

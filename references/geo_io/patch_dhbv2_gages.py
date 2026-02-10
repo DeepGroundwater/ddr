@@ -88,10 +88,11 @@ def merge_merit_uparea(df: pd.DataFrame, merit_rivers_path: Path) -> pd.DataFram
 
     df["MERIT_ABS_DIFF"] = (df["DRAIN_SQKM"] - df["MERIT_DRAIN_SQKM"]).abs()
 
-    # DA_VALID: mismatch within one local catchment (using MERIT-based ABS_DIFF)
-    df["DA_VALID"] = df["MERIT_ABS_DIFF"] <= df["COMID_UNITAREA_SQKM"]
+    # DA_VALID: mismatch within one local catchment (floored at 100 km²)
+    da_threshold = df["COMID_UNITAREA_SQKM"].clip(lower=100.0)
+    df["DA_VALID"] = df["MERIT_ABS_DIFF"] <= da_threshold
     n_valid = df["DA_VALID"].sum()
-    print(f"  DA_VALID: {n_valid}/{len(df)} gages pass (MERIT_ABS_DIFF <= COMID_UNITAREA_SQKM)")
+    print(f"  DA_VALID: {n_valid}/{len(df)} gages pass (MERIT_ABS_DIFF <= max(COMID_UNITAREA_SQKM, 100))")
 
     # Print comparison summary
     zone_edge_median = df["ABS_DIFF"].median()

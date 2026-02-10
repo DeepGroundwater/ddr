@@ -28,17 +28,35 @@ class TestAbsDiffInline:
 
 
 class TestDaValid:
-    """Tests for DA_VALID = ABS_DIFF <= COMID_UNITAREA_SQKM."""
+    """Tests for DA_VALID = ABS_DIFF <= max(COMID_UNITAREA_SQKM, 100)."""
 
     def test_valid_when_within_unit_area(self) -> None:
         df = pd.DataFrame({"ABS_DIFF": [5.0, 50.0], "COMID_UNITAREA_SQKM": [10.0, 50.0]})
-        da_valid = df["ABS_DIFF"] <= df["COMID_UNITAREA_SQKM"]
+        da_threshold = df["COMID_UNITAREA_SQKM"].clip(lower=100.0)
+        da_valid = df["ABS_DIFF"] <= da_threshold
         assert da_valid.tolist() == [True, True]
 
-    def test_invalid_when_exceeds_unit_area(self) -> None:
-        df = pd.DataFrame({"ABS_DIFF": [100.0], "COMID_UNITAREA_SQKM": [30.0]})
-        da_valid = df["ABS_DIFF"] <= df["COMID_UNITAREA_SQKM"]
+    def test_invalid_when_exceeds_threshold(self) -> None:
+        df = pd.DataFrame({"ABS_DIFF": [150.0], "COMID_UNITAREA_SQKM": [30.0]})
+        da_threshold = df["COMID_UNITAREA_SQKM"].clip(lower=100.0)
+        da_valid = df["ABS_DIFF"] <= da_threshold
         assert da_valid.tolist() == [False]
+
+    def test_small_unit_area_uses_100km_floor(self) -> None:
+        """When COMID_UNITAREA_SQKM < 100, threshold is floored at 100 km²."""
+        df = pd.DataFrame({"ABS_DIFF": [60.0], "COMID_UNITAREA_SQKM": [30.0]})
+        da_threshold = df["COMID_UNITAREA_SQKM"].clip(lower=100.0)
+        da_valid = df["ABS_DIFF"] <= da_threshold
+        # 60 <= max(30, 100) = 100 → True
+        assert da_valid.tolist() == [True]
+
+    def test_large_unit_area_uses_actual_value(self) -> None:
+        """When COMID_UNITAREA_SQKM > 100, threshold uses the actual unit area."""
+        df = pd.DataFrame({"ABS_DIFF": [150.0], "COMID_UNITAREA_SQKM": [200.0]})
+        da_threshold = df["COMID_UNITAREA_SQKM"].clip(lower=100.0)
+        da_valid = df["ABS_DIFF"] <= da_threshold
+        # 150 <= max(200, 100) = 200 → True
+        assert da_valid.tolist() == [True]
 
 
 class TestComputeFlowScale:

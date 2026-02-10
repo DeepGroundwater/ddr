@@ -109,7 +109,14 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list]:
         "LAT_GAGE",
         "LNG_GAGE",
     ]
-    optional_columns = ["COMID", "COMID_DRAIN_SQKM", "ABS_DIFF", "COMID_UNITAREA_SQKM"]
+    optional_columns = [
+        "COMID",
+        "COMID_DRAIN_SQKM",
+        "ABS_DIFF",
+        "COMID_UNITAREA_SQKM",
+        "DA_VALID",
+        "FLOW_SCALE",
+    ]
 
     try:
         df = pd.read_csv(gage_info_path, delimiter=",")
@@ -173,6 +180,42 @@ def filter_gages_by_area_threshold(
     }
 
     keep_mask = np.array([staid_to_abs_diff.get(gid, float("inf")) <= threshold for gid in gage_ids])
+    filtered = gage_ids[keep_mask]
+    n_removed = len(gage_ids) - len(filtered)
+    return filtered, n_removed
+
+
+def filter_gages_by_da_valid(
+    gage_ids: np.ndarray,
+    gage_dict: dict[str, list],
+) -> tuple[np.ndarray, int]:
+    """Filter gage IDs using pre-computed DA_VALID column.
+
+    Parameters
+    ----------
+    gage_ids : np.ndarray
+        Array of STAID strings
+    gage_dict : dict
+        Dict from read_gage_info() — must contain "STAID" and "DA_VALID"
+
+    Returns
+    -------
+    tuple[np.ndarray, int]
+        Filtered gage IDs and count of removed gages
+
+    Raises
+    ------
+    KeyError
+        If gage_dict doesn't contain "DA_VALID" key
+    """
+    if "DA_VALID" not in gage_dict:
+        raise KeyError("gage_dict must contain 'DA_VALID' key for DA_VALID filtering")
+
+    staid_to_valid = {
+        str(staid): valid for staid, valid in zip(gage_dict["STAID"], gage_dict["DA_VALID"], strict=False)
+    }
+
+    keep_mask = np.array([staid_to_valid.get(gid, False) for gid in gage_ids])
     filtered = gage_ids[keep_mask]
     n_removed = len(gage_ids) - len(filtered)
     return filtered, n_removed
@@ -245,13 +288,29 @@ def build_flow_scale_tensor(
         Shape ``(num_segments,)`` with 1.0 everywhere except gage segments
         that need scaling.
     """
-    flow_scale = torch.ones(num_segments, dtype=torch.float32)
+    import math
 
-    if "COMID_DRAIN_SQKM" not in gage_dict or "COMID_UNITAREA_SQKM" not in gage_dict:
-        return flow_scale
+    flow_scale = torch.ones(num_segments, dtype=torch.float32)
 
     staid_list = [str(s) for s in gage_dict["STAID"]]
     staid_to_idx = {s: i for i, s in enumerate(staid_list)}
+
+    # Fast path: use pre-computed FLOW_SCALE from CSV when available
+    if "FLOW_SCALE" in gage_dict:
+        for gage_staid, seg_idx in zip(batch, gage_compressed_indices, strict=False):
+            lookup_key = str(gage_staid).zfill(8)
+            dict_idx = staid_to_idx.get(lookup_key)
+            if dict_idx is None:
+                continue
+            val = gage_dict["FLOW_SCALE"][dict_idx]
+            if isinstance(val, float) and math.isnan(val):
+                continue  # keeps default 1.0
+            flow_scale[seg_idx] = val
+        return flow_scale
+
+    # Fallback: compute from raw columns
+    if "COMID_DRAIN_SQKM" not in gage_dict or "COMID_UNITAREA_SQKM" not in gage_dict:
+        return flow_scale
 
     for gage_staid, seg_idx in zip(batch, gage_compressed_indices, strict=False):
         lookup_key = str(gage_staid).zfill(8)

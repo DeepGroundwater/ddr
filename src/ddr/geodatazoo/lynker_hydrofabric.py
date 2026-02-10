@@ -135,6 +135,9 @@ class LynkerHydrofabric(BaseGeoDataset):
         self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
         self.observations = self.obs_reader.read_data(dates=self.dates)
         self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+        # TODO(#127): Lynker gage info may need different DA_VALID/FLOW_SCALE values
+        # since conus_nextgen.gpkg has its own gage-to-COMID assignments.
+        # See https://github.com/DeepGroundwater/ddr/issues/127
         if self.cfg.experiment.max_area_diff_sqkm is not None:
             self.gage_ids, n_removed = filter_gages_by_area_threshold(
                 self.gage_ids,
@@ -160,6 +163,9 @@ class LynkerHydrofabric(BaseGeoDataset):
             self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
             self.observations = self.obs_reader.read_data(dates=self.dates)
             self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
+            # TODO(#127): Lynker gage info may need different DA_VALID/FLOW_SCALE values
+            # since conus_nextgen.gpkg has its own gage-to-COMID assignments.
+            # See https://github.com/DeepGroundwater/ddr/issues/127
             if self.cfg.experiment.max_area_diff_sqkm is not None:
                 self.gage_ids, n_removed = filter_gages_by_area_threshold(
                     self.gage_ids,

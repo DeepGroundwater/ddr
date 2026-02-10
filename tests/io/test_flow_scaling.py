@@ -122,3 +122,73 @@ class TestBuildFlowScaleTensor:
             num_segments=3,
         )
         assert torch.all(result == 1.0)
+
+
+class TestBuildFlowScaleTensorFromCSV:
+    """Tests for the FLOW_SCALE fast path in build_flow_scale_tensor."""
+
+    def test_uses_precomputed_flow_scale(self):
+        """When FLOW_SCALE is in gage_dict, use it directly."""
+        gage_dict: dict[str, list] = {
+            "STAID": ["01000000", "02000000"],
+            "FLOW_SCALE": [0.75, 0.5],
+        }
+        result = build_flow_scale_tensor(
+            batch=["01000000", "02000000"],
+            gage_dict=gage_dict,
+            gage_compressed_indices=[1, 3],
+            num_segments=5,
+        )
+        assert result[1].item() == pytest.approx(0.75)
+        assert result[3].item() == pytest.approx(0.5)
+        assert result[0].item() == 1.0
+        assert result[2].item() == 1.0
+        assert result[4].item() == 1.0
+
+    def test_precomputed_overrides_computation(self):
+        """FLOW_SCALE takes precedence over raw COMID_DRAIN_SQKM/COMID_UNITAREA_SQKM columns."""
+        gage_dict: dict[str, list] = {
+            "STAID": ["01000000"],
+            "DRAIN_SQKM": [90.0],
+            "COMID_DRAIN_SQKM": [100.0],
+            "COMID_UNITAREA_SQKM": [20.0],
+            "FLOW_SCALE": [0.99],
+        }
+        result = build_flow_scale_tensor(
+            batch=["01000000"],
+            gage_dict=gage_dict,
+            gage_compressed_indices=[0],
+            num_segments=3,
+        )
+        # Should use FLOW_SCALE (0.99), not computed value (0.5)
+        assert result[0].item() == pytest.approx(0.99)
+
+    def test_fallback_when_no_flow_scale(self):
+        """Without FLOW_SCALE, falls back to computation from raw columns."""
+        gage_dict: dict[str, list] = {
+            "STAID": ["01000000"],
+            "DRAIN_SQKM": [90.0],
+            "COMID_DRAIN_SQKM": [100.0],
+            "COMID_UNITAREA_SQKM": [20.0],
+        }
+        result = build_flow_scale_tensor(
+            batch=["01000000"],
+            gage_dict=gage_dict,
+            gage_compressed_indices=[0],
+            num_segments=3,
+        )
+        assert result[0].item() == pytest.approx(0.5)
+
+    def test_nan_flow_scale_defaults_to_one(self):
+        """NaN in FLOW_SCALE should default to 1.0."""
+        gage_dict: dict[str, list] = {
+            "STAID": ["01000000"],
+            "FLOW_SCALE": [float("nan")],
+        }
+        result = build_flow_scale_tensor(
+            batch=["01000000"],
+            gage_dict=gage_dict,
+            gage_compressed_indices=[0],
+            num_segments=3,
+        )
+        assert result[0].item() == 1.0

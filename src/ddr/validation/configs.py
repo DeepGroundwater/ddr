@@ -173,7 +173,8 @@ class ExperimentConfig(BaseModel):
     max_area_diff_sqkm: float | None = Field(
         default=50,
         description="Maximum absolute drainage area difference (km²) between USGS gage and COMID. "
-        "Gages exceeding this threshold are excluded from training/evaluation. None disables filtering.",
+        "Gages exceeding this threshold are excluded from training/evaluation. None disables filtering. "
+        "For MERIT geodataset, the DA_VALID column in gage CSVs is preferred.",
     )
 
     @field_validator("checkpoint", mode="before")

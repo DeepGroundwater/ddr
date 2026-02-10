@@ -23,6 +23,7 @@ from ddr.io.readers import (
     build_flow_scale_tensor,
     fill_nans,
     filter_gages_by_area_threshold,
+    filter_gages_by_da_valid,
     naninfmean,
     read_zarr,
 )
@@ -133,14 +134,23 @@ class Merit(BaseGeoDataset):
         self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
         self.observations = self.obs_reader.read_data(dates=self.dates)
         self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
-        if self.cfg.experiment.max_area_diff_sqkm is not None:
+        if "DA_VALID" in self.obs_reader.gage_dict:
+            self.gage_ids, n_removed = filter_gages_by_da_valid(
+                self.gage_ids,
+                self.obs_reader.gage_dict,
+            )
+            log.info(
+                f"Filtered {n_removed}/{len(self.obs_reader.gage_dict['STAID'])} gages with DA_VALID=False"
+            )
+        elif self.cfg.experiment.max_area_diff_sqkm is not None:
+            log.warning("DA_VALID not found in gage CSV, falling back to max_area_diff_sqkm")
             self.gage_ids, n_removed = filter_gages_by_area_threshold(
                 self.gage_ids,
                 self.obs_reader.gage_dict,
                 self.cfg.experiment.max_area_diff_sqkm,
             )
             log.info(
-                f"Filtered {n_removed} gages exceeding area diff threshold "
+                f"Filtered {n_removed}/{len(self.obs_reader.gage_dict['STAID'])} gages exceeding area diff threshold "
                 f"of {self.cfg.experiment.max_area_diff_sqkm} km²"
             )
         self.gages_adjacency = read_zarr(Path(self.cfg.data_sources.gages_adjacency))
@@ -158,7 +168,14 @@ class Merit(BaseGeoDataset):
             self.obs_reader = IcechunkUSGSReader(cfg=self.cfg)
             self.observations = self.obs_reader.read_data(dates=self.dates)
             self.gage_ids = np.array([str(_id.zfill(8)) for _id in self.obs_reader.gage_dict["STAID"]])
-            if self.cfg.experiment.max_area_diff_sqkm is not None:
+            if "DA_VALID" in self.obs_reader.gage_dict:
+                self.gage_ids, n_removed = filter_gages_by_da_valid(
+                    self.gage_ids,
+                    self.obs_reader.gage_dict,
+                )
+                log.info(f"Filtered {n_removed} gages with DA_VALID=False")
+            elif self.cfg.experiment.max_area_diff_sqkm is not None:
+                log.warning("DA_VALID not found in gage CSV, falling back to max_area_diff_sqkm")
                 self.gage_ids, n_removed = filter_gages_by_area_threshold(
                     self.gage_ids,
                     self.obs_reader.gage_dict,

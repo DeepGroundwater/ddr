@@ -119,7 +119,7 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list]:
     ]
 
     try:
-        df = pd.read_csv(gage_info_path, delimiter=",")
+        df = pd.read_csv(gage_info_path, delimiter=",", dtype={"STAID": str})
 
         if not set(expected_column_names).issubset(set(df.columns)):
             missing_headers = set(expected_column_names) - set(df.columns)

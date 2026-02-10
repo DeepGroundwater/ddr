@@ -5,7 +5,7 @@ Pipeline:
   2. Load GAGES-II gage points (already 5070)
   3. Spatial join: assign each gage a MERIT COMID
   4. Merge upstream area from MERIT rivers
-  5. Compute PCT_DIFF, REL_ERR
+  5. Compute ABS_DIFF, DA_VALID, FLOW_SCALE
   6. Write three filtered CSVs: GAGES-II.csv, camels_670.csv, gages_3000.csv
 """
 
@@ -24,9 +24,9 @@ OUTPUT_COLUMNS = [
     "COMID",
     "COMID_DRAIN_SQKM",
     "COMID_UNITAREA_SQKM",
-    "PCT_DIFF",
-    "REL_ERR",
     "ABS_DIFF",
+    "DA_VALID",
+    "FLOW_SCALE",
 ]
 
 
@@ -105,7 +105,11 @@ def spatial_join(gages: gpd.GeoDataFrame, catchments: gpd.GeoDataFrame) -> gpd.G
 def merge_uparea(gages: gpd.GeoDataFrame, merit_rivers_path: Path) -> gpd.GeoDataFrame:
     """Merge upstream area from MERIT rivers by COMID."""
     print(f"Loading MERIT rivers (attributes only): {merit_rivers_path}")
-    rivers = gpd.read_file(merit_rivers_path, columns=["COMID", "uparea"], ignore_geometry=True)
+    rivers = gpd.read_file(
+        merit_rivers_path,
+        columns=["COMID", "uparea"],
+        ignore_geometry=True,
+    )
     rivers = rivers.rename(columns={"uparea": "COMID_DRAIN_SQKM"})
     rivers["COMID"] = rivers["COMID"].astype("Int64")
     print(f"  {len(rivers)} reaches loaded")
@@ -115,12 +119,31 @@ def merge_uparea(gages: gpd.GeoDataFrame, merit_rivers_path: Path) -> gpd.GeoDat
     return merged
 
 
-def compute_error_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute PCT_DIFF, REL_ERR, and ABS_DIFF between USGS drainage area and MERIT upstream area."""
-    df["PCT_DIFF"] = (df["DRAIN_SQKM"] - df["COMID_DRAIN_SQKM"]) / df["DRAIN_SQKM"] * 100
-    df["REL_ERR"] = (df["COMID_DRAIN_SQKM"] - df["DRAIN_SQKM"]) / df["DRAIN_SQKM"]
-    df["ABS_DIFF"] = (df["DRAIN_SQKM"] - df["COMID_DRAIN_SQKM"]).abs()
-    return df
+def compute_flow_scale(df: pd.DataFrame) -> pd.Series:
+    """Compute per-gage flow scale factor in [0, 1].
+
+    When a gage sits partway through a catchment, the modeled lateral inflow is
+    too large. The scale factor reduces Q' proportionally to the area mismatch:
+        scale = (unit_area - |diff|) / unit_area   when diff < 0 and |diff| < unit_area
+        scale = 1.0                                 otherwise
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must have DRAIN_SQKM, COMID_DRAIN_SQKM, COMID_UNITAREA_SQKM columns.
+
+    Returns
+    -------
+    pd.Series[float]
+        Flow scale factor per gage, in [0, 1].
+    """
+    diff = df["DRAIN_SQKM"] - df["COMID_DRAIN_SQKM"]
+    abs_diff = diff.abs()
+    unit_area = df["COMID_UNITAREA_SQKM"]
+    scale = (unit_area - abs_diff) / unit_area
+    # Only scale when gage is upstream of COMID outlet (diff < 0) and mismatch < unit area
+    scale = scale.where((diff < 0) & (abs_diff < unit_area), 1.0)
+    return scale
 
 
 def load_camels_ids(path: Path) -> set[str]:
@@ -148,8 +171,8 @@ def write_csv(df: pd.DataFrame, path: Path, label: str) -> None:
     """Write a filtered DataFrame to CSV and print summary."""
     df.to_csv(path, index=False)
     matched = df["COMID_DRAIN_SQKM"].notna().sum()
-    median_pct = df["PCT_DIFF"].median()
-    print(f"  {label}: {len(df)} rows, {matched} with uparea, median PCT_DIFF={median_pct:.2f}%")
+    median_abs = df["ABS_DIFF"].median()
+    print(f"  {label}: {len(df)} rows, {matched} with uparea, median ABS_DIFF={median_abs:.2f} km²")
 
 
 def main() -> None:
@@ -164,9 +187,18 @@ def main() -> None:
     # 3. Spatial join
     joined = spatial_join(gages, catchments)
 
-    # 4-5. Merge uparea + compute errors
+    # 4. Merge uparea
     joined = merge_uparea(joined, args.merit_rivers)
-    joined = compute_error_metrics(joined)
+
+    # 5. Compute ABS_DIFF, DA_VALID, FLOW_SCALE
+    joined["ABS_DIFF"] = (joined["DRAIN_SQKM"] - joined["COMID_DRAIN_SQKM"]).abs()
+    joined["DA_VALID"] = joined["ABS_DIFF"] <= joined["COMID_UNITAREA_SQKM"]
+    n_valid = joined["DA_VALID"].sum()
+    print(f"  DA_VALID: {n_valid}/{len(joined)} gages pass (ABS_DIFF <= COMID_UNITAREA_SQKM)")
+
+    joined["FLOW_SCALE"] = compute_flow_scale(joined)
+    n_scaled = (joined["FLOW_SCALE"] < 1.0).sum()
+    print(f"  FLOW_SCALE: {n_scaled}/{len(joined)} gages have scale < 1.0")
 
     # Ensure STAID is zero-padded string for filtering
     joined["STAID"] = joined["STAID"].astype(str).str.zfill(8)

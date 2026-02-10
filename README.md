@@ -1,6 +1,3 @@
-> [!WARNING]
-> This repo is a work in progress and will be updating frequently. Be sure to be using the most recent release version
-
 <p align="center">
   <img src="docs/images/ddr_logo_2.png" width="20%"/>
 </p>

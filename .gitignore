@@ -206,3 +206,4 @@ Claude.md
 .qodo/
 .ruff_cache/
 !benchmarks/config/
+*.png

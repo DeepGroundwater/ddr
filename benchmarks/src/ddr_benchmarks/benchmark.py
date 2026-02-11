@@ -425,8 +425,8 @@ def generate_comparison_plots(
     # === Gauge maps via plot_gauge_map() ===
     if gage_ids is not None and cfg.data_sources.gages is not None:
         try:
-            gages_df = pd.read_csv(cfg.data_sources.gages)
-            gages_df["STAID"] = gages_df["STAID"].astype(str).str.zfill(8)
+            gages_df = pd.read_csv(cfg.data_sources.gages, dtype={"STAID": str})
+            gages_df["STAID"] = gages_df["STAID"].str.zfill(8)
             gages_df = gages_df.set_index("STAID")
 
             gage_str_ids = [str(g).zfill(8) for g in gage_ids]

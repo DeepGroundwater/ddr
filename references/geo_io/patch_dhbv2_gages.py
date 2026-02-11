@@ -106,10 +106,11 @@ def merge_merit_uparea(df: pd.DataFrame, merit_rivers_path: Path) -> pd.DataFram
 
 def patch(csv_path: Path, merit_catchments_path: Path, merit_rivers_path: Path | None = None) -> None:
     """Patch the dhbv2 gage CSV with standard columns."""
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, dtype={"STAID": str})
 
     # Derive standard columns from existing dhbv2-specific data
-    df["STANAME"] = df["STAID"].astype(str)
+    df["STAID"] = df["STAID"].str.zfill(8)
+    df["STANAME"] = df["STAID"]
     df["COMID_DRAIN_SQKM"] = df["zone_edge_uparea"]
     df["ABS_DIFF"] = df["zone_edge_vs_gage_area_difference"].abs()
 

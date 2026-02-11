@@ -128,7 +128,7 @@ def read_gage_info(gage_info_path: Path) -> dict[str, list]:
             else:
                 raise KeyError(f"The CSV file is missing the following headers: {list(missing_headers)}")
 
-        df["STAID"] = df["STAID"].astype(str)
+        df["STAID"] = df["STAID"].astype(str).str.zfill(8)
 
         out = {
             field: df[field].tolist() if field == "STANAME" else df[field].values.tolist()

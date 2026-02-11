@@ -254,7 +254,8 @@ def main(cfg: DictConfig) -> None:
         streamflow = read_ic(cfg.data_sources.streamflow, region=cfg.s3_region)
         observations = read_ic(cfg.data_sources.observations, region=cfg.s3_region)
         gages_adjacency = zarr.open_group(cfg.data_sources.gages_adjacency)
-        basins_df = pd.read_csv(cfg.data_sources.gages)
+        basins_df = pd.read_csv(cfg.data_sources.gages, dtype={"STAID": str})
+        basins_df["STAID"] = basins_df["STAID"].str.zfill(8)
         eval_q_prime(
             cfg=cfg,
             streamflow=streamflow,

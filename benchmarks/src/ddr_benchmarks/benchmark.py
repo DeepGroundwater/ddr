@@ -425,8 +425,8 @@ def generate_comparison_plots(
     # === Gauge maps via plot_gauge_map() ===
     if gage_ids is not None and cfg.data_sources.gages is not None:
         try:
-            gages_df = pd.read_csv(cfg.data_sources.gages)
-            gages_df["STAID"] = gages_df["STAID"].astype(str).str.zfill(8)
+            gages_df = pd.read_csv(cfg.data_sources.gages, dtype={"STAID": str})
+            gages_df["STAID"] = gages_df["STAID"].str.zfill(8)
             gages_df = gages_df.set_index("STAID")
 
             gage_str_ids = [str(g).zfill(8) for g in gage_ids]
@@ -731,6 +731,19 @@ def benchmark(
                 num_hourly=len(dataset.dates.hourly_time_range),
             )
 
+    # === Filter to gages DiffRoute actually routed (apples-to-apples) ===
+    if diffroute_enabled:
+        routed_mask = ~np.isnan(diffroute_predictions[:, 0])
+        num_excluded = int((~routed_mask).sum())
+        log.info(
+            f"Filtering to {int(routed_mask.sum())}/{len(all_gage_ids)} gages "
+            f"({num_excluded} headwater/skipped gages excluded for apples-to-apples comparison)"
+        )
+        all_gage_ids = all_gage_ids[routed_mask]
+        observations = observations[routed_mask]
+        ddr_predictions = ddr_predictions[routed_mask]
+        diffroute_predictions = diffroute_predictions[routed_mask]
+
     # === EVALUATION (same as test.py) ===
     num_days = len(ddr_predictions[0][13 : (-11 + cfg.params.tau)]) // 24
 
@@ -757,17 +770,8 @@ def benchmark(
     diffroute_metrics = None
     if diffroute_enabled:
         log.info("=" * 50)
-        # Filter to gages DiffRoute actually routed (non-NaN)
-        routed_mask = ~np.isnan(diffroute_daily[:, 0])
-        num_routed = int(routed_mask.sum())
-        num_skipped = len(all_gage_ids) - num_routed
-        log.info(
-            f"=== DiffRoute Metrics ({num_routed}/{len(all_gage_ids)} gages routed, "
-            f"{num_skipped} headwater gages excluded) ==="
-        )
-        dr_pred = diffroute_daily[routed_mask, warmup:]
-        dr_obs = daily_obs[routed_mask, warmup:]
-        diffroute_metrics = Metrics(pred=dr_pred, target=dr_obs)
+        log.info(f"=== DiffRoute Metrics ({len(all_gage_ids)} gages) ===")
+        diffroute_metrics = Metrics(pred=diffroute_daily[:, warmup:], target=daily_obs[:, warmup:])
         _nse = diffroute_metrics.nse
         nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
         utils.log_metrics(nse, diffroute_metrics.rmse, diffroute_metrics.kge)

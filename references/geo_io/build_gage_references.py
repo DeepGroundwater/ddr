@@ -192,9 +192,10 @@ def main() -> None:
 
     # 5. Compute ABS_DIFF, DA_VALID, FLOW_SCALE
     joined["ABS_DIFF"] = (joined["DRAIN_SQKM"] - joined["COMID_DRAIN_SQKM"]).abs()
-    joined["DA_VALID"] = joined["ABS_DIFF"] <= joined["COMID_UNITAREA_SQKM"]
+    da_threshold = joined["COMID_UNITAREA_SQKM"].clip(lower=100.0)
+    joined["DA_VALID"] = joined["ABS_DIFF"] <= da_threshold
     n_valid = joined["DA_VALID"].sum()
-    print(f"  DA_VALID: {n_valid}/{len(joined)} gages pass (ABS_DIFF <= COMID_UNITAREA_SQKM)")
+    print(f"  DA_VALID: {n_valid}/{len(joined)} gages pass (ABS_DIFF <= max(COMID_UNITAREA_SQKM, 100))")
 
     joined["FLOW_SCALE"] = compute_flow_scale(joined)
     n_scaled = (joined["FLOW_SCALE"] < 1.0).sum()

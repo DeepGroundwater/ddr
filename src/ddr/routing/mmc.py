@@ -261,6 +261,11 @@ class MuskingumCunge:
         self.d_gw: torch.Tensor | None = None
         self.leakance_factor: torch.Tensor | None = None
 
+        # Leakance diagnostic accumulators (populated during forward())
+        self._zeta_sum: torch.Tensor | None = None
+        self._q_prime_sum: torch.Tensor = torch.empty(0)
+        self._last_zeta: torch.Tensor = torch.empty(0)
+
         # Scatter indices for ragged output (initialized in setup_inputs)
         self._flat_indices: torch.Tensor | None = None
         self._group_ids: torch.Tensor | None = None
@@ -460,6 +465,11 @@ class MuskingumCunge:
             )
             output[:, 0] = torch.clamp(output[:, 0], min=self.discharge_lb)
 
+        # Initialize leakance diagnostic accumulators
+        if self.use_leakance:
+            self._zeta_sum = torch.zeros(num_segments, device=self.device)
+            self._q_prime_sum = torch.zeros(num_segments, device=self.device)
+
         # Route through time series
         for timestep in tqdm(
             range(1, num_timesteps),
@@ -473,6 +483,11 @@ class MuskingumCunge:
             )
 
             q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper)
+
+            # Accumulate leakance diagnostics (detached from autograd graph)
+            if self.use_leakance:
+                self._zeta_sum += self._last_zeta
+                self._q_prime_sum += q_prime_clamp.detach().clone()
 
             if output_all:
                 output[:, timestep] = q_t1
@@ -598,6 +613,7 @@ class MuskingumCunge:
                 self.d_gw,
                 self.leakance_factor,
             )
+            self._last_zeta = zeta.detach().clone()
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * (q_prime_clamp - zeta))
         else:
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)

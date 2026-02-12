@@ -239,6 +239,10 @@ class dmc(torch.nn.Module):
             "runoff": output,
         }
 
+        if self.routing_engine.use_leakance and self.routing_engine._zeta_sum is not None:
+            output_dict["zeta_sum"] = self.routing_engine._zeta_sum
+            output_dict["q_prime_sum"] = self.routing_engine._q_prime_sum
+
         return output_dict
 
     def fill_op(self, data_vector: torch.Tensor) -> torch.Tensor:

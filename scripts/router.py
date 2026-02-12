@@ -67,6 +67,8 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
 
     num_timesteps = len(dataset.dates.hourly_time_range)
     predictions = np.zeros((num_outputs, num_timesteps), dtype=np.float32)
+    zeta_sum_np: np.ndarray | None = None
+    q_prime_sum_np: np.ndarray | None = None
 
     with torch.no_grad():  # Disable gradient calculations during evaluation
         for i, routing_dataclass in enumerate(dataloader, start=0):
@@ -84,6 +86,16 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
             }
             dmc_output = routing_model(**dmc_kwargs)
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
+
+            if "zeta_sum" in dmc_output:
+                batch_zeta = dmc_output["zeta_sum"].cpu().numpy()
+                batch_q_prime = dmc_output["q_prime_sum"].cpu().numpy()
+                if zeta_sum_np is None:
+                    zeta_sum_np = batch_zeta
+                    q_prime_sum_np = batch_q_prime
+                else:
+                    zeta_sum_np += batch_zeta
+                    q_prime_sum_np += batch_q_prime
 
     daily_runoff = compute_daily_runoff(torch.tensor(predictions), cfg.params.tau)
     time_range = dataset.dates.daily_time_range[1:-1]
@@ -111,6 +123,22 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
         data_vars={"predictions": pred_da},
         attrs=attrs,
     )
+    if zeta_sum_np is not None:
+        ds["zeta_sum"] = xr.DataArray(
+            data=zeta_sum_np,
+            dims=["catchment_ids"],
+            coords={"catchment_ids": dataset.routing_dataclass.divide_ids},
+            attrs={"units": "m3/s", "long_name": "Cumulative leakance (sum of zeta across timesteps)"},
+        )
+        ds["q_prime_sum"] = xr.DataArray(
+            data=q_prime_sum_np,
+            dims=["catchment_ids"],
+            coords={"catchment_ids": dataset.routing_dataclass.divide_ids},
+            attrs={
+                "units": "m3/s",
+                "long_name": "Cumulative lateral inflow (sum of q_prime across timesteps)",
+            },
+        )
     ds.to_zarr(
         cfg.params.save_path / "chrout.zarr",
         mode="w",

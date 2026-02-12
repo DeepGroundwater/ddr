@@ -143,6 +143,60 @@ def _get_trapezoid_velocity(
     return c
 
 
+def _compute_zeta(
+    q_t: torch.Tensor,
+    n: torch.Tensor,
+    q_spatial: torch.Tensor,
+    s0: torch.Tensor,
+    p_spatial: torch.Tensor,
+    length: torch.Tensor,
+    K_D: torch.Tensor,
+    d_gw: torch.Tensor,
+    leakance_factor: torch.Tensor,
+) -> torch.Tensor:
+    """Compute groundwater-surface water exchange (leakance) term.
+
+    Implements the zeta term from Song et al. (2025), Eq. 12-14, using
+    power-law depth/width geometry.
+
+    Parameters
+    ----------
+    q_t : torch.Tensor
+        Discharge at time t [m³/s]
+    n : torch.Tensor
+        Manning's roughness coefficient
+    q_spatial : torch.Tensor
+        Channel shape parameter (0=rectangular, 1=triangular)
+    s0 : torch.Tensor
+        Channel bed slope
+    p_spatial : torch.Tensor
+        Spatial parameter p
+    length : torch.Tensor
+        Reach length [m]
+    K_D : torch.Tensor
+        Leakance coefficient [1/s]
+    d_gw : torch.Tensor
+        Groundwater depth threshold [m]
+    leakance_factor : torch.Tensor
+        Scaling/gating factor [0-1]
+
+    Returns
+    -------
+    torch.Tensor
+        Leakance term zeta. Positive = losing stream, negative = gaining stream.
+    """
+    numerator = q_t * n * (q_spatial + 1)
+    denominator = p_spatial * torch.pow(s0, 0.5)
+    depth = torch.pow(
+        torch.div(numerator, denominator + 1e-8),
+        torch.div(3.0, 5.0 + 3.0 * q_spatial),
+    )
+    width = torch.pow(p_spatial * depth, q_spatial)
+    area = width * length
+    zeta = leakance_factor * area * K_D * (depth - d_gw)
+    return zeta
+
+
 class MuskingumCunge:
     """Core Muskingum-Cunge routing implementation.
 
@@ -200,6 +254,12 @@ class MuskingumCunge:
         # Progress tracking attributes (for tqdm display)
         self.epoch = 0
         self.mini_batch = 0
+
+        # Leakance parameters
+        self.use_leakance: bool = cfg.params.use_leakance
+        self.K_D: torch.Tensor | None = None
+        self.d_gw: torch.Tensor | None = None
+        self.leakance_factor: torch.Tensor | None = None
 
         # Scatter indices for ragged output (initialized in setup_inputs)
         self._flat_indices: torch.Tensor | None = None
@@ -299,6 +359,23 @@ class MuskingumCunge:
             )
         else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
+
+        if self.use_leakance:
+            self.K_D = denormalize(
+                value=spatial_parameters["K_D"],
+                bounds=self.parameter_bounds["K_D"],
+                log_space="K_D" in log_space_params,
+            )
+            self.d_gw = denormalize(
+                value=spatial_parameters["d_gw"],
+                bounds=self.parameter_bounds["d_gw"],
+                log_space="d_gw" in log_space_params,
+            )
+            self.leakance_factor = denormalize(
+                value=spatial_parameters["leakance_factor"],
+                bounds=self.parameter_bounds["leakance_factor"],
+                log_space="leakance_factor" in log_space_params,
+            )
 
     def _init_discharge_state(self, carry_state: bool) -> None:
         """Cold-start via topological accumulation, or carry from previous batch."""
@@ -509,7 +586,21 @@ class MuskingumCunge:
         i_t = torch.matmul(self.network, self._discharge_t)
 
         # Calculate right-hand side of equation
-        b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)
+        if self.use_leakance:
+            zeta = _compute_zeta(
+                self._discharge_t,
+                self.n,
+                self.q_spatial,
+                self.slope,
+                self.p_spatial,
+                self.length,
+                self.K_D,
+                self.d_gw,
+                self.leakance_factor,
+            )
+            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * (q_prime_clamp - zeta))
+        else:
+            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)
 
         # Setup sparse matrix for solving
         c_1_ = c_1 * -1

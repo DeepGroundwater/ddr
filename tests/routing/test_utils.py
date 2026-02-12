@@ -194,6 +194,95 @@ def create_mock_spatial_parameters(num_reaches: int, device: str = "cpu") -> dic
     }
 
 
+def create_mock_config_with_leakance() -> Config:
+    """Create a mock configuration with leakance enabled for testing."""
+    cfg = {
+        "name": "mock_leakance",
+        "mode": "training",
+        "geodataset": "lynker_hydrofabric",
+        "data_sources": {
+            "geospatial_fabric_gpkg": "mock.gpkg",
+            "streamflow": "mock://streamflow/store",
+            "conus_adjacency": "mock.zarr",
+            "gages_adjacency": "mock.zarr",
+            "gages": "mock.csv",
+        },
+        "params": {
+            "parameter_ranges": {
+                "n": [0.01, 0.1],
+                "q_spatial": [0.1, 0.9],
+                "K_D": [1e-8, 1e-6],
+                "d_gw": [-2.0, 2.0],
+                "leakance_factor": [0.0, 1.0],
+            },
+            "defaults": {"p_spatial": 1.0},
+            "attribute_minimums": {
+                "velocity": 0.1,
+                "depth": 0.01,
+                "discharge": 0.001,
+                "bottom_width": 0.1,
+                "slope": 0.0001,
+            },
+            "tau": 7,
+            "use_leakance": True,
+        },
+        "kan": {
+            "input_var_names": [
+                "mock",
+            ],
+            "learnable_parameters": ["n", "q_spatial", "K_D", "d_gw", "leakance_factor"],
+        },
+        "s3_region": "us-east-1",
+        "device": "cpu",
+    }
+    config = validate_config(DictConfig(cfg), save_config=False)
+    return config
+
+
+def create_mock_spatial_parameters_with_leakance(
+    num_reaches: int, device: str = "cpu"
+) -> dict[str, torch.Tensor]:
+    """Create mock spatial parameters with leakance params for testing.
+
+    Parameters
+    ----------
+    num_reaches : int
+        Number of reaches
+    device : str, optional
+        Device for tensors, by default 'cpu'
+
+    Returns
+    -------
+    Dict[str, torch.Tensor]
+        Mock spatial parameters (normalized values between 0 and 1)
+    """
+    return {
+        "n": torch.rand(num_reaches, device=device),
+        "q_spatial": torch.rand(num_reaches, device=device),
+        "K_D": torch.rand(num_reaches, device=device),
+        "d_gw": torch.rand(num_reaches, device=device),
+        "leakance_factor": torch.rand(num_reaches, device=device),
+    }
+
+
+def create_mock_nn_with_leakance() -> kan:
+    """Create a mock KAN with leakance parameters for testing."""
+    return kan(
+        input_var_names=[
+            "mean.impervious",
+            "mean.elevation",
+            "mean.smcmax_soil_layers_stag=1",
+        ],
+        learnable_parameters=["n", "q_spatial", "p_spatial", "K_D", "d_gw", "leakance_factor"],
+        hidden_size=11,
+        num_hidden_layers=1,
+        grid=3,
+        k=3,
+        seed=42,
+        device="cpu",
+    )
+
+
 def assert_tensor_properties(
     tensor: torch.Tensor,
     expected_shape: tuple[int, ...],

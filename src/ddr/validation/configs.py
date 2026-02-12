@@ -110,6 +110,11 @@ class Params(BaseModel):
         },
         description="Default parameter values for physical processes when not learned",
     )
+    use_leakance: bool = Field(
+        default=False,
+        description="Enable groundwater-surface water exchange (leakance) in routing. "
+        "When True, K_D, d_gw, and leakance_factor must be in kan.learnable_parameters and params.parameter_ranges.",
+    )
     tau: int = Field(
         default=3,
         description="Routing time step adjustment parameter to handle double routing and timezone differences",
@@ -239,6 +244,20 @@ class Config(BaseModel):
                 log.info(
                     "HydraConfig is not set. Using default save_path './'. "
                     "If using a jupyter notebook, manually set save_path."
+                )
+
+        # Validate leakance configuration
+        if self.params.use_leakance:
+            required_leakance_params = ["K_D", "d_gw", "leakance_factor"]
+            missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
+            if missing_ranges:
+                raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
+            missing_learnable = [
+                p for p in required_leakance_params if p not in self.kan.learnable_parameters
+            ]
+            if missing_learnable:
+                raise ValueError(
+                    f"use_leakance=True requires {missing_learnable} in kan.learnable_parameters"
                 )
 
         return self

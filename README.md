@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/ddr_logo_2.png" width="20%"/>
+  <img src="docs/images/ddr_logo_5.png" width="50%"/>
 </p>
 
 # Distributed Differentiable Routing (DDR)

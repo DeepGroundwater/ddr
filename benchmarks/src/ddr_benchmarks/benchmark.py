@@ -731,6 +731,21 @@ def benchmark(
                 num_hourly=len(dataset.dates.hourly_time_range),
             )
 
+    # === Exclude headwater gages (zero edges in zarr subgroup) ===
+    gages_adj = read_zarr(Path(cfg.data_sources.gages_adjacency))
+    non_headwater_mask = np.array(
+        [len(gages_adj[gid]["indices_0"][:]) > 0 if gid in gages_adj else False for gid in all_gage_ids]
+    )
+    num_headwater = int((~non_headwater_mask).sum())
+    log.info(
+        f"Excluding {num_headwater} headwater gages from metrics "
+        f"({non_headwater_mask.sum()}/{len(all_gage_ids)} non-headwater gages remain)"
+    )
+    all_gage_ids = all_gage_ids[non_headwater_mask]
+    observations = observations[non_headwater_mask]
+    ddr_predictions = ddr_predictions[non_headwater_mask]
+    diffroute_predictions = diffroute_predictions[non_headwater_mask]
+
     # === EVALUATION (same as test.py) ===
     num_days = len(ddr_predictions[0][13 : (-11 + cfg.params.tau)]) // 24
 

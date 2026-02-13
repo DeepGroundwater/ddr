@@ -50,15 +50,16 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
     end_time = datetime.strptime(cfg.experiment.end_time, date_time_format).strftime("%Y-%m-%d")
 
     assert dataset.routing_dataclass is not None, "Routing dataclass not defined in dataset"
-    assert dataset.routing_dataclass.outflow_idx is not None, "Routing dataclass output_idx not defined"
     assert dataset.routing_dataclass.adjacency_matrix is not None, (
         "Routing dataclass adjacency_matrix not defined"
     )
 
     if cfg.data_sources.target_catchments is not None:
+        assert dataset.routing_dataclass.outflow_idx is not None, "Routing dataclass outflow_idx not defined"
         num_outputs = len(dataset.routing_dataclass.outflow_idx)
         log.info(f"Routing for {num_outputs} target catchments")
     elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
+        assert dataset.routing_dataclass.outflow_idx is not None, "Routing dataclass outflow_idx not defined"
         num_outputs = len(dataset.routing_dataclass.outflow_idx)
         log.info(f"Routing for {num_outputs} gages")
     else:

@@ -486,6 +486,8 @@ class MuskingumCunge:
 
             # Accumulate leakance diagnostics (detached from autograd graph)
             if self.use_leakance:
+                assert self._zeta_sum is not None and self._q_prime_sum is not None
+                assert self._last_zeta is not None
                 self._zeta_sum += self._last_zeta
                 self._q_prime_sum += q_prime_clamp.detach().clone()
 

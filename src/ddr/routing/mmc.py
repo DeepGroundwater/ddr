@@ -174,7 +174,7 @@ def _compute_zeta(
     length : torch.Tensor
         Reach length [m]
     K_D : torch.Tensor
-        Leakance coefficient [1/s]
+        Hydraulic exchange rate [1/s]
     d_gw : torch.Tensor
         Groundwater depth threshold [m]
     leakance_factor : torch.Tensor

@@ -616,7 +616,7 @@ class MuskingumCunge:
                 self.leakance_factor,
             )
             self._last_zeta = zeta.detach().clone()
-            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * (q_prime_clamp - zeta))
+            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp) - zeta
         else:
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)
 

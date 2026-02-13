@@ -94,7 +94,7 @@ class Params(BaseModel):
             "q_spatial": [0.0, 1.0],  # 0 = rectangular, 1 = triangular
             "top_width": [1.0, 5000.0],  # Log-space (m)
             "side_slope": [0.5, 50.0],  # H:V ratio Log-space (-)
-            "K_D": [1e-8, 1e-6],  # Leakance coefficient
+            "K_D": [1e-9, 1e-4],  # Leakance coefficient
             "d_gw": [-2.0, 2.0],  # Groundwater depth threshold
             "leakance_factor": [0.0, 1.0],  # Scaling/gating factor
         },

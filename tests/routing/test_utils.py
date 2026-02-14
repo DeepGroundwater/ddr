@@ -246,50 +246,6 @@ def create_mock_config_with_leakance() -> Config:
     return config
 
 
-def create_mock_spatial_parameters_with_leakance(
-    num_reaches: int, device: str = "cpu"
-) -> dict[str, torch.Tensor]:
-    """Create mock spatial parameters with leakance params for testing.
-
-    Parameters
-    ----------
-    num_reaches : int
-        Number of reaches
-    device : str, optional
-        Device for tensors, by default 'cpu'
-
-    Returns
-    -------
-    Dict[str, torch.Tensor]
-        Mock spatial parameters (normalized values between 0 and 1)
-    """
-    return {
-        "n": torch.rand(num_reaches, device=device),
-        "q_spatial": torch.rand(num_reaches, device=device),
-        "K_D": torch.rand(num_reaches, device=device),
-        "d_gw": torch.rand(num_reaches, device=device),
-        "leakance_factor": torch.rand(num_reaches, device=device),
-    }
-
-
-def create_mock_nn_with_leakance() -> kan:
-    """Create a mock KAN with leakance parameters for testing."""
-    return kan(
-        input_var_names=[
-            "mean.impervious",
-            "mean.elevation",
-            "mean.smcmax_soil_layers_stag=1",
-        ],
-        learnable_parameters=["n", "q_spatial", "p_spatial", "K_D", "d_gw", "leakance_factor"],
-        hidden_size=11,
-        num_hidden_layers=1,
-        grid=3,
-        k=3,
-        seed=42,
-        device="cpu",
-    )
-
-
 def create_mock_config_with_leakance_lstm() -> Config:
     """Create a mock configuration with LSTM-based leakance enabled for testing."""
     cfg = {

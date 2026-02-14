@@ -530,13 +530,18 @@ class ForcingsReader(torch.nn.Module):
 
         valid_divide_indices = []
         divide_idx_mask: list[int] = []
+        missing_count = 0
 
         for i, divide_id in enumerate(routing_dataclass.divide_ids):
             if divide_id in self.divide_id_to_index:
                 valid_divide_indices.append(self.divide_id_to_index[divide_id])
                 divide_idx_mask.append(i)
             else:
-                log.info(f"{divide_id} missing from the forcings dataset")
+                missing_count += 1
+
+        if missing_count > 0:
+            total = len(routing_dataclass.divide_ids)
+            log.info(f"{missing_count}/{total} divide IDs missing from forcings (zero-filled)")
 
         assert len(valid_divide_indices) != 0, "No valid divide IDs found in forcings store"
 
@@ -551,7 +556,7 @@ class ForcingsReader(torch.nn.Module):
         var_tensors = []
         for var_name in self.forcing_var_names:
             _ds = self.ds[var_name].isel(time=forcings_indices, divide_id=valid_divide_indices)
-            data = _ds.compute().values.astype(np.float32)  # (T, num_valid)
+            data = np.nan_to_num(_ds.compute().values.astype(np.float32).T, nan=0.0)  # (T, num_valid)
             var_tensor = torch.full((T, N), 0.0, dtype=dtype)
             var_tensor[:, divide_idx_mask] = torch.tensor(data, dtype=dtype)
             var_tensors.append(var_tensor)

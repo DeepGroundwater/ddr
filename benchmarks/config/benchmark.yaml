@@ -76,7 +76,7 @@ leakance_lstm:
     - meanslope
     - log10_uparea
     - SoilGrids1km_sand
-    - ETPOT_Hargr
+    - permeability
     - Porosity
 
 # === DiffRoute-specific configuration ===

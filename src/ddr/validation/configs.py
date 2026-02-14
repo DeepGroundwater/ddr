@@ -144,7 +144,7 @@ class LeakanceLstm(BaseModel):
     )
     forcing_var_names: list[str] = Field(
         default_factory=lambda: ["P", "PET", "Temp"],
-        description="Forcing variable names used as LSTM dynamic inputs (replaces q_prime)",
+        description="Forcing variable names used as LSTM dynamic inputs",
     )
     input_var_names: list[str] = Field(
         description="Static attribute names used as LSTM inputs alongside forcings"
@@ -240,8 +240,8 @@ class Config(BaseModel):
     leakance_lstm: LeakanceLstm = Field(
         description="LSTM config for time-varying leakance parameter prediction.",
     )
-    np_seed: int = Field(default=1, description="Random seed for NumPy operations to ensure reproducibility")
-    seed: int = Field(default=0, description="Random seed for PyTorch operations to ensure reproducibility")
+    np_seed: int = Field(default=42, description="Random seed for NumPy operations to ensure reproducibility")
+    seed: int = Field(default=42, description="Random seed for PyTorch operations to ensure reproducibility")
     device: int | str = Field(
         default=0, description="Compute device specification (GPU index number, 'cpu', or 'cuda', or 'mps')"
     )

@@ -5,9 +5,7 @@ Target: Single icechunk store with dimensions (divide_id, time), matching
 the existing streamflow store pattern.
 
 Usage:
-    uv run python references/dhbv2_merit/zarr_forcing_to_icechunk.py \
-        --source /projects/mhpi/yxs275/Data/zarr_merit_for_conus_1980-10-01-2010-09-30/forcing \
-        --output /projects/mhpi/data/icechunk/merit_forcing_conus
+uv run python references/dhbv2_merit/zarr_forcing_to_icechunk.py --source /projects/mhpi/yxs275/Data/zarr_merit_for_conus_1980-10-01-2010-09-30/forcing  --output /projects/mhpi/data/icechunk/merit_forcing_conus
 """
 
 import argparse
@@ -132,13 +130,25 @@ def main() -> None:
             f"Output path already exists: {args.output}. Remove it first to avoid silent overwrite."
         )
 
-    # Enumerate groups
-    group_names = sorted(d for d in os.listdir(args.source) if os.path.isdir(os.path.join(args.source, d)))
-    print(f"Found {len(group_names)} groups in {args.source}")
+    # Enumerate groups — supports flat (source/71_0/) or nested (source/71/71_0/) layouts
+    group_paths: list[str] = []
+    for entry in sorted(os.listdir(args.source)):
+        entry_path = os.path.join(args.source, entry)
+        if not os.path.isdir(entry_path):
+            continue
+        # Check if this directory is itself a zarr group (has a COMID array)
+        if os.path.isdir(os.path.join(entry_path, "COMID")):
+            group_paths.append(entry_path)
+        else:
+            # Nested: look one level deeper for zarr subgroups
+            for sub in sorted(os.listdir(entry_path)):
+                sub_path = os.path.join(entry_path, sub)
+                if os.path.isdir(sub_path) and os.path.isdir(os.path.join(sub_path, "COMID")):
+                    group_paths.append(sub_path)
+    print(f"Found {len(group_paths)} groups in {args.source}")
 
     # Build time coordinate from first group
-    first_path = os.path.join(args.source, group_names[0])
-    first_store = zarr.storage.LocalStore(root=first_path, read_only=True)
+    first_store = zarr.storage.LocalStore(root=group_paths[0], read_only=True)
     first_root = zarr.open_group(first_store, mode="r", zarr_format=2)
     time_indices = first_root["time"][:]
     time_coord = build_time_coord(time_indices)
@@ -152,21 +162,21 @@ def main() -> None:
     encoding = {var: {"dtype": "float32"} for var in VARIABLES}
 
     # Write first group
-    print(f"[1/{len(group_names)}] Writing {group_names[0]}...")
-    ds = load_group(os.path.join(args.source, group_names[0]), time_coord, time_indices)
+    print(f"[1/{len(group_paths)}] Writing {group_paths[0]}...")
+    ds = load_group(group_paths[0], time_coord, time_indices)
     session = repo.writable_session("main")
     to_icechunk(ds, session, encoding=encoding)
-    snapshot = session.commit(f"add group {group_names[0]}")
+    snapshot = session.commit(f"add group {os.path.basename(group_paths[0])}")
     print(f"  {len(ds.divide_id)} COMIDs, commit: {snapshot}")
 
     # Append remaining groups
     total_comids = len(ds.divide_id)
-    for i, group_name in enumerate(group_names[1:], start=2):
-        print(f"[{i}/{len(group_names)}] Appending {group_name}...")
-        ds = load_group(os.path.join(args.source, group_name), time_coord, time_indices)
+    for i, group_path in enumerate(group_paths[1:], start=2):
+        print(f"[{i}/{len(group_paths)}] Appending {group_path}...")
+        ds = load_group(group_path, time_coord, time_indices)
         session = repo.writable_session("main")
         to_icechunk(ds, session, append_dim="divide_id")
-        snapshot = session.commit(f"add group {group_name}")
+        snapshot = session.commit(f"add group {os.path.basename(group_path)}")
         n = len(ds.divide_id)
         total_comids += n
         print(f"  {n} COMIDs (total: {total_comids}), commit: {snapshot}")

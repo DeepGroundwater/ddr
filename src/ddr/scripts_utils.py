@@ -46,6 +46,7 @@ def load_checkpoint(
     nn: torch.nn.Module,
     checkpoint_path: str | Path,
     device: str | torch.device,
+    leakance_nn: torch.nn.Module | None = None,
 ) -> dict:
     """Load DDR checkpoint, apply state_dict to model. Returns full state dict.
 
@@ -57,6 +58,8 @@ def load_checkpoint(
         Path to the .pt checkpoint file.
     device : str | torch.device
         Device to map tensors to.
+    leakance_nn : torch.nn.Module | None, optional
+        The leakance LSTM model to load weights into, by default None.
 
     Returns
     -------
@@ -70,6 +73,14 @@ def load_checkpoint(
     for key in state_dict.keys():
         state_dict[key] = state_dict[key].to(device)
     nn.load_state_dict(state_dict)
+
+    if leakance_nn is not None and "leakance_nn_state_dict" in state:
+        log.info("Loading leakance_nn from checkpoint")
+        leakance_state = state["leakance_nn_state_dict"]
+        for key in leakance_state.keys():
+            leakance_state[key] = leakance_state[key].to(device)
+        leakance_nn.load_state_dict(leakance_state)
+
     return state
 
 

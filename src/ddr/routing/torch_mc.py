@@ -179,6 +179,11 @@ class dmc(torch.nn.Module):
             carry_state=carry_state,
         )
 
+        # Setup time-varying leakance params from LSTM (if provided)
+        leakance_params = kwargs.get("leakance_params", None)
+        if leakance_params is not None:
+            self.routing_engine.setup_leakance_params(leakance_params)
+
         # Update compatibility attributes
         self.network = self.routing_engine.network
         self.n = self.routing_engine.n

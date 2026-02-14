@@ -55,11 +55,24 @@ kan:
     - q_spatial
     - top_width
     - side_slope
-    - K_D
-    - d_gw
-    - leakance_factor
   grid: 50
   k: 2
+
+leakance_lstm:
+  hidden_size: 64
+  num_layers: 1
+  dropout: 0.5
+  input_var_names:
+    - SoilGrids1km_clay
+    - aridity
+    - meanelevation
+    - meanP
+    - NDVI
+    - meanslope
+    - log10_uparea
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
 
 # === DiffRoute-specific configuration ===
 diffroute:

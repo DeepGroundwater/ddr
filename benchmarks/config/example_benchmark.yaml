@@ -126,6 +126,25 @@ kan:
   grid: 50                        # B-spline grid resolution
   k: 2                            # B-spline order
 
+# --- Leakance LSTM (GW-SW exchange) ---
+# LSTM that predicts time-varying K_D, d_gw, leakance_factor from daily Q'
+# and static catchment attributes. Only used when params.use_leakance is true.
+leakance_lstm:
+  hidden_size: 64
+  num_layers: 1
+  dropout: 0.5
+  input_var_names:
+    - SoilGrids1km_clay
+    - aridity
+    - meanelevation
+    - meanP
+    - NDVI
+    - meanslope
+    - log10_uparea
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
+
 # =============================================================================
 # DiffRoute-specific configuration
 # =============================================================================

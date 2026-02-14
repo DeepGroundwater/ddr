@@ -14,7 +14,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, SequentialSampler
 
-from ddr import dmc, kan, streamflow
+from ddr import dmc, kan, leakance_lstm, streamflow
 from ddr._version import __version__
 from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
 from ddr.validation import Config, Metrics, utils, validate_config
@@ -22,16 +22,25 @@ from ddr.validation import Config, Metrics, utils, validate_config
 log = logging.getLogger(__name__)
 
 
-def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
+def test(
+    cfg: Config,
+    flow: streamflow,
+    routing_model: dmc,
+    nn: kan,
+    leakance_nn: leakance_lstm | None = None,
+) -> None:
     """Do model evaluation and get performance metrics."""
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
+        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), leakance_nn=leakance_nn)
     else:
         log.warning("Creating new spatial model for evaluation.")
 
     nn = nn.eval()
+    if leakance_nn is not None:
+        leakance_nn.cache_states = True
+        leakance_nn = leakance_nn.eval()
     sampler = SequentialSampler(
         data_source=dataset,
     )
@@ -70,6 +79,17 @@ def test(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                 "streamflow": streamflow_predictions,
                 "carry_state": i > 0,
             }
+
+            if leakance_nn is not None:
+                T_hourly = streamflow_predictions.shape[0]
+                T_daily = T_hourly // 24
+                daily_q_prime = streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+                leakance_params = leakance_nn(
+                    q_prime=daily_q_prime,
+                    attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
+                )
+                dmc_kwargs["leakance_params"] = leakance_params
+
             dmc_output = routing_model(**dmc_kwargs)
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
@@ -137,9 +157,19 @@ def main(cfg: DictConfig) -> None:
             seed=config.seed,
             device=config.device,
         )
+        leakance_nn = None
+        if config.params.use_leakance:
+            leakance_nn = leakance_lstm(
+                input_var_names=config.leakance_lstm.input_var_names,
+                hidden_size=config.leakance_lstm.hidden_size,
+                num_layers=config.leakance_lstm.num_layers,
+                dropout=config.leakance_lstm.dropout,
+                seed=config.seed,
+                device=config.device,
+            )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        test(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
+        test(cfg=config, flow=flow, routing_model=routing_model, nn=nn, leakance_nn=leakance_nn)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

@@ -516,6 +516,19 @@ class ForcingsReader(torch.nn.Module):
         origin = pd.Timestamp("1980-01-01")
         self._time_offset = (first_time - origin).days
 
+        # Load or compute forcing statistics for z-score normalization
+        from ddr.io.statistics import set_forcing_statistics
+
+        forcing_stats = set_forcing_statistics(cfg, self.ds)
+        self.forcing_means = torch.tensor(
+            [forcing_stats[var]["mean"] for var in self.forcing_var_names],
+            dtype=torch.float32,
+        )
+        self.forcing_stds = torch.tensor(
+            [forcing_stats[var]["std"] for var in self.forcing_var_names],
+            dtype=torch.float32,
+        )
+
     def forward(self, **kwargs: Any) -> torch.Tensor:
         """Read forcing variables for the given routing dataclass.
 
@@ -556,7 +569,12 @@ class ForcingsReader(torch.nn.Module):
         var_tensors = []
         for var_name in self.forcing_var_names:
             _ds = self.ds[var_name].isel(time=forcings_indices, divide_id=valid_divide_indices)
-            data = np.nan_to_num(_ds.compute().values.astype(np.float32).T, nan=0.0)  # (T, num_valid)
+            data = _ds.compute().values.astype(np.float32).T  # (T, num_valid)
+            # Fill NaN with per-basin temporal mean; if entire basin is NaN, fall back to 0.0
+            basin_means = np.nanmean(data, axis=0, keepdims=True)  # (1, num_valid)
+            nan_mask = np.isnan(data)
+            data = np.where(nan_mask, basin_means, data)
+            data = np.nan_to_num(data, nan=0.0)
             var_tensor = torch.full((T, N), 0.0, dtype=dtype)
             var_tensor[:, divide_idx_mask] = torch.tensor(data, dtype=dtype)
             var_tensors.append(var_tensor)
@@ -564,6 +582,8 @@ class ForcingsReader(torch.nn.Module):
         # Stack: [T, N, num_vars]
         output = torch.stack(var_tensors, dim=-1).to(device)
         assert output.shape == (T, N, num_vars)
+        # Z-score normalize: (x - mean) / std
+        output = (output - self.forcing_means.to(device)) / self.forcing_stds.to(device)
         return output
 
 

@@ -56,6 +56,9 @@ class dmc(torch.nn.Module):
         self.q_spatial: torch.Tensor = torch.empty(0)
         self.top_width: torch.Tensor = torch.empty(0)
         self.side_slope: torch.Tensor = torch.empty(0)
+        self.K_D: torch.Tensor = torch.empty(0)
+        self.d_gw: torch.Tensor = torch.empty(0)
+        self.leakance_factor: torch.Tensor = torch.empty(0)
 
         self.epoch = 0
         self.mini_batch = 0
@@ -183,6 +186,10 @@ class dmc(torch.nn.Module):
         self.top_width = self.routing_engine.top_width
         self.side_slope = self.routing_engine.side_slope
         self._discharge_t = self.routing_engine._discharge_t
+        if self.routing_engine.use_leakance:
+            self.K_D = self.routing_engine.K_D
+            self.d_gw = self.routing_engine.d_gw
+            self.leakance_factor = self.routing_engine.leakance_factor
 
         # Perform routing
         output = self.routing_engine.forward()
@@ -197,6 +204,13 @@ class dmc(torch.nn.Module):
                 self.q_spatial.retain_grad()
             if self._discharge_t is not None:
                 self._discharge_t.retain_grad()
+            if self.routing_engine.use_leakance:
+                if self.routing_engine.K_D is not None:
+                    self.routing_engine.K_D.retain_grad()
+                if self.routing_engine.d_gw is not None:
+                    self.routing_engine.d_gw.retain_grad()
+                if self.routing_engine.leakance_factor is not None:
+                    self.routing_engine.leakance_factor.retain_grad()
 
             # Retain gradients for the original spatial parameters so they can be tested
             spatial_params = self.routing_engine.spatial_parameters
@@ -211,6 +225,12 @@ class dmc(torch.nn.Module):
                     spatial_params["side_slope"].retain_grad()
                 if "p_spatial" in spatial_params:
                     spatial_params["p_spatial"].retain_grad()
+                if "K_D" in spatial_params:
+                    spatial_params["K_D"].retain_grad()
+                if "d_gw" in spatial_params:
+                    spatial_params["d_gw"].retain_grad()
+                if "leakance_factor" in spatial_params:
+                    spatial_params["leakance_factor"].retain_grad()
 
             output.retain_grad()  # Retain gradients for the output tensor
 
@@ -218,6 +238,10 @@ class dmc(torch.nn.Module):
         output_dict: dict[str, torch.Tensor] = {
             "runoff": output,
         }
+
+        if self.routing_engine.use_leakance and self.routing_engine._zeta_sum is not None:
+            output_dict["zeta_sum"] = self.routing_engine._zeta_sum
+            output_dict["q_prime_sum"] = self.routing_engine._q_prime_sum
 
         return output_dict
 

@@ -19,26 +19,22 @@ data_sources:
   statistics: /projects/mhpi/tbindas/ddr/data/statistics
   streamflow: /projects/mhpi/tbindas/ddr/data/merit_dhbv2_UH_retrospective
   observations: /projects/mhpi/data/icechunk/usgs_daily_observations
-  gages: /projects/mhpi/tbindas/ddr/references/gage_info/dhbv2_gages.csv
+  gages: /projects/mhpi/tbindas/ddr/references/gage_info/gages_3000.csv
 
 params:
   save_path: ./
-  parameter_ranges:
-    n: [0.02, 0.2]
-    q_spatial: [0.0, 1.0]
-    top_width: [1.0, 6000.0]
-    side_slope: [0.5, 50.0]
   log_space_parameters: [top_width, side_slope]
   defaults:
     p_spatial: 21
   tau: 3
+  use_leakance: true
 
 experiment:
   batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.3.1-merit-training/2026-01-24_10-44-13/saved_models/_ddr-v0.3.1-merit-training_epoch_5_mb_42.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-11_21-14-07/saved_models/_ddr-v0.5.0-merit-training_epoch_5_mb_43.pt
 
 kan:
   hidden_size: 21
@@ -59,6 +55,9 @@ kan:
     - q_spatial
     - top_width
     - side_slope
+    - K_D
+    - d_gw
+    - leakance_factor
   grid: 50
   k: 2
 
@@ -88,4 +87,4 @@ diffroute:
   x: 0.3
 
 # === Optional baseline comparison ===
-summed_q_prime: /projects/mhpi/tbindas/ddr/output/ddr-v0.3.2.dev7+gc99a0926d.d20260205-merit-q_prime/2026-02-05_21-39-26/summed_q_prime.zarr
+summed_q_prime: /projects/mhpi/tbindas/ddr/output/ddr-v0.3.2.dev10+g2ffbf380e.d20260207-merit-q_prime/2026-02-07_19-50-49/summed_q_prime.zarr

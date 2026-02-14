@@ -9,7 +9,7 @@ defaults:
 mode: testing
 geodataset: merit
 name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
-device: 0
+device: 4
 
 data_sources:
   attributes: /projects/mhpi/tbindas/ddr/data/merit_global_attributes_v2.nc
@@ -23,22 +23,18 @@ data_sources:
 
 params:
   save_path: ./
-  parameter_ranges:
-    n: [0.02, 0.2]
-    q_spatial: [0.0, 1.0]
-    top_width: [1.0, 6000.0]
-    side_slope: [0.5, 50.0]
   log_space_parameters: [top_width, side_slope]
   defaults:
     p_spatial: 21
   tau: 3
+  use_leakance: true
 
 experiment:
   batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-11_08-19-29/saved_models/_ddr-v0.5.0-merit-training_epoch_5_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-11_21-14-07/saved_models/_ddr-v0.5.0-merit-training_epoch_5_mb_43.pt
 
 kan:
   hidden_size: 21
@@ -59,6 +55,9 @@ kan:
     - q_spatial
     - top_width
     - side_slope
+    - K_D
+    - d_gw
+    - leakance_factor
   grid: 50
   k: 2
 

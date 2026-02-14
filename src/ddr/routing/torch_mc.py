@@ -144,6 +144,13 @@ class dmc(torch.nn.Module):
         self.mini_batch = mini_batch
         self.routing_engine.set_progress_info(epoch, mini_batch)
 
+    def clear_batch_state(self) -> None:
+        """Release batch-specific tensor references to free GPU memory."""
+        self.routing_engine.clear_batch_state()
+        self.K_D = torch.empty(0)
+        self.d_gw = torch.empty(0)
+        self.leakance_factor = torch.empty(0)
+
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass for the Muskingum-Cunge routing model.
 
@@ -191,16 +198,17 @@ class dmc(torch.nn.Module):
         self.top_width = self.routing_engine.top_width
         self.side_slope = self.routing_engine.side_slope
         self._discharge_t = self.routing_engine._discharge_t
-        if self.routing_engine.use_leakance:
-            self.K_D = self.routing_engine.K_D
-            self.d_gw = self.routing_engine.d_gw
-            self.leakance_factor = self.routing_engine.leakance_factor
 
         # Perform routing
         output = self.routing_engine.forward()
 
-        # Update discharge state for compatibility
+        # Update discharge state and leakance attrs AFTER forward() so they
+        # reference current-batch values, not stale previous-batch tensors.
         self._discharge_t = self.routing_engine._discharge_t
+        if self.routing_engine.use_leakance:
+            self.K_D = self.routing_engine.K_D
+            self.d_gw = self.routing_engine.d_gw
+            self.leakance_factor = self.routing_engine.leakance_factor
 
         if kwargs.get("retain_grads", False):
             if self.n is not None:

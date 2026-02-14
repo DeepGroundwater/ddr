@@ -290,6 +290,25 @@ class MuskingumCunge:
         self.epoch = epoch
         self.mini_batch = mini_batch
 
+    def clear_batch_state(self) -> None:
+        """Release batch-specific tensor references to free GPU memory.
+
+        Preserves ``_discharge_t`` (needed for ``carry_state=True`` inference)
+        and ``n`` / ``q_spatial`` (used for post-batch logging).
+        """
+        self.routing_dataclass = None
+        self.q_prime = None
+        self.spatial_parameters = None
+        self._K_D_t = None
+        self._d_gw_t = None
+        self._leakance_factor_t = None
+        self.K_D = None
+        self.d_gw = None
+        self.leakance_factor = None
+        self._zeta_sum = None
+        self._q_prime_sum = torch.empty(0)
+        self._last_zeta = torch.empty(0)
+
     def setup_inputs(
         self,
         routing_dataclass: Any,

@@ -1,6 +1,7 @@
 """A file to handle all reading from data sources"""
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -571,7 +572,9 @@ class ForcingsReader(torch.nn.Module):
             _ds = self.ds[var_name].isel(time=forcings_indices, divide_id=valid_divide_indices)
             data = _ds.compute().values.astype(np.float32).T  # (T, num_valid)
             # Fill NaN with per-basin temporal mean; if entire basin is NaN, fall back to 0.0
-            basin_means = np.nanmean(data, axis=0, keepdims=True)  # (1, num_valid)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                basin_means = np.nanmean(data, axis=0, keepdims=True)  # (1, num_valid)
             nan_mask = np.isnan(data)
             data = np.where(nan_mask, basin_means, data)
             data = np.nan_to_num(data, nan=0.0)

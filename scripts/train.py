@@ -76,6 +76,7 @@ def train(
             else:
                 start_mini_batch = 0
                 routing_model.set_progress_info(epoch=epoch, mini_batch=i)
+                optimizer.zero_grad()
 
                 streamflow_predictions = flow(
                     routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
@@ -124,7 +125,6 @@ def train(
 
                 loss.backward()
                 optimizer.step()
-                optimizer.zero_grad()
 
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()
@@ -162,6 +162,13 @@ def train(
                     saved_model_path=cfg.params.save_path / "saved_models",
                     leakance_nn=leakance_nn,
                 )
+
+                # Free batch-specific GPU tensors to prevent VRAM growth
+                del streamflow_predictions, spatial_params, dmc_output, daily_runoff
+                del loss, filtered_predictions, filtered_observations
+                if leakance_nn is not None:
+                    del forcing_data, leakance_params
+                routing_model.clear_batch_state()
 
 
 @hydra.main(

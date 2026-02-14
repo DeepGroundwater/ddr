@@ -13,13 +13,14 @@ class leakance_lstm(torch.nn.Module):
     Follows the CudnnLstmModel/LstmModel architecture from generic_deltamodel:
     Linear(nx, hidden) -> ReLU -> LSTM(hidden, hidden) -> Linear(hidden, ny) -> Sigmoid
 
-    Concatenates a dynamic signal (q_prime) with static catchment attributes
+    Concatenates meteorological forcings (P, PET, Temp) with static catchment attributes
     at each timestep, producing time-varying K_D, d_gw, and leakance_factor in [0,1].
     """
 
     def __init__(
         self,
         input_var_names: list[str],
+        forcing_var_names: list[str],
         hidden_size: int,
         num_layers: int,
         dropout: float,
@@ -27,7 +28,8 @@ class leakance_lstm(torch.nn.Module):
         device: int | str = "cpu",
     ):
         super().__init__()
-        self.input_size = len(input_var_names) + 1  # +1 for q_prime
+        self.num_forcing_vars = len(forcing_var_names)
+        self.input_size = len(input_var_names) + self.num_forcing_vars
         self.hidden_size = hidden_size
         self.learnable_parameters = ["K_D", "d_gw", "leakance_factor"]
         self.output_size = len(self.learnable_parameters)
@@ -61,8 +63,8 @@ class leakance_lstm(torch.nn.Module):
 
         Parameters
         ----------
-        q_prime : torch.Tensor
-            Daily lateral inflow, shape (T_daily, N). Passed via kwargs.
+        forcings : torch.Tensor
+            Meteorological forcings, shape (T_daily, N, num_forcing_vars). Passed via kwargs.
         attributes : torch.Tensor
             Normalized static catchment attributes, shape (N, num_attrs). Passed via kwargs.
 
@@ -71,13 +73,13 @@ class leakance_lstm(torch.nn.Module):
         dict[str, torch.Tensor]
             Dictionary with K_D, d_gw, leakance_factor each shape (T_daily, N) in [0, 1].
         """
-        q_prime: torch.Tensor = kwargs["q_prime"]  # [T_daily, N]
+        forcings: torch.Tensor = kwargs["forcings"]  # [T_daily, N, num_forcing_vars]
         attributes: torch.Tensor = kwargs["attributes"]
-        T, N = q_prime.shape
+        T, N, _ = forcings.shape
 
-        # Concat daily q_prime + static attrs at each timestep
+        # Concat forcings + static attrs at each timestep
         attrs_expanded = attributes.unsqueeze(0).expand(T, -1, -1)
-        _x = torch.cat([q_prime.unsqueeze(-1), attrs_expanded], dim=-1)  # [T, N, input_size]
+        _x = torch.cat([forcings, attrs_expanded], dim=-1)  # [T, N, input_size]
 
         # Input encoding (CudnnLstmModel pattern: Linear -> ReLU)
         _x = F.relu(self.linear_in(_x))  # [T, N, hidden_size]

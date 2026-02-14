@@ -71,6 +71,10 @@ class DataSources(BaseModel):
     target_catchments: list[str] | None = Field(
         default=None, description="Optional list of specific catchment IDs to route to (overrides gages)"
     )
+    forcings: str | None = Field(
+        default=None,
+        description="Path to icechunk store with meteorological forcings (P, PET, Temp)",
+    )
 
 
 class Params(BaseModel):
@@ -138,8 +142,12 @@ class LeakanceLstm(BaseModel):
         default=0.5,
         description="Dropout rate (applied between LSTM layers if num_layers > 1)",
     )
+    forcing_var_names: list[str] = Field(
+        default_factory=lambda: ["P", "PET", "Temp"],
+        description="Forcing variable names used as LSTM dynamic inputs (replaces q_prime)",
+    )
     input_var_names: list[str] = Field(
-        description="Static attribute names used as LSTM inputs alongside q_prime"
+        description="Static attribute names used as LSTM inputs alongside forcings"
     )
 
 
@@ -281,6 +289,13 @@ class Config(BaseModel):
                 raise ValueError(
                     f"leakance_lstm is set, so {conflicting} must NOT be in kan.learnable_parameters "
                     f"(LSTM produces them instead of KAN)"
+                )
+
+            # Forcings store required for LSTM dynamic inputs
+            if self.data_sources.forcings is None:
+                raise ValueError(
+                    "use_leakance=True requires data_sources.forcings to be set "
+                    "(path to icechunk store with meteorological forcings)"
                 )
 
         return self

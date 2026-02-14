@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
 # Reuse ALL DDR imports
-from ddr import ddr_functions, dmc, kan, leakance_lstm, streamflow
+from ddr import ddr_functions, dmc, forcings_reader, kan, leakance_lstm, streamflow
 from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
 from ddr.io.readers import read_zarr
@@ -95,6 +95,7 @@ def run_ddr(
     nn: kan,
     routing_dataclass: RoutingDataclass,
     leakance_nn: leakance_lstm | None = None,
+    forcings_reader_nn: forcings_reader | None = None,
 ) -> NDArray[np.floating[Any]]:
     """Run DDR model - extracted from scripts/test.py.
 
@@ -105,6 +106,7 @@ def run_ddr(
         nn: KAN neural network for spatial parameters
         routing_dataclass: RoutingDataclass with all routing data
         leakance_nn: Optional leakance LSTM model
+        forcings_reader_nn: Optional forcings reader for leakance LSTM inputs
 
     Returns
     -------
@@ -118,13 +120,13 @@ def run_ddr(
         "spatial_parameters": spatial_params,
         "streamflow": streamflow_predictions,
     }
-    if leakance_nn is not None:
+    if leakance_nn is not None and forcings_reader_nn is not None:
         assert routing_dataclass.normalized_spatial_attributes is not None
-        T_hourly = streamflow_predictions.shape[0]
-        T_daily = T_hourly // 24
-        daily_q_prime = streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+        forcing_data = forcings_reader_nn(
+            routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+        )
         leakance_params = leakance_nn(
-            q_prime=daily_q_prime,
+            forcings=forcing_data,
             attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
         )
         dmc_kwargs["leakance_params"] = leakance_params
@@ -659,6 +661,7 @@ def benchmark(
     diffroute_cfg: DiffRouteConfig,
     summed_q_prime_path: str | None = None,
     leakance_nn: leakance_lstm | None = None,
+    forcings_reader_nn: forcings_reader | None = None,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -670,6 +673,7 @@ def benchmark(
         diffroute_cfg: DiffRoute-specific configuration
         summed_q_prime_path: Optional path to summed Q' zarr store
         leakance_nn: Optional leakance LSTM model
+        forcings_reader_nn: Optional forcings reader for leakance LSTM inputs
     """
     assert cfg.geodataset == GeoDataset.MERIT, (
         f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
@@ -729,12 +733,12 @@ def benchmark(
                 "carry_state": i > 0,
             }
 
-            if leakance_nn is not None:
-                T_hourly = streamflow_predictions.shape[0]
-                T_daily = T_hourly // 24
-                daily_q_prime = streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+            if leakance_nn is not None and forcings_reader_nn is not None:
+                forcing_data = forcings_reader_nn(
+                    routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+                )
                 leakance_params = leakance_nn(
-                    q_prime=daily_q_prime,
+                    forcings=forcing_data,
                     attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
                 )
                 dmc_kwargs["leakance_params"] = leakance_params

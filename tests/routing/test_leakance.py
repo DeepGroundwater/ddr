@@ -258,9 +258,9 @@ class TestLeakanceGradientFlow:
         model.mini_batch = 0
 
         T_daily = num_timesteps // 24
-        daily_q_prime = streamflow_data[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+        mock_forcings = torch.rand(T_daily, num_reaches, 3)  # P, PET, Temp
         leakance_params = leakance_nn(
-            q_prime=daily_q_prime,
+            forcings=mock_forcings,
             attributes=hydrofabric.normalized_spatial_attributes,
         )
 
@@ -382,10 +382,10 @@ class TestLeakanceLstmInRouting:
 
         leakance_nn = create_mock_leakance_lstm()
         T_daily = num_timesteps // 24
-        daily_q_prime = streamflow_data[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+        mock_forcings = torch.rand(T_daily, num_reaches, 3)  # P, PET, Temp
 
         leakance_params = leakance_nn(
-            q_prime=daily_q_prime,
+            forcings=mock_forcings,
             attributes=hydrofabric.normalized_spatial_attributes,
         )
 
@@ -425,6 +425,7 @@ class TestLeakanceConfigValidation:
                 "conus_adjacency": "mock.zarr",
                 "gages_adjacency": "mock.zarr",
                 "gages": "mock.csv",
+                "forcings": "mock://forcings/store",
             },
             "params": {
                 "parameter_ranges": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9]},
@@ -464,6 +465,7 @@ class TestLeakanceConfigValidation:
                 "conus_adjacency": "mock.zarr",
                 "gages_adjacency": "mock.zarr",
                 "gages": "mock.csv",
+                "forcings": "mock://forcings/store",
             },
             "params": {
                 "parameter_ranges": {
@@ -526,6 +528,7 @@ class TestLeakanceConfigValidation:
                 "conus_adjacency": "mock.zarr",
                 "gages_adjacency": "mock.zarr",
                 "gages": "mock.csv",
+                "forcings": "mock://forcings/store",
             },
             "params": {
                 "parameter_ranges": {

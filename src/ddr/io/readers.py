@@ -500,6 +500,68 @@ class IcechunkUSGSReader:
         return ds_
 
 
+class ForcingsReader(torch.nn.Module):
+    """A class to read meteorological forcings (P, PET, Temp) from an icechunk store."""
+
+    def __init__(self, cfg: Config) -> None:
+        super().__init__()
+        self.cfg = cfg
+        assert cfg.data_sources.forcings is not None, "data_sources.forcings must be set"
+        self.ds = read_ic(cfg.data_sources.forcings, region=cfg.s3_region)
+        self.forcing_var_names = list(cfg.leakance_lstm.forcing_var_names)
+        # Index Lookup Dictionary
+        self.divide_id_to_index = {divide_id: idx for idx, divide_id in enumerate(self.ds.divide_id.values)}
+        # Compute time offset: forcings store may not start at 1980-01-01 (the Dates origin)
+        first_time = pd.Timestamp(self.ds.time.values[0])
+        origin = pd.Timestamp("1980-01-01")
+        self._time_offset = (first_time - origin).days
+
+    def forward(self, **kwargs: Any) -> torch.Tensor:
+        """Read forcing variables for the given routing dataclass.
+
+        Returns
+        -------
+        torch.Tensor
+            Forcing data with shape (T_daily, N, num_forcing_vars), dtype float32.
+        """
+        routing_dataclass = kwargs["routing_dataclass"]
+        device = kwargs.get("device", "cpu")
+        dtype = kwargs.get("dtype", torch.float32)
+
+        valid_divide_indices = []
+        divide_idx_mask: list[int] = []
+
+        for i, divide_id in enumerate(routing_dataclass.divide_ids):
+            if divide_id in self.divide_id_to_index:
+                valid_divide_indices.append(self.divide_id_to_index[divide_id])
+                divide_idx_mask.append(i)
+            else:
+                log.info(f"{divide_id} missing from the forcings dataset")
+
+        assert len(valid_divide_indices) != 0, "No valid divide IDs found in forcings store"
+
+        # Convert Dates numerical_time_range (days from 1980-01-01) to forcings store indices
+        forcings_indices = routing_dataclass.dates.numerical_time_range - self._time_offset
+
+        N = len(routing_dataclass.divide_ids)
+        T = len(forcings_indices)
+        num_vars = len(self.forcing_var_names)
+
+        # Read each forcing variable and stack
+        var_tensors = []
+        for var_name in self.forcing_var_names:
+            _ds = self.ds[var_name].isel(time=forcings_indices, divide_id=valid_divide_indices)
+            data = _ds.compute().values.astype(np.float32)  # (T, num_valid)
+            var_tensor = torch.full((T, N), 0.0, dtype=dtype)
+            var_tensor[:, divide_idx_mask] = torch.tensor(data, dtype=dtype)
+            var_tensors.append(var_tensor)
+
+        # Stack: [T, N, num_vars]
+        output = torch.stack(var_tensors, dim=-1).to(device)
+        assert output.shape == (T, N, num_vars)
+        return output
+
+
 class AttributesReader(torch.nn.Module):
     """A class to read attributes from a local zarr store or icechunk repo"""
 

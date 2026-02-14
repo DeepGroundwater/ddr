@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from torch.nn.functional import mse_loss
 from torch.utils.data import DataLoader, RandomSampler
 
-from ddr import ddr_functions, dmc, kan, leakance_lstm, streamflow
+from ddr import ddr_functions, dmc, forcings_reader, kan, leakance_lstm, streamflow
 from ddr._version import __version__
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
@@ -25,6 +25,7 @@ def train(
     routing_model: dmc,
     nn: kan,
     leakance_nn: leakance_lstm | None = None,
+    forcings_reader_nn: forcings_reader | None = None,
 ) -> None:
     """Do model training."""
     data_generator = torch.Generator()
@@ -86,15 +87,12 @@ def train(
                     "streamflow": streamflow_predictions,
                 }
 
-                if leakance_nn is not None:
-                    # Downsample hourly q_prime to daily (mean over 24h windows)
-                    T_hourly = streamflow_predictions.shape[0]
-                    T_daily = T_hourly // 24
-                    daily_q_prime = (
-                        streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+                if leakance_nn is not None and forcings_reader_nn is not None:
+                    forcing_data = forcings_reader_nn(
+                        routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
                     )
                     leakance_params = leakance_nn(
-                        q_prime=daily_q_prime,
+                        forcings=forcing_data,
                         attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
                     )
                     dmc_kwargs["leakance_params"] = leakance_params
@@ -189,18 +187,28 @@ def main(cfg: DictConfig) -> None:
             device=config.device,
         )
         leakance_nn = None
+        forcings_reader_nn = None
         if config.params.use_leakance:
             leakance_nn = leakance_lstm(
                 input_var_names=config.leakance_lstm.input_var_names,
+                forcing_var_names=config.leakance_lstm.forcing_var_names,
                 hidden_size=config.leakance_lstm.hidden_size,
                 num_layers=config.leakance_lstm.num_layers,
                 dropout=config.leakance_lstm.dropout,
                 seed=config.seed,
                 device=config.device,
             )
+            forcings_reader_nn = forcings_reader(config)
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn, leakance_nn=leakance_nn)
+        train(
+            cfg=config,
+            flow=flow,
+            routing_model=routing_model,
+            nn=nn,
+            leakance_nn=leakance_nn,
+            forcings_reader_nn=forcings_reader_nn,
+        )
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

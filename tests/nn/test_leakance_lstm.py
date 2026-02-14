@@ -11,6 +11,7 @@ def model() -> leakance_lstm:
     """Create a leakance_lstm instance for testing."""
     return leakance_lstm(
         input_var_names=["attr1", "attr2", "attr3"],
+        forcing_var_names=["P", "PET", "Temp"],
         hidden_size=32,
         num_layers=1,
         dropout=0.0,
@@ -25,7 +26,7 @@ def sample_inputs() -> dict[str, torch.Tensor]:
     T_daily = 10
     N = 5
     return {
-        "q_prime": torch.rand(T_daily, N),
+        "forcings": torch.rand(T_daily, N, 3),  # 3 forcing vars (P, PET, Temp)
         "attributes": torch.rand(N, 3),  # 3 attrs matching input_var_names
     }
 
@@ -36,7 +37,7 @@ class TestLeakanceLstmOutput:
     def test_output_shape(self, model: leakance_lstm, sample_inputs: dict[str, torch.Tensor]) -> None:
         """Test that each output param has shape (T_daily, N)."""
         outputs = model(**sample_inputs)
-        T, N = sample_inputs["q_prime"].shape
+        T, N, _ = sample_inputs["forcings"].shape
         for key in ["K_D", "d_gw", "leakance_factor"]:
             assert outputs[key].shape == (T, N), f"{key} shape {outputs[key].shape} != ({T}, {N})"
 
@@ -119,22 +120,24 @@ class TestLeakanceLstmStateManagement:
 class TestLeakanceLstmInit:
     """Test initialization edge cases."""
 
-    def test_input_size_includes_q_prime(self) -> None:
-        """Test that input_size = len(input_var_names) + 1 for q_prime."""
+    def test_input_size_includes_forcings(self) -> None:
+        """Test that input_size = len(input_var_names) + len(forcing_var_names)."""
         m = leakance_lstm(
             input_var_names=["a", "b"],
+            forcing_var_names=["P", "PET", "Temp"],
             hidden_size=16,
             num_layers=1,
             dropout=0.0,
             seed=0,
             device="cpu",
         )
-        assert m.input_size == 3  # 2 attrs + 1 q_prime
+        assert m.input_size == 5  # 2 attrs + 3 forcings
 
     def test_multi_layer_lstm(self) -> None:
         """Test that multi-layer LSTM with dropout works."""
         m = leakance_lstm(
             input_var_names=["a"],
+            forcing_var_names=["P", "PET"],
             hidden_size=16,
             num_layers=3,
             dropout=0.5,
@@ -142,13 +145,14 @@ class TestLeakanceLstmInit:
             device="cpu",
         )
         # Should run without error
-        outputs = m(q_prime=torch.rand(5, 4), attributes=torch.rand(4, 1))
+        outputs = m(forcings=torch.rand(5, 4, 2), attributes=torch.rand(4, 1))
         assert outputs["K_D"].shape == (5, 4)
 
     def test_single_layer_no_dropout(self) -> None:
         """Test that single-layer LSTM has dropout=0 regardless of config."""
         m = leakance_lstm(
             input_var_names=["a"],
+            forcing_var_names=["P"],
             hidden_size=16,
             num_layers=1,
             dropout=0.5,  # Should be overridden to 0.0

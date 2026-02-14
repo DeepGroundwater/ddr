@@ -20,6 +20,7 @@ data_sources:
   streamflow: /projects/mhpi/tbindas/ddr/data/merit_dhbv2_UH_retrospective
   observations: /projects/mhpi/data/icechunk/usgs_daily_observations
   gages: /projects/mhpi/tbindas/ddr/references/gage_info/gages_3000.csv
+  forcings: /projects/mhpi/data/icechunk/merit_forcing_conus
 
 params:
   save_path: ./
@@ -62,6 +63,10 @@ leakance_lstm:
   hidden_size: 64
   num_layers: 1
   dropout: 0.5
+  forcing_var_names:
+    - P
+    - PET
+    - Temp
   input_var_names:
     - SoilGrids1km_clay
     - aridity

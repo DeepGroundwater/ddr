@@ -210,6 +210,7 @@ def create_mock_config_with_leakance() -> Config:
             "conus_adjacency": "mock.zarr",
             "gages_adjacency": "mock.zarr",
             "gages": "mock.csv",
+            "forcings": "mock://forcings/store",
         },
         "params": {
             "parameter_ranges": {
@@ -258,6 +259,7 @@ def create_mock_config_with_leakance_lstm() -> Config:
             "conus_adjacency": "mock.zarr",
             "gages_adjacency": "mock.zarr",
             "gages": "mock.csv",
+            "forcings": "mock://forcings/store",
         },
         "params": {
             "parameter_ranges": {
@@ -285,6 +287,7 @@ def create_mock_config_with_leakance_lstm() -> Config:
             "learnable_parameters": ["n", "q_spatial"],  # NOT including leakance params
         },
         "leakance_lstm": {
+            "forcing_var_names": ["P", "PET", "Temp"],
             "input_var_names": [
                 "mean.impervious",
                 "mean.elevation",
@@ -309,6 +312,7 @@ def create_mock_leakance_lstm(device: str = "cpu") -> leakance_lstm:
             "mean.elevation",
             "mean.smcmax_soil_layers_stag=1",
         ],
+        forcing_var_names=["P", "PET", "Temp"],
         hidden_size=32,
         num_layers=1,
         dropout=0.0,

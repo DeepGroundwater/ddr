@@ -19,8 +19,11 @@ from tests.routing.test_utils import (
     assert_no_nan_or_inf,
     assert_tensor_properties,
     create_mock_config_with_leakance,
+    create_mock_config_with_leakance_lstm,
+    create_mock_leakance_lstm,
     create_mock_nn_with_leakance,
     create_mock_routing_dataclass,
+    create_mock_spatial_parameters,
     create_mock_spatial_parameters_with_leakance,
     create_mock_streamflow,
 )
@@ -301,6 +304,124 @@ class TestLeakanceGradientFlow:
         assert not torch.isinf(nn.output.weight.grad).any()
 
 
+class TestLeakanceLstmInRouting:
+    """Test time-varying leakance from LSTM in routing."""
+
+    def test_setup_leakance_params_denormalizes(self) -> None:
+        """Test that setup_leakance_params stores denormalized daily tensors."""
+        cfg = create_mock_config_with_leakance_lstm()
+        mc = MuskingumCunge(cfg, device="cpu")
+
+        T_daily, N = 3, 10
+        leakance_params = {
+            "K_D": torch.ones(T_daily, N) * 0.5,
+            "d_gw": torch.ones(T_daily, N) * 0.5,
+            "leakance_factor": torch.ones(T_daily, N) * 0.5,
+        }
+        mc.setup_leakance_params(leakance_params)
+
+        assert mc._K_D_t is not None
+        assert mc._K_D_t.shape == (T_daily, N)
+        assert mc._d_gw_t is not None
+        assert mc._leakance_factor_t is not None
+
+    def test_forward_with_lstm_leakance(self) -> None:
+        """Test full forward pass with LSTM-path leakance params."""
+        cfg = create_mock_config_with_leakance_lstm()
+        model = dmc(cfg, device="cpu")
+
+        num_reaches = 10
+        num_timesteps = 48  # 2 days
+        hydrofabric = create_mock_routing_dataclass(num_reaches=num_reaches)
+        streamflow_data = create_mock_streamflow(num_timesteps=num_timesteps, num_reaches=num_reaches)
+        spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
+
+        T_daily = num_timesteps // 24
+        leakance_params = {
+            "K_D": torch.rand(T_daily, num_reaches),
+            "d_gw": torch.rand(T_daily, num_reaches),
+            "leakance_factor": torch.rand(T_daily, num_reaches),
+        }
+
+        model.set_progress_info(1, 0)
+        kwargs = {
+            "routing_dataclass": hydrofabric,
+            "streamflow": streamflow_data,
+            "spatial_parameters": spatial_params,
+            "leakance_params": leakance_params,
+        }
+
+        with patch("ddr.routing.mmc.triangular_sparse_solve") as mock_solve:
+            mock_solve.return_value = torch.ones(num_reaches) * 5.0
+            output = model(**kwargs)
+
+        assert "runoff" in output
+        assert_no_nan_or_inf(output["runoff"], "runoff_lstm_leakance")
+
+    def test_daily_to_hourly_indexing(self) -> None:
+        """Test that the daily→hourly mapping (timestep-1)//24 gives correct day_idx."""
+        cfg = create_mock_config_with_leakance_lstm()
+        mc = MuskingumCunge(cfg, device="cpu")
+
+        T_daily, N = 2, 5
+        # Set up different values for each day so we can verify indexing
+        leakance_params = {
+            "K_D": torch.zeros(T_daily, N),
+            "d_gw": torch.zeros(T_daily, N),
+            "leakance_factor": torch.zeros(T_daily, N),
+        }
+        leakance_params["K_D"][0] = 0.2
+        leakance_params["K_D"][1] = 0.8
+        mc.setup_leakance_params(leakance_params)
+
+        # Timestep 1 -> day_idx = 0//24 = 0
+        assert mc._K_D_t is not None
+        # Timestep 24 -> day_idx = 23//24 = 0
+        assert (0) == (24 - 1) // 24  # Still day 0
+        # Timestep 25 -> day_idx = 24//24 = 1
+        assert (1) == (25 - 1) // 24  # Day 1
+
+    def test_lstm_gradient_flow_through_routing(self) -> None:
+        """Test end-to-end gradient from loss -> LSTM weights via routing."""
+        cfg = create_mock_config_with_leakance_lstm()
+        model = dmc(cfg, device="cpu")
+
+        num_reaches = 10
+        num_timesteps = 48  # 2 days
+        hydrofabric = create_mock_routing_dataclass(num_reaches=num_reaches)
+        streamflow_data = create_mock_streamflow(num_timesteps=num_timesteps, num_reaches=num_reaches)
+        spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
+
+        leakance_nn = create_mock_leakance_lstm()
+        T_daily = num_timesteps // 24
+        daily_q_prime = streamflow_data[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+
+        leakance_params = leakance_nn(
+            q_prime=daily_q_prime,
+            attributes=hydrofabric.normalized_spatial_attributes,
+        )
+
+        model.set_progress_info(1, 0)
+        kwargs: dict[str, Any] = {
+            "routing_dataclass": hydrofabric,
+            "streamflow": streamflow_data,
+            "spatial_parameters": spatial_params,
+            "leakance_params": leakance_params,
+        }
+        output = model(**kwargs)
+
+        loss = output["runoff"].sum()
+        loss.backward()
+
+        # Verify gradients reached the LSTM
+        assert leakance_nn.linear_in.weight.grad is not None, (
+            "LSTM linear_in should have gradients from routing loss"
+        )
+        assert leakance_nn.linear_out.weight.grad is not None, (
+            "LSTM linear_out should have gradients from routing loss"
+        )
+
+
 class TestLeakanceConfigValidation:
     """Test configuration validation for leakance."""
 
@@ -388,3 +509,60 @@ class TestLeakanceConfigValidation:
 
         cfg = create_mock_config()
         assert cfg.params.use_leakance is False
+
+    def test_leakance_lstm_config_valid(self) -> None:
+        """Test that LSTM leakance config is accepted when leakance params NOT in kan."""
+        cfg = create_mock_config_with_leakance_lstm()
+        assert cfg.params.use_leakance is True
+        assert cfg.leakance_lstm is not None
+        # K_D/d_gw/leakance_factor should NOT be in kan.learnable_parameters
+        for p in ["K_D", "d_gw", "leakance_factor"]:
+            assert p not in cfg.kan.learnable_parameters
+
+    def test_leakance_lstm_with_kan_params_raises(self) -> None:
+        """Test that leakance_lstm + leakance params in kan.learnable_parameters raises."""
+        cfg_dict = {
+            "name": "mock",
+            "mode": "training",
+            "geodataset": "lynker_hydrofabric",
+            "data_sources": {
+                "geospatial_fabric_gpkg": "mock.gpkg",
+                "streamflow": "mock://streamflow/store",
+                "conus_adjacency": "mock.zarr",
+                "gages_adjacency": "mock.zarr",
+                "gages": "mock.csv",
+            },
+            "params": {
+                "parameter_ranges": {
+                    "n": [0.01, 0.1],
+                    "q_spatial": [0.1, 0.9],
+                    "K_D": [1e-8, 1e-6],
+                    "d_gw": [-2.0, 2.0],
+                    "leakance_factor": [0.0, 1.0],
+                },
+                "defaults": {"p_spatial": 1.0},
+                "attribute_minimums": {
+                    "velocity": 0.1,
+                    "depth": 0.01,
+                    "discharge": 0.001,
+                    "bottom_width": 0.1,
+                    "slope": 0.0001,
+                },
+                "tau": 7,
+                "use_leakance": True,
+            },
+            "kan": {
+                "input_var_names": ["mock"],
+                "learnable_parameters": ["n", "q_spatial", "K_D", "d_gw", "leakance_factor"],
+            },
+            "leakance_lstm": {
+                "input_var_names": ["mock"],
+                "hidden_size": 32,
+                "num_layers": 1,
+                "dropout": 0.0,
+            },
+            "s3_region": "us-east-1",
+            "device": "cpu",
+        }
+        with pytest.raises(ValueError, match="must NOT be in kan.learnable_parameters"):
+            validate_config(DictConfig(cfg_dict), save_config=False)

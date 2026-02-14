@@ -17,6 +17,7 @@ def save_state(
     optimizer: nn.Module,
     name: str,
     saved_model_path: Path,
+    leakance_nn: nn.Module | None = None,
 ) -> None:
     """Save model state
 
@@ -30,10 +31,10 @@ def save_state(
         The MLP model
     optimizer : nn.Module
         The optimizer
-    loss_idx_value : int
-        The loss index value
     name: str
         The name of the file we're saving
+    leakance_nn : nn.Module | None, optional
+        The leakance LSTM model, by default None
     """
     mlp_state_dict = {key: value.cpu() for key, value in mlp.state_dict().items()}
     cpu_optimizer_state_dict: dict[str, Any] = {}
@@ -63,6 +64,10 @@ def save_state(
         "rng_state": torch.get_rng_state(),
         "data_generator_state": generator.get_state(),
     }
+    if leakance_nn is not None:
+        state["leakance_nn_state_dict"] = {
+            key: value.cpu() for key, value in leakance_nn.state_dict().items()
+        }
     if torch.cuda.is_available():
         state["cuda_rng_state"] = torch.cuda.get_rng_state()
     if mini_batch == -1:

@@ -12,7 +12,7 @@ from ddr_benchmarks.validation import validate_benchmark_config
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
-from ddr import dmc, kan, streamflow
+from ddr import dmc, kan, leakance_lstm, streamflow
 from ddr._version import __version__
 
 log = logging.getLogger(__name__)
@@ -46,6 +46,16 @@ def main(cfg: DictConfig) -> None:
             seed=config.seed,
             device=config.device,
         )
+        leakance_nn = None
+        if config.params.use_leakance:
+            leakance_nn = leakance_lstm(
+                input_var_names=config.leakance_lstm.input_var_names,
+                hidden_size=config.leakance_lstm.hidden_size,
+                num_layers=config.leakance_lstm.num_layers,
+                dropout=config.leakance_lstm.dropout,
+                seed=config.seed,
+                device=config.device,
+            )
         routing_model = dmc(cfg=config, device=config.device)
         flow = streamflow(config)
 
@@ -56,6 +66,7 @@ def main(cfg: DictConfig) -> None:
             nn=nn,
             diffroute_cfg=diffroute_cfg,
             summed_q_prime_path=benchmark_cfg.summed_q_prime,
+            leakance_nn=leakance_nn,
         )
 
     except KeyboardInterrupt:

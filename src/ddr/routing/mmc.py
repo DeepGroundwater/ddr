@@ -370,24 +370,6 @@ class MuskingumCunge:
         else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
-        if self.use_leakance and self.cfg.leakance_lstm is None:
-            # KAN mode: leakance params come from spatial_parameters
-            self.K_D = denormalize(
-                value=spatial_parameters["K_D"],
-                bounds=self.parameter_bounds["K_D"],
-                log_space="K_D" in log_space_params,
-            )
-            self.d_gw = denormalize(
-                value=spatial_parameters["d_gw"],
-                bounds=self.parameter_bounds["d_gw"],
-                log_space="d_gw" in log_space_params,
-            )
-            self.leakance_factor = denormalize(
-                value=spatial_parameters["leakance_factor"],
-                bounds=self.parameter_bounds["leakance_factor"],
-                log_space="leakance_factor" in log_space_params,
-            )
-
     def setup_leakance_params(self, leakance_params: dict[str, torch.Tensor]) -> None:
         """Denormalize and store time-varying leakance params from LSTM.
 

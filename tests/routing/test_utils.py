@@ -59,6 +59,9 @@ def create_mock_config() -> Config:
                 "mock",
             ],
         },
+        "leakance_lstm": {
+            "input_var_names": ["mock"],
+        },
         "s3_region": "us-east-1",
         "device": "cpu",
     }
@@ -231,7 +234,10 @@ def create_mock_config_with_leakance() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["n", "q_spatial", "K_D", "d_gw", "leakance_factor"],
+            "learnable_parameters": ["n", "q_spatial"],
+        },
+        "leakance_lstm": {
+            "input_var_names": ["mock"],
         },
         "s3_region": "us-east-1",
         "device": "cpu",

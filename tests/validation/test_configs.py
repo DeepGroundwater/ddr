@@ -22,6 +22,9 @@ def _minimal_config_dict(**overrides):
         "kan": {
             "input_var_names": ["slope", "length"],
         },
+        "leakance_lstm": {
+            "input_var_names": ["slope", "length"],
+        },
     }
     base.update(overrides)
     return base

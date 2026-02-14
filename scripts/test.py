@@ -158,7 +158,7 @@ def main(cfg: DictConfig) -> None:
             device=config.device,
         )
         leakance_nn = None
-        if config.params.use_leakance and config.leakance_lstm is not None:
+        if config.params.use_leakance:
             leakance_nn = leakance_lstm(
                 input_var_names=config.leakance_lstm.input_var_names,
                 hidden_size=config.leakance_lstm.hidden_size,

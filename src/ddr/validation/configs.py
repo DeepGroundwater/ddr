@@ -229,9 +229,8 @@ class Config(BaseModel):
     mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
-    leakance_lstm: LeakanceLstm | None = Field(
-        default=None,
-        description="LSTM config for time-varying leakance. None = use KAN-based static leakance.",
+    leakance_lstm: LeakanceLstm = Field(
+        description="LSTM config for time-varying leakance parameter prediction.",
     )
     np_seed: int = Field(default=1, description="Random seed for NumPy operations to ensure reproducibility")
     seed: int = Field(default=0, description="Random seed for PyTorch operations to ensure reproducibility")
@@ -276,23 +275,13 @@ class Config(BaseModel):
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
 
-            if self.leakance_lstm is not None:
-                # LSTM mode: leakance params must NOT be in kan.learnable_parameters
-                conflicting = [p for p in required_leakance_params if p in self.kan.learnable_parameters]
-                if conflicting:
-                    raise ValueError(
-                        f"leakance_lstm is set, so {conflicting} must NOT be in kan.learnable_parameters "
-                        f"(LSTM produces them instead of KAN)"
-                    )
-            else:
-                # KAN mode: leakance params must be in kan.learnable_parameters
-                missing_learnable = [
-                    p for p in required_leakance_params if p not in self.kan.learnable_parameters
-                ]
-                if missing_learnable:
-                    raise ValueError(
-                        f"use_leakance=True requires {missing_learnable} in kan.learnable_parameters"
-                    )
+            # LSTM produces leakance params — they must NOT be in kan.learnable_parameters
+            conflicting = [p for p in required_leakance_params if p in self.kan.learnable_parameters]
+            if conflicting:
+                raise ValueError(
+                    f"leakance_lstm is set, so {conflicting} must NOT be in kan.learnable_parameters "
+                    f"(LSTM produces them instead of KAN)"
+                )
 
         return self
 

@@ -435,6 +435,9 @@ def create_ddr_config():
             "input_var_names": ["mock"],
             "learnable_parameters": ["n", "q_spatial", "top_width", "side_slope"],
         },
+        "leakance_lstm": {
+            "input_var_names": ["mock"],
+        },
         "s3_region": "us-east-2",
         "device": "cpu",
     }

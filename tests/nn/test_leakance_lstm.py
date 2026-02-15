@@ -38,20 +38,20 @@ class TestLeakanceLstmOutput:
         """Test that each output param has shape (T_daily, N)."""
         outputs = model(**sample_inputs)
         T, N, _ = sample_inputs["forcings"].shape
-        for key in ["K_D", "d_gw", "leakance_factor"]:
+        for key in ["K_D", "d_gw"]:
             assert outputs[key].shape == (T, N), f"{key} shape {outputs[key].shape} != ({T}, {N})"
 
     def test_output_range(self, model: leakance_lstm, sample_inputs: dict[str, torch.Tensor]) -> None:
         """Test that outputs are in [0, 1] (sigmoid)."""
         outputs = model(**sample_inputs)
-        for key in ["K_D", "d_gw", "leakance_factor"]:
+        for key in ["K_D", "d_gw"]:
             assert outputs[key].min() >= 0.0, f"{key} min {outputs[key].min()} < 0"
             assert outputs[key].max() <= 1.0, f"{key} max {outputs[key].max()} > 1"
 
     def test_output_keys(self, model: leakance_lstm, sample_inputs: dict[str, torch.Tensor]) -> None:
         """Test that output dict keys match learnable_parameters."""
         outputs = model(**sample_inputs)
-        assert set(outputs.keys()) == {"K_D", "d_gw", "leakance_factor"}
+        assert set(outputs.keys()) == {"K_D", "d_gw"}
 
     def test_no_nan_or_inf(self, model: leakance_lstm, sample_inputs: dict[str, torch.Tensor]) -> None:
         """Test that outputs contain no NaN or Inf values."""

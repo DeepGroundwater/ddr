@@ -218,7 +218,6 @@ def create_mock_config_with_leakance() -> Config:
                 "q_spatial": [0.1, 0.9],
                 "K_D": [1e-8, 1e-6],
                 "d_gw": [-2.0, 2.0],
-                "leakance_factor": [0.0, 1.0],
             },
             "defaults": {"p_spatial": 1.0},
             "attribute_minimums": {
@@ -267,7 +266,6 @@ def create_mock_config_with_leakance_lstm() -> Config:
                 "q_spatial": [0.1, 0.9],
                 "K_D": [1e-8, 1e-6],
                 "d_gw": [-2.0, 2.0],
-                "leakance_factor": [0.0, 1.0],
             },
             "defaults": {"p_spatial": 1.0},
             "attribute_minimums": {

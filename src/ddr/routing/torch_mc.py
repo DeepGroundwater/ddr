@@ -58,7 +58,6 @@ class dmc(torch.nn.Module):
         self.side_slope: torch.Tensor = torch.empty(0)
         self.K_D: torch.Tensor = torch.empty(0)
         self.d_gw: torch.Tensor = torch.empty(0)
-        self.leakance_factor: torch.Tensor = torch.empty(0)
 
         self.epoch = 0
         self.mini_batch = 0
@@ -149,7 +148,6 @@ class dmc(torch.nn.Module):
         self.routing_engine.clear_batch_state()
         self.K_D = torch.empty(0)
         self.d_gw = torch.empty(0)
-        self.leakance_factor = torch.empty(0)
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass for the Muskingum-Cunge routing model.
@@ -208,7 +206,6 @@ class dmc(torch.nn.Module):
         if self.routing_engine.use_leakance:
             self.K_D = self.routing_engine.K_D
             self.d_gw = self.routing_engine.d_gw
-            self.leakance_factor = self.routing_engine.leakance_factor
 
         if kwargs.get("retain_grads", False):
             if self.n is not None:
@@ -222,8 +219,6 @@ class dmc(torch.nn.Module):
                     self.routing_engine.K_D.retain_grad()
                 if self.routing_engine.d_gw is not None:
                     self.routing_engine.d_gw.retain_grad()
-                if self.routing_engine.leakance_factor is not None:
-                    self.routing_engine.leakance_factor.retain_grad()
 
             # Retain gradients for the original spatial parameters so they can be tested
             spatial_params = self.routing_engine.spatial_parameters
@@ -242,8 +237,6 @@ class dmc(torch.nn.Module):
                     spatial_params["K_D"].retain_grad()
                 if "d_gw" in spatial_params:
                     spatial_params["d_gw"].retain_grad()
-                if "leakance_factor" in spatial_params:
-                    spatial_params["leakance_factor"].retain_grad()
 
             output.retain_grad()  # Retain gradients for the output tensor
 

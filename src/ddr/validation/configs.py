@@ -99,8 +99,7 @@ class Params(BaseModel):
             "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
             "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
             "K_D": [1e-8, 1e-6],  # Hydraulic exchange rate (1/s)
-            "d_gw": [-2.0, 2.0],  # Groundwater depth threshold (m)
-            "leakance_factor": [0.0, 1.0],  # Gating factor (-)
+            "d_gw": [0.01, 300.0],  # Groundwater table height above channel bed (m)
         },
         description="The parameter space bounds [min, max] to project learned physical values to",
     )
@@ -108,6 +107,7 @@ class Params(BaseModel):
         default_factory=lambda: [
             "top_width",
             "side_slope",
+            "d_gw",
         ],
         description="Parameters to denormalize in log-space for right-skewed distributions",
     )
@@ -120,7 +120,7 @@ class Params(BaseModel):
     use_leakance: bool = Field(
         default=False,
         description="Enable groundwater-surface water exchange (leakance) in routing. "
-        "When True, K_D, d_gw, and leakance_factor must be in kan.learnable_parameters and params.parameter_ranges.",
+        "When True, K_D and d_gw must be in params.parameter_ranges.",
     )
     tau: int = Field(
         default=3,
@@ -278,7 +278,7 @@ class Config(BaseModel):
 
         # Validate leakance configuration
         if self.params.use_leakance:
-            required_leakance_params = ["K_D", "d_gw", "leakance_factor"]
+            required_leakance_params = ["K_D", "d_gw"]
             missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")

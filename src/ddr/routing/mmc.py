@@ -152,7 +152,6 @@ def _compute_zeta(
     length: torch.Tensor,
     K_D: torch.Tensor,
     d_gw: torch.Tensor,
-    leakance_factor: torch.Tensor,
 ) -> torch.Tensor:
     """Compute groundwater-surface water exchange (leakance) term.
 
@@ -177,8 +176,6 @@ def _compute_zeta(
         Hydraulic exchange rate [1/s]
     d_gw : torch.Tensor
         Groundwater depth threshold [m]
-    leakance_factor : torch.Tensor
-        Scaling/gating factor [0-1]
 
     Returns
     -------
@@ -193,7 +190,7 @@ def _compute_zeta(
     )
     width = torch.pow(p_spatial * depth, q_spatial)
     area = width * length
-    zeta = leakance_factor * area * K_D * (depth - d_gw)
+    zeta = area * K_D * (depth - d_gw)
     return zeta
 
 
@@ -259,12 +256,10 @@ class MuskingumCunge:
         self.use_leakance: bool = cfg.params.use_leakance
         self.K_D: torch.Tensor | None = None
         self.d_gw: torch.Tensor | None = None
-        self.leakance_factor: torch.Tensor | None = None
 
         # Time-varying leakance parameters (from LSTM, daily resolution)
         self._K_D_t: torch.Tensor | None = None
         self._d_gw_t: torch.Tensor | None = None
-        self._leakance_factor_t: torch.Tensor | None = None
 
         # Leakance diagnostic accumulators (populated during forward())
         self._zeta_sum: torch.Tensor | None = None
@@ -301,10 +296,8 @@ class MuskingumCunge:
         self.spatial_parameters = None
         self._K_D_t = None
         self._d_gw_t = None
-        self._leakance_factor_t = None
         self.K_D = None
         self.d_gw = None
-        self.leakance_factor = None
         self._zeta_sum = None
         self._q_prime_sum = torch.empty(0)
         self._last_zeta = torch.empty(0)
@@ -395,18 +388,13 @@ class MuskingumCunge:
         Parameters
         ----------
         leakance_params : dict[str, torch.Tensor]
-            Dict with K_D, d_gw, leakance_factor each shape (T_daily, N) in [0,1].
+            Dict with K_D, d_gw each shape (T_daily, N) in [0,1].
             Stored as daily tensors; mapped to hourly timesteps in forward().
         """
         log_space = self.cfg.params.log_space_parameters
         self._K_D_t = denormalize(leakance_params["K_D"], self.parameter_bounds["K_D"], "K_D" in log_space)
         self._d_gw_t = denormalize(
             leakance_params["d_gw"], self.parameter_bounds["d_gw"], "d_gw" in log_space
-        )
-        self._leakance_factor_t = denormalize(
-            leakance_params["leakance_factor"],
-            self.parameter_bounds["leakance_factor"],
-            "leakance_factor" in log_space,
         )
 
     def _init_discharge_state(self, carry_state: bool) -> None:
@@ -512,11 +500,9 @@ class MuskingumCunge:
             # Map hourly timestep to daily index for LSTM leakance params
             if self.use_leakance and self._K_D_t is not None:
                 assert self._d_gw_t is not None
-                assert self._leakance_factor_t is not None
                 day_idx = (timestep - 1) // 24
                 self.K_D = self._K_D_t[day_idx]
                 self.d_gw = self._d_gw_t[day_idx]
-                self.leakance_factor = self._leakance_factor_t[day_idx]
 
             q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper)
 
@@ -649,7 +635,6 @@ class MuskingumCunge:
                 self.length,
                 self.K_D,
                 self.d_gw,
-                self.leakance_factor,
             )
             self._last_zeta = zeta.detach().clone()
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp) - zeta

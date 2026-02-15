@@ -38,7 +38,6 @@ class TestComputeZeta:
             "length": torch.ones(n) * 1000.0,
             "K_D": torch.ones(n) * 1e-7,
             "d_gw": torch.ones(n) * 0.5,
-            "leakance_factor": torch.ones(n) * 0.5,
         }
 
     def test_zeta_shape_matches_inputs(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
@@ -46,17 +45,10 @@ class TestComputeZeta:
         zeta = _compute_zeta(**zeta_inputs)
         assert_tensor_properties(zeta, (10,))
 
-    def test_zeta_zero_when_leakance_factor_zero(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
-        """Test that zeta is zero when leakance_factor is zero."""
-        zeta_inputs["leakance_factor"] = torch.zeros(10)
-        zeta = _compute_zeta(**zeta_inputs)
-        assert torch.allclose(zeta, torch.zeros(10)), f"Expected all zeros, got {zeta}"
-
     def test_zeta_positive_when_depth_gt_d_gw(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
         """Test that zeta is positive when water depth > groundwater depth (losing stream)."""
         # Set d_gw very negative so depth > d_gw always
         zeta_inputs["d_gw"] = torch.ones(10) * -10.0
-        zeta_inputs["leakance_factor"] = torch.ones(10)
         zeta = _compute_zeta(**zeta_inputs)
         assert (zeta > 0).all(), f"Expected all positive (losing stream), got {zeta}"
 
@@ -64,7 +56,6 @@ class TestComputeZeta:
         """Test that zeta is negative when water depth < groundwater depth (gaining stream)."""
         # Set d_gw very large so depth < d_gw always
         zeta_inputs["d_gw"] = torch.ones(10) * 100.0
-        zeta_inputs["leakance_factor"] = torch.ones(10)
         zeta = _compute_zeta(**zeta_inputs)
         assert (zeta < 0).all(), f"Expected all negative (gaining stream), got {zeta}"
 
@@ -74,15 +65,15 @@ class TestComputeZeta:
         assert_no_nan_or_inf(zeta, "zeta")
 
     def test_zeta_gradient_flow(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
-        """Test that gradients flow through K_D, d_gw, and leakance_factor."""
-        for key in ["K_D", "d_gw", "leakance_factor"]:
+        """Test that gradients flow through K_D and d_gw."""
+        for key in ["K_D", "d_gw"]:
             zeta_inputs[key] = zeta_inputs[key].clone().requires_grad_(True)
 
         zeta = _compute_zeta(**zeta_inputs)
         loss = zeta.sum()
         loss.backward()
 
-        for key in ["K_D", "d_gw", "leakance_factor"]:
+        for key in ["K_D", "d_gw"]:
             assert zeta_inputs[key].grad is not None, f"Gradient should exist for {key}"
             assert not torch.isnan(zeta_inputs[key].grad).any(), f"Gradient for {key} has NaN"
             assert not torch.isinf(zeta_inputs[key].grad).any(), f"Gradient for {key} has Inf"
@@ -106,16 +97,13 @@ class TestLeakanceInRouting:
         leakance_params = {
             "K_D": torch.rand(1, num_reaches),
             "d_gw": torch.rand(1, num_reaches),
-            "leakance_factor": torch.rand(1, num_reaches),
         }
         mc.setup_leakance_params(leakance_params)
         # Manually set current-timestep leakance from day 0
         assert mc._K_D_t is not None
         assert mc._d_gw_t is not None
-        assert mc._leakance_factor_t is not None
         mc.K_D = mc._K_D_t[0]
         mc.d_gw = mc._d_gw_t[0]
-        mc.leakance_factor = mc._leakance_factor_t[0]
 
         mapper, _, _ = mc.create_pattern_mapper()
         q_prime_clamp = torch.ones(num_reaches) * 2.0
@@ -156,15 +144,12 @@ class TestLeakanceInRouting:
         leakance_params = {
             "K_D": torch.ones(1, num_reaches) * 0.5,  # Normalized, will be denormalized to [1e-8, 1e-6]
             "d_gw": torch.zeros(1, num_reaches),  # Normalized 0.0 => d_gw = -2.0 (very negative)
-            "leakance_factor": torch.ones(1, num_reaches),  # Max factor
         }
         mc_leak.setup_leakance_params(leakance_params)
         assert mc_leak._K_D_t is not None
         assert mc_leak._d_gw_t is not None
-        assert mc_leak._leakance_factor_t is not None
         mc_leak.K_D = mc_leak._K_D_t[0]
         mc_leak.d_gw = mc_leak._d_gw_t[0]
-        mc_leak.leakance_factor = mc_leak._leakance_factor_t[0]
         mapper_leak, _, _ = mc_leak.create_pattern_mapper()
 
         q_prime_clamp = torch.ones(num_reaches) * 5.0
@@ -202,7 +187,6 @@ class TestLeakanceInRouting:
         leakance_params = {
             "K_D": torch.rand(T_daily, num_reaches),
             "d_gw": torch.rand(T_daily, num_reaches),
-            "leakance_factor": torch.rand(T_daily, num_reaches),
         }
 
         model.set_progress_info(1, 0)
@@ -233,7 +217,6 @@ class TestLeakanceInRouting:
         assert mc.use_leakance is False
         assert mc.K_D is None
         assert mc.d_gw is None
-        assert mc.leakance_factor is None
 
 
 class TestLeakanceGradientFlow:
@@ -304,14 +287,12 @@ class TestLeakanceLstmInRouting:
         leakance_params = {
             "K_D": torch.ones(T_daily, N) * 0.5,
             "d_gw": torch.ones(T_daily, N) * 0.5,
-            "leakance_factor": torch.ones(T_daily, N) * 0.5,
         }
         mc.setup_leakance_params(leakance_params)
 
         assert mc._K_D_t is not None
         assert mc._K_D_t.shape == (T_daily, N)
         assert mc._d_gw_t is not None
-        assert mc._leakance_factor_t is not None
 
     def test_forward_with_lstm_leakance(self) -> None:
         """Test full forward pass with LSTM-path leakance params."""
@@ -328,7 +309,6 @@ class TestLeakanceLstmInRouting:
         leakance_params = {
             "K_D": torch.rand(T_daily, num_reaches),
             "d_gw": torch.rand(T_daily, num_reaches),
-            "leakance_factor": torch.rand(T_daily, num_reaches),
         }
 
         model.set_progress_info(1, 0)
@@ -356,7 +336,6 @@ class TestLeakanceLstmInRouting:
         leakance_params = {
             "K_D": torch.zeros(T_daily, N),
             "d_gw": torch.zeros(T_daily, N),
-            "leakance_factor": torch.zeros(T_daily, N),
         }
         leakance_params["K_D"][0] = 0.2
         leakance_params["K_D"][1] = 0.8
@@ -414,7 +393,7 @@ class TestLeakanceConfigValidation:
     """Test configuration validation for leakance."""
 
     def test_use_leakance_true_without_param_ranges_raises(self) -> None:
-        """Test that use_leakance=True without K_D/d_gw/leakance_factor in parameter_ranges raises."""
+        """Test that use_leakance=True without K_D/d_gw in parameter_ranges raises."""
         cfg_dict = {
             "name": "mock",
             "mode": "training",
@@ -473,7 +452,6 @@ class TestLeakanceConfigValidation:
                     "q_spatial": [0.1, 0.9],
                     "K_D": [1e-8, 1e-6],
                     "d_gw": [-2.0, 2.0],
-                    "leakance_factor": [0.0, 1.0],
                 },
                 "defaults": {"p_spatial": 1.0},
                 "attribute_minimums": {
@@ -498,7 +476,7 @@ class TestLeakanceConfigValidation:
         }
         cfg = validate_config(DictConfig(cfg_dict), save_config=False)
         assert cfg.params.use_leakance is True
-        for p in ["K_D", "d_gw", "leakance_factor"]:
+        for p in ["K_D", "d_gw"]:
             assert p not in cfg.kan.learnable_parameters
 
     def test_use_leakance_false_is_default(self) -> None:
@@ -512,8 +490,8 @@ class TestLeakanceConfigValidation:
         """Test that LSTM leakance config is accepted when leakance params NOT in kan."""
         cfg = create_mock_config_with_leakance_lstm()
         assert cfg.params.use_leakance is True
-        # K_D/d_gw/leakance_factor should NOT be in kan.learnable_parameters
-        for p in ["K_D", "d_gw", "leakance_factor"]:
+        # K_D/d_gw should NOT be in kan.learnable_parameters
+        for p in ["K_D", "d_gw"]:
             assert p not in cfg.kan.learnable_parameters
 
     def test_leakance_lstm_with_kan_params_raises(self) -> None:
@@ -536,7 +514,6 @@ class TestLeakanceConfigValidation:
                     "q_spatial": [0.1, 0.9],
                     "K_D": [1e-8, 1e-6],
                     "d_gw": [-2.0, 2.0],
-                    "leakance_factor": [0.0, 1.0],
                 },
                 "defaults": {"p_spatial": 1.0},
                 "attribute_minimums": {
@@ -551,7 +528,7 @@ class TestLeakanceConfigValidation:
             },
             "kan": {
                 "input_var_names": ["mock"],
-                "learnable_parameters": ["n", "q_spatial", "K_D", "d_gw", "leakance_factor"],
+                "learnable_parameters": ["n", "q_spatial", "K_D", "d_gw"],
             },
             "leakance_lstm": {
                 "input_var_names": ["mock"],

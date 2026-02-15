@@ -49,7 +49,7 @@ PhysicalBounds (frozen dataclass)    # immutable config-derived bounds
 RoutingState (mutable dataclass)     # THE ONLY mutable piece
 ├── discharge_t: Tensor
 ├── zeta_sum, q_prime_sum (leakance diagnostics)
-├── K_D_t, d_gw_t, leakance_factor_t (time-varying leakance)
+├── K_D_t, d_gw_t (time-varying leakance)
 └── snapshot() -> RoutingState (deep copy for checkpoint/serialize)
 
 DenormalizedParams (frozen dataclass)  # physics parameters after denorm
@@ -204,7 +204,7 @@ def forward(
     q_prime: torch.Tensor,       # (T_daily, N) float32
     attributes: torch.Tensor,    # (N, num_attrs) float32
 ) -> dict[str, torch.Tensor]:
-    # Returns: {"K_D": (T_daily, N), "d_gw": (T_daily, N), "leakance_factor": (T_daily, N)}
+    # Returns: {"K_D": (T_daily, N), "d_gw": (T_daily, N)}
     # All in [0, 1] — denormalization happens in router.set_leakance()
 ```
 
@@ -716,7 +716,7 @@ class TestLeakanceRegression:
         torch.testing.assert_close(output["zeta_sum"], reference_leakance_output["zeta_sum"], ...)
 
     def test_leakance_vs_no_leakance_difference(self, ...):
-        """With leakance_factor=0, output must be identical to no-leakance path."""
+        """With K_D=0, output must be identical to no-leakance path."""
         torch.testing.assert_close(output_no_leakance["runoff"], output_zero_leakance["runoff"])
 ```
 

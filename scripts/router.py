@@ -97,13 +97,64 @@ def route_trained_model(
             }
 
             if leakance_nn is not None and forcings_reader_nn is not None:
+                lstm_batch_size = 10_000
+                # Load forcings to CPU to avoid GPU OOM on full CONUS (~180k reaches)
                 forcing_data = forcings_reader_nn(
-                    routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+                    routing_dataclass=routing_dataclass, device="cpu", dtype=torch.float32
                 )
-                leakance_params = leakance_nn(
-                    forcings=forcing_data,
-                    attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
-                )
+                all_attrs = routing_dataclass.normalized_spatial_attributes
+                n_reaches = all_attrs.shape[0]
+
+                # Save full hidden states from previous dataloader batch (None on first)
+                full_hn = leakance_nn.hn
+                full_cn = leakance_nn.cn
+                new_full_hn: torch.Tensor | None = None
+                new_full_cn: torch.Tensor | None = None
+                batch_outputs: dict[str, list[torch.Tensor]] = {
+                    key: [] for key in leakance_nn.learnable_parameters
+                }
+
+                for s in range(0, n_reaches, lstm_batch_size):
+                    e = min(s + lstm_batch_size, n_reaches)
+                    bf = forcing_data[:, s:e, :].to(cfg.device)
+                    ba = all_attrs[s:e, :].to(cfg.device)
+
+                    # Slice cached hidden states for this reach batch
+                    if full_hn is not None:
+                        assert full_cn is not None
+                        leakance_nn.hn = full_hn[:, s:e, :].contiguous()
+                        leakance_nn.cn = full_cn[:, s:e, :].contiguous()
+                    else:
+                        leakance_nn.hn = None
+                        leakance_nn.cn = None
+
+                    bout = leakance_nn(forcings=bf, attributes=ba)
+
+                    # Accumulate hidden states for next dataloader batch
+                    if leakance_nn.cache_states and leakance_nn.hn is not None:
+                        if new_full_hn is None:
+                            nl, _, hs = leakance_nn.hn.shape
+                            new_full_hn = torch.zeros(nl, n_reaches, hs, device="cpu")
+                            new_full_cn = torch.zeros(nl, n_reaches, hs, device="cpu")
+                        assert leakance_nn.cn is not None
+                        assert new_full_hn is not None and new_full_cn is not None
+                        new_full_hn[:, s:e, :] = leakance_nn.hn.cpu()
+                        new_full_cn[:, s:e, :] = leakance_nn.cn.cpu()
+
+                    for key in leakance_nn.learnable_parameters:
+                        batch_outputs[key].append(bout[key])
+
+                    del bf, ba, bout
+                    torch.cuda.empty_cache()
+
+                # Restore full hidden states for next dataloader batch
+                if leakance_nn.cache_states:
+                    leakance_nn.hn = new_full_hn
+                    leakance_nn.cn = new_full_cn
+
+                del forcing_data
+                leakance_params = {k: torch.cat(v, dim=1) for k, v in batch_outputs.items()}
+                del batch_outputs
                 dmc_kwargs["leakance_params"] = leakance_params
 
             dmc_output = routing_model(**dmc_kwargs)

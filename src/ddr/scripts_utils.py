@@ -104,30 +104,6 @@ def load_checkpoint(
     return state
 
 
-def resolve_learning_rate(
-    learning_rate_schedule: dict[int, float],
-    epoch: int,
-) -> float:
-    """Resolve LR for epoch from schedule dict. Falls back to first entry.
-
-    Parameters
-    ----------
-    learning_rate_schedule : dict[int, float]
-        Mapping of epoch number → learning rate.
-    epoch : int
-        Current epoch.
-
-    Returns
-    -------
-    float
-        Learning rate for the given epoch.
-    """
-    if epoch in learning_rate_schedule:
-        return float(learning_rate_schedule[epoch])
-    key_list = list(learning_rate_schedule.keys())
-    return float(learning_rate_schedule[key_list[0]])
-
-
 def safe_percentile(arr: np.ndarray, percentile: float) -> float:
     """Percentile ignoring NaN values. Returns np.nan if all NaN.
 

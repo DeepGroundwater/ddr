@@ -200,10 +200,6 @@ class ExperimentConfig(BaseModel):
         default=None, description="Path to checkpoint file (.pt) for resuming model from previous state"
     )
     epochs: int = Field(default=1, description="Number of complete passes through the training dataset")
-    learning_rate: dict[int, float] = Field(
-        default_factory=lambda: {1: 0.005, 3: 0.001},
-        description="Learning rate schedule mapping epoch numbers to learning rate values",
-    )
     rho: int | None = Field(
         default=None, description="Number of consecutive days selected in each training batch"
     )

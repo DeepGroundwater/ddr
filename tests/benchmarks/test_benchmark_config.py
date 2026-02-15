@@ -60,7 +60,6 @@ class TestBenchmarkConfig:
                 "batch_size": 1,
                 "epochs": 1,
                 "warmup": 0,
-                "learning_rate": {1: 0.001},
             },
             data_sources={
                 "streamflow": "/fake",

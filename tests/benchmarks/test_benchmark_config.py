@@ -67,17 +67,19 @@ class TestBenchmarkConfig:
                 "observations": "/fake",
                 "conus_adjacency": "/fake",
                 "geospatial_fabric_gpkg": "/fake.gpkg",
+                "forcings": "mock://forcings",
             },
             kan={
                 "input_var_names": ["slope"],
-                "learnable_parameters": ["n"],
+                "learnable_parameters": ["q_spatial"],
                 "hidden_size": 8,
                 "num_hidden_layers": 1,
                 "grid": 5,
                 "k": 3,
             },
-            leakance_lstm={
+            cuda_lstm={
                 "input_var_names": ["slope"],
+                "learnable_parameters": ["n"],
             },
         )
 

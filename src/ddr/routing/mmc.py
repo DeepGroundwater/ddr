@@ -264,14 +264,14 @@ class MuskingumCunge:
         self.epoch = 0
         self.mini_batch = 0
 
-        # Leakance parameters (static, from KAN)
+        # Leakance parameters
         self.use_leakance: bool = cfg.params.use_leakance
-        self.K_D: torch.Tensor | None = None
+        self.K_D: torch.Tensor | None = None  # Static, from KAN (when use_leakance=True)
         self.d_gw: torch.Tensor | None = None
 
-        # Time-varying leakance parameters (from LSTM, daily resolution)
-        self._K_D_t: torch.Tensor | None = None
-        self._d_gw_t: torch.Tensor | None = None
+        # Time-varying parameters (from LSTM, daily resolution)
+        self._n_t: torch.Tensor | None = None  # Manning's n (always from LSTM)
+        self._d_gw_t: torch.Tensor | None = None  # d_gw (from LSTM when use_leakance=True)
 
         # Leakance diagnostic accumulators (populated during forward())
         self._zeta_sum: torch.Tensor | None = None
@@ -306,7 +306,7 @@ class MuskingumCunge:
         self.routing_dataclass = None
         self.q_prime = None
         self.spatial_parameters = None
-        self._K_D_t = None
+        self._n_t = None
         self._d_gw_t = None
         self.K_D = None
         self.d_gw = None
@@ -365,16 +365,19 @@ class MuskingumCunge:
         self.spatial_parameters = spatial_parameters
         log_space_params = self.cfg.params.log_space_parameters
 
-        self.n = denormalize(
-            value=spatial_parameters["n"],
-            bounds=self.parameter_bounds["n"],
-            log_space="n" in log_space_params,
-        )
         self.q_spatial = denormalize(
             value=spatial_parameters["q_spatial"],
             bounds=self.parameter_bounds["q_spatial"],
             log_space="q_spatial" in log_space_params,
         )
+
+        # K_D is static (from KAN) when use_leakance is enabled
+        if self.use_leakance and "K_D" in spatial_parameters:
+            self.K_D = denormalize(
+                value=spatial_parameters["K_D"],
+                bounds=self.parameter_bounds["K_D"],
+                log_space="K_D" in log_space_params,
+            )
 
         routing_dataclass = self.routing_dataclass
         if routing_dataclass.top_width.numel() == 0:
@@ -394,20 +397,21 @@ class MuskingumCunge:
         else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
-    def setup_leakance_params(self, leakance_params: dict[str, torch.Tensor]) -> None:
-        """Denormalize and store time-varying K_D and d_gw from LSTM.
+    def setup_lstm_params(self, lstm_params: dict[str, torch.Tensor]) -> None:
+        """Denormalize and store time-varying parameters from LSTM.
 
         Parameters
         ----------
-        leakance_params : dict[str, torch.Tensor]
-            Dict with K_D and d_gw, each shape (T_daily, N) in [0,1].
+        lstm_params : dict[str, torch.Tensor]
+            Dict with n (always) and optionally d_gw, each shape (T_daily, N) in [0,1].
             Stored as daily tensors; mapped to hourly timesteps in forward().
         """
         log_space = self.cfg.params.log_space_parameters
-        self._K_D_t = denormalize(leakance_params["K_D"], self.parameter_bounds["K_D"], "K_D" in log_space)
-        self._d_gw_t = denormalize(
-            leakance_params["d_gw"], self.parameter_bounds["d_gw"], "d_gw" in log_space
-        )
+        self._n_t = denormalize(lstm_params["n"], self.parameter_bounds["n"], "n" in log_space)
+        if "d_gw" in lstm_params:
+            self._d_gw_t = denormalize(
+                lstm_params["d_gw"], self.parameter_bounds["d_gw"], "d_gw" in log_space
+            )
 
     def _init_discharge_state(self, carry_state: bool) -> None:
         """Cold-start via topological accumulation, or carry from previous batch."""
@@ -509,12 +513,16 @@ class MuskingumCunge:
                 min=self.cfg.params.attribute_minimums["discharge"],
             )
 
-            # Map hourly timestep to daily index for LSTM K_D and d_gw
-            if self.use_leakance and self._K_D_t is not None:
-                assert self._d_gw_t is not None
-                day_idx = (timestep - 1) // 24
-                self.K_D = self._K_D_t[day_idx]
-                self.d_gw = self._d_gw_t[day_idx]
+            # Map hourly timestep to daily index for LSTM time-varying params
+            day_idx = (timestep - 1) // 24
+
+            # Always: time-varying n from LSTM
+            if self._n_t is not None:
+                self.n = self._n_t[min(day_idx, self._n_t.shape[0] - 1)]
+
+            # Conditionally: leakance d_gw
+            if self.use_leakance and self._d_gw_t is not None:
+                self.d_gw = self._d_gw_t[min(day_idx, self._d_gw_t.shape[0] - 1)]
 
             q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper)
 

@@ -66,7 +66,7 @@ class TestSaveState:
             kan_optimizer=kan_optimizer,
             name="test",
             saved_model_path=tmp_path,
-            leakance_nn=lstm,
+            lstm_nn=lstm,
             lstm_optimizer=lstm_optimizer,
         )
 

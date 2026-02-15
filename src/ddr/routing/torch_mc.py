@@ -162,7 +162,8 @@ class dmc(torch.nn.Module):
             Keyword arguments containing:
             - routing_dataclass: routing_dataclass object with network and channel properties
             - streamflow: Input streamflow tensor
-            - spatial_parameters: Dictionary of spatial parameters (n, q_spatial)
+            - spatial_parameters: Dictionary of spatial parameters (q_spatial, K_D, etc.)
+            - lstm_params: Dictionary of time-varying parameters from LSTM (n, d_gw)
 
         Returns
         -------
@@ -184,14 +185,13 @@ class dmc(torch.nn.Module):
             carry_state=carry_state,
         )
 
-        # Setup time-varying leakance params from LSTM (if provided)
-        leakance_params = kwargs.get("leakance_params", None)
-        if leakance_params is not None:
-            self.routing_engine.setup_leakance_params(leakance_params)
+        # Setup time-varying LSTM params (n, and optionally d_gw)
+        lstm_params = kwargs.get("lstm_params", None)
+        if lstm_params is not None:
+            self.routing_engine.setup_lstm_params(lstm_params)
 
         # Update compatibility attributes
         self.network = self.routing_engine.network
-        self.n = self.routing_engine.n
         self.q_spatial = self.routing_engine.q_spatial
         self.top_width = self.routing_engine.top_width
         self.side_slope = self.routing_engine.side_slope
@@ -200,15 +200,15 @@ class dmc(torch.nn.Module):
         # Perform routing
         output = self.routing_engine.forward()
 
-        # Update discharge state and leakance attrs AFTER forward() so they
-        # reference current-batch values, not stale previous-batch tensors.
+        # Update state AFTER forward() so they reference current-batch values
         self._discharge_t = self.routing_engine._discharge_t
+        self.n = self.routing_engine.n  # Last timestep value from LSTM
         if self.routing_engine.use_leakance:
             self.K_D = self.routing_engine.K_D
             self.d_gw = self.routing_engine.d_gw
 
         if kwargs.get("retain_grads", False):
-            if self.n is not None:
+            if self.n is not None and self.n.requires_grad:
                 self.n.retain_grad()
             if self.q_spatial is not None:
                 self.q_spatial.retain_grad()

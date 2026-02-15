@@ -131,8 +131,8 @@ class Params(BaseModel):
     )
 
 
-class LeakanceLstm(BaseModel):
-    """LSTM configuration for time-varying leakance parameter prediction."""
+class CudaLstm(BaseModel):
+    """LSTM configuration for time-varying parameter prediction."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -148,6 +148,10 @@ class LeakanceLstm(BaseModel):
     )
     input_var_names: list[str] = Field(
         description="Static attribute names used as LSTM inputs alongside forcings"
+    )
+    learnable_parameters: list[str] = Field(
+        default_factory=lambda: ["n", "d_gw"],
+        description="Names of time-varying parameters the LSTM will learn to predict",
     )
 
 
@@ -237,8 +241,8 @@ class Config(BaseModel):
     mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
-    leakance_lstm: LeakanceLstm = Field(
-        description="LSTM config for time-varying leakance parameter prediction.",
+    cuda_lstm: CudaLstm = Field(
+        description="CudaLSTM config for time-varying parameter prediction (n, d_gw).",
     )
     np_seed: int = Field(default=42, description="Random seed for NumPy operations to ensure reproducibility")
     seed: int = Field(default=42, description="Random seed for PyTorch operations to ensure reproducibility")
@@ -276,26 +280,34 @@ class Config(BaseModel):
                     "If using a jupyter notebook, manually set save_path."
                 )
 
-        # Validate leakance configuration
+        # LSTM and KAN learnable_parameters must not overlap
+        lstm_params = set(self.cuda_lstm.learnable_parameters)
+        kan_params = set(self.kan.learnable_parameters)
+        overlap = lstm_params & kan_params
+        if overlap:
+            raise ValueError(f"LSTM and KAN learnable_parameters must not overlap. Found in both: {overlap}")
+
+        # All LSTM + KAN params must exist in parameter_ranges
+        all_learned = lstm_params | kan_params
+        missing = [p for p in all_learned if p not in self.params.parameter_ranges]
+        if missing:
+            raise ValueError(
+                f"Parameters {missing} are in learnable_parameters but missing from parameter_ranges"
+            )
+
+        # Forcings store required for LSTM dynamic inputs
+        if self.data_sources.forcings is None:
+            raise ValueError(
+                "data_sources.forcings must be set "
+                "(path to icechunk store with meteorological forcings for the LSTM)"
+            )
+
+        # When use_leakance=True, K_D and d_gw must be in parameter_ranges
         if self.params.use_leakance:
             required_leakance_params = ["K_D", "d_gw"]
             missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
-
-            conflicting = [p for p in required_leakance_params if p in self.kan.learnable_parameters]
-            if conflicting:
-                raise ValueError(
-                    f"leakance_lstm is set, so {conflicting} must NOT be in kan.learnable_parameters "
-                    f"(LSTM produces them instead of KAN)"
-                )
-
-            # Forcings store required for LSTM dynamic inputs
-            if self.data_sources.forcings is None:
-                raise ValueError(
-                    "use_leakance=True requires data_sources.forcings to be set "
-                    "(path to icechunk store with meteorological forcings)"
-                )
 
         return self
 

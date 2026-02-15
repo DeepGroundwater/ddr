@@ -53,7 +53,7 @@ def save_state(
     kan_optimizer: torch.optim.Optimizer,
     name: str,
     saved_model_path: Path,
-    leakance_nn: nn.Module | None = None,
+    lstm_nn: nn.Module | None = None,
     lstm_optimizer: torch.optim.Optimizer | None = None,
 ) -> None:
     """Save model state
@@ -70,8 +70,8 @@ def save_state(
         The KAN optimizer (Adam)
     name: str
         The name of the file we're saving
-    leakance_nn : nn.Module | None, optional
-        The leakance LSTM model, by default None
+    lstm_nn : nn.Module | None, optional
+        The CudaLSTM model, by default None
     lstm_optimizer : torch.optim.Optimizer | None, optional
         The LSTM optimizer (Adadelta), by default None
     """
@@ -85,10 +85,8 @@ def save_state(
     }
     if lstm_optimizer is not None:
         state["lstm_optimizer_state_dict"] = _cpu_optimizer_state(lstm_optimizer)
-    if leakance_nn is not None:
-        state["leakance_nn_state_dict"] = {
-            key: value.cpu() for key, value in leakance_nn.state_dict().items()
-        }
+    if lstm_nn is not None:
+        state["leakance_nn_state_dict"] = {key: value.cpu() for key, value in lstm_nn.state_dict().items()}
     if torch.cuda.is_available():
         state["cuda_rng_state"] = torch.cuda.get_rng_state()
     if mini_batch == -1:

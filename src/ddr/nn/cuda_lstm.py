@@ -7,20 +7,21 @@ import torch.nn.functional as F
 log = logging.getLogger(__name__)
 
 
-class leakance_lstm(torch.nn.Module):
-    """An LSTM for time-varying leakance parameter prediction (K_D and d_gw).
+class CudaLSTM(torch.nn.Module):
+    """An LSTM for time-varying parameter prediction.
 
     Follows the CudnnLstmModel/LstmModel architecture from generic_deltamodel:
-    Linear(nx, hidden) -> ReLU -> LSTM(hidden, hidden) -> Linear(hidden, 2) -> Sigmoid
+    Linear(nx, hidden) -> ReLU -> LSTM(hidden, hidden) -> Linear(hidden, output_size) -> Sigmoid
 
     Concatenates meteorological forcings (P, PET, Temp) with static catchment attributes
-    at each timestep, producing time-varying K_D and d_gw in [0,1].
+    at each timestep, producing time-varying parameters in [0,1].
     """
 
     def __init__(
         self,
         input_var_names: list[str],
         forcing_var_names: list[str],
+        learnable_parameters: list[str],
         hidden_size: int,
         num_layers: int,
         dropout: float,
@@ -31,7 +32,7 @@ class leakance_lstm(torch.nn.Module):
         self.num_forcing_vars = len(forcing_var_names)
         self.input_size = len(input_var_names) + self.num_forcing_vars
         self.hidden_size = hidden_size
-        self.learnable_parameters = ["K_D", "d_gw"]
+        self.learnable_parameters = learnable_parameters
         self.output_size = len(self.learnable_parameters)
 
         torch.manual_seed(seed)
@@ -73,7 +74,7 @@ class leakance_lstm(torch.nn.Module):
         Returns
         -------
         dict[str, torch.Tensor]
-            Dictionary with K_D and d_gw, each shape (T_daily, N) in [0, 1].
+            Dictionary with each learnable parameter, shape (T_daily, N) in [0, 1].
         """
         forcings: torch.Tensor = kwargs["forcings"]  # [T_daily, N, num_forcing_vars]
         attributes: torch.Tensor = kwargs["attributes"]

@@ -509,7 +509,7 @@ class ForcingsReader(torch.nn.Module):
         self.cfg = cfg
         assert cfg.data_sources.forcings is not None, "data_sources.forcings must be set"
         self.ds = read_ic(cfg.data_sources.forcings, region=cfg.s3_region)
-        self.forcing_var_names = list(cfg.leakance_lstm.forcing_var_names)
+        self.forcing_var_names = list(cfg.cuda_lstm.forcing_var_names)
         # Index Lookup Dictionary
         self.divide_id_to_index = {divide_id: idx for idx, divide_id in enumerate(self.ds.divide_id.values)}
         # Compute time offset: forcings store may not start at 1980-01-01 (the Dates origin)

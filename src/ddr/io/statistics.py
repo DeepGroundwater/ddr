@@ -87,7 +87,7 @@ def set_forcing_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
 
     log.info(f"Computing forcing statistics for {forcing_store_name}")
     json_: dict[str, dict[str, float]] = {}
-    for var in cfg.leakance_lstm.forcing_var_names:
+    for var in cfg.cuda_lstm.forcing_var_names:
         data = ds[var].values  # (divide_id, time)
         json_[var] = {
             "min": float(np.nanmin(data)),

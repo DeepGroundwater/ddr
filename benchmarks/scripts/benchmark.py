@@ -12,7 +12,7 @@ from ddr_benchmarks.validation import validate_benchmark_config
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 
-from ddr import dmc, forcings_reader, kan, leakance_lstm, streamflow
+from ddr import CudaLSTM, dmc, forcings_reader, kan, streamflow
 from ddr._version import __version__
 
 log = logging.getLogger(__name__)
@@ -46,19 +46,17 @@ def main(cfg: DictConfig) -> None:
             seed=config.seed,
             device=config.device,
         )
-        leakance_nn = None
-        forcings_reader_nn = None
-        if config.params.use_leakance:
-            leakance_nn = leakance_lstm(
-                input_var_names=config.leakance_lstm.input_var_names,
-                forcing_var_names=config.leakance_lstm.forcing_var_names,
-                hidden_size=config.leakance_lstm.hidden_size,
-                num_layers=config.leakance_lstm.num_layers,
-                dropout=config.leakance_lstm.dropout,
-                seed=config.seed,
-                device=config.device,
-            )
-            forcings_reader_nn = forcings_reader(config)
+        lstm_nn = CudaLSTM(
+            input_var_names=config.cuda_lstm.input_var_names,
+            forcing_var_names=config.cuda_lstm.forcing_var_names,
+            learnable_parameters=config.cuda_lstm.learnable_parameters,
+            hidden_size=config.cuda_lstm.hidden_size,
+            num_layers=config.cuda_lstm.num_layers,
+            dropout=config.cuda_lstm.dropout,
+            seed=config.seed,
+            device=config.device,
+        )
+        forcings_reader_nn = forcings_reader(config)
         routing_model = dmc(cfg=config, device=config.device)
         flow = streamflow(config)
 
@@ -69,7 +67,7 @@ def main(cfg: DictConfig) -> None:
             nn=nn,
             diffroute_cfg=diffroute_cfg,
             summed_q_prime_path=benchmark_cfg.summed_q_prime,
-            leakance_nn=leakance_nn,
+            lstm_nn=lstm_nn,
             forcings_reader_nn=forcings_reader_nn,
         )
 

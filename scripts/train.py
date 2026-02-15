@@ -32,25 +32,33 @@ def train(
     data_generator.manual_seed(cfg.seed)
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
+    lr = cfg.experiment.learning_rate[1]
+    start_epoch = 1
+    start_mini_batch = 0
+
+    kan_optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
+    lstm_optimizer: torch.optim.Optimizer | None = None
+    if leakance_nn is not None:
+        lstm_optimizer = torch.optim.Adadelta(params=leakance_nn.parameters())
+
     if cfg.experiment.checkpoint:
         state = load_checkpoint(
-            nn, cfg.experiment.checkpoint, torch.device(cfg.device), leakance_nn=leakance_nn
+            nn,
+            cfg.experiment.checkpoint,
+            torch.device(cfg.device),
+            leakance_nn=leakance_nn,
+            kan_optimizer=kan_optimizer,
+            lstm_optimizer=lstm_optimizer,
         )
         start_epoch = state["epoch"]
         start_mini_batch = (
             0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
         )  # Start from the next mini-batch
         lr = resolve_learning_rate(cfg.experiment.learning_rate, start_epoch)
+        for param_group in kan_optimizer.param_groups:
+            param_group["lr"] = lr
     else:
         log.info("Creating new spatial model")
-        start_epoch = 1
-        start_mini_batch = 0
-        lr = cfg.experiment.learning_rate[start_epoch]
-
-    all_params = list(nn.parameters())
-    if leakance_nn is not None:
-        all_params += list(leakance_nn.parameters())
-    optimizer = torch.optim.Adam(params=all_params, lr=lr)
     sampler = RandomSampler(
         data_source=dataset,
         generator=data_generator,
@@ -66,8 +74,8 @@ def train(
 
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
         if epoch in cfg.experiment.learning_rate.keys():
-            log.info(f"Setting learning rate: {cfg.experiment.learning_rate[epoch]}")
-            for param_group in optimizer.param_groups:
+            log.info(f"Setting KAN learning rate: {cfg.experiment.learning_rate[epoch]}")
+            for param_group in kan_optimizer.param_groups:
                 param_group["lr"] = cfg.experiment.learning_rate[epoch]
 
         for i, routing_dataclass in enumerate(dataloader, start=0):
@@ -76,7 +84,9 @@ def train(
             else:
                 start_mini_batch = 0
                 routing_model.set_progress_info(epoch=epoch, mini_batch=i)
-                optimizer.zero_grad()
+                kan_optimizer.zero_grad()
+                if lstm_optimizer is not None:
+                    lstm_optimizer.zero_grad()
 
                 streamflow_predictions = flow(
                     routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
@@ -124,7 +134,9 @@ def train(
                 log.info("Running backpropagation")
 
                 loss.backward()
-                optimizer.step()
+                kan_optimizer.step()
+                if lstm_optimizer is not None:
+                    lstm_optimizer.step()
 
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()
@@ -157,10 +169,11 @@ def train(
                     generator=data_generator,
                     mini_batch=i,
                     mlp=nn,
-                    optimizer=optimizer,
+                    kan_optimizer=kan_optimizer,
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
                     leakance_nn=leakance_nn,
+                    lstm_optimizer=lstm_optimizer,
                 )
 
                 # Free batch-specific GPU tensors to prevent VRAM growth

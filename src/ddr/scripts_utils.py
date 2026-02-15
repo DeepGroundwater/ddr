@@ -47,6 +47,8 @@ def load_checkpoint(
     checkpoint_path: str | Path,
     device: str | torch.device,
     leakance_nn: torch.nn.Module | None = None,
+    kan_optimizer: torch.optim.Optimizer | None = None,
+    lstm_optimizer: torch.optim.Optimizer | None = None,
 ) -> dict:
     """Load DDR checkpoint, apply state_dict to model. Returns full state dict.
 
@@ -60,6 +62,10 @@ def load_checkpoint(
         Device to map tensors to.
     leakance_nn : torch.nn.Module | None, optional
         The leakance LSTM model to load weights into, by default None.
+    kan_optimizer : torch.optim.Optimizer | None, optional
+        The KAN optimizer to restore state into, by default None.
+    lstm_optimizer : torch.optim.Optimizer | None, optional
+        The LSTM optimizer to restore state into, by default None.
 
     Returns
     -------
@@ -80,6 +86,20 @@ def load_checkpoint(
         for key in leakance_state.keys():
             leakance_state[key] = leakance_state[key].to(device)
         leakance_nn.load_state_dict(leakance_state)
+
+    if kan_optimizer is not None:
+        if "kan_optimizer_state_dict" in state:
+            kan_optimizer.load_state_dict(state["kan_optimizer_state_dict"])
+        elif "optimizer_state_dict" in state:
+            # Old checkpoints used a single Adam over KAN+LSTM params combined.
+            # Param count won't match the new KAN-only optimizer, so skip.
+            log.warning(
+                "Old checkpoint has combined optimizer_state_dict (KAN+LSTM). "
+                "Skipping optimizer restore — both optimizers will start fresh."
+            )
+
+    if lstm_optimizer is not None and "lstm_optimizer_state_dict" in state:
+        lstm_optimizer.load_state_dict(state["lstm_optimizer_state_dict"])
 
     return state
 

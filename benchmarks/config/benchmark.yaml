@@ -56,7 +56,7 @@ kan:
   k: 2
 
 leakance_lstm:
-  hidden_size: 64
+  hidden_size: 128
   num_layers: 1
   dropout: 0.5
   forcing_var_names:

@@ -44,9 +44,11 @@ class leakance_lstm(torch.nn.Module):
             input_size=hidden_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
-            dropout=dropout if num_layers > 1 else 0.0,
             device=device,
         )
+
+        # Output dropout (NeuralHydrology pattern: between LSTM output and head)
+        self.dropout = torch.nn.Dropout(p=dropout)
 
         # Output projection
         self.linear_out = torch.nn.Linear(hidden_size, self.output_size, device=device)
@@ -99,8 +101,8 @@ class leakance_lstm(torch.nn.Module):
             self.hn = hn.detach()
             self.cn = cn.detach()
 
-        # Output projection + sigmoid
-        _x = self.linear_out(lstm_out)  # [T, N, 1]
+        # Output dropout + projection + sigmoid
+        _x = self.linear_out(self.dropout(lstm_out))  # [T, N, 1]
         _x = torch.sigmoid(_x)
 
         outputs: dict[str, torch.Tensor] = {}

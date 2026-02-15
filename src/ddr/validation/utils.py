@@ -9,15 +9,52 @@ import torch.nn as nn
 log = logging.getLogger(__name__)
 
 
+def _cpu_optimizer_state(optimizer: torch.optim.Optimizer) -> dict[str, Any]:
+    """Copy optimizer state dict to CPU.
+
+    Parameters
+    ----------
+    optimizer : torch.optim.Optimizer
+        The optimizer whose state to copy.
+
+    Returns
+    -------
+    dict[str, Any]
+        Optimizer state dict with all tensors on CPU.
+    """
+    cpu_state: dict[str, Any] = {}
+    for key, value in optimizer.state_dict().items():
+        if key == "state":
+            cpu_state[key] = {}
+            for param_key, param_value in value.items():
+                cpu_state[key][param_key] = {}
+                for sub_key, sub_value in param_value.items():
+                    if torch.is_tensor(sub_value):
+                        cpu_state[key][param_key][sub_key] = sub_value.cpu()
+                    else:
+                        cpu_state[key][param_key][sub_key] = sub_value
+        elif key == "param_groups":
+            cpu_state[key] = []
+            for param_group in value:
+                cpu_param_group = {}
+                for param_key, param_value in param_group.items():
+                    cpu_param_group[param_key] = param_value
+                cpu_state[key].append(cpu_param_group)
+        else:
+            cpu_state[key] = value
+    return cpu_state
+
+
 def save_state(
     epoch: int,
     generator: torch.Generator,
     mini_batch: int,
     mlp: nn.Module,
-    optimizer: nn.Module,
+    kan_optimizer: torch.optim.Optimizer,
     name: str,
     saved_model_path: Path,
     leakance_nn: nn.Module | None = None,
+    lstm_optimizer: torch.optim.Optimizer | None = None,
 ) -> None:
     """Save model state
 
@@ -29,41 +66,25 @@ def save_state(
         The mini batch number
     mlp : nn.Module
         The MLP model
-    optimizer : nn.Module
-        The optimizer
+    kan_optimizer : torch.optim.Optimizer
+        The KAN optimizer (Adam)
     name: str
         The name of the file we're saving
     leakance_nn : nn.Module | None, optional
         The leakance LSTM model, by default None
+    lstm_optimizer : torch.optim.Optimizer | None, optional
+        The LSTM optimizer (Adadelta), by default None
     """
     mlp_state_dict = {key: value.cpu() for key, value in mlp.state_dict().items()}
-    cpu_optimizer_state_dict: dict[str, Any] = {}
-    for key, value in optimizer.state_dict().items():
-        if key == "state":
-            cpu_optimizer_state_dict[key] = {}
-            for param_key, param_value in value.items():
-                cpu_optimizer_state_dict[key][param_key] = {}
-                for sub_key, sub_value in param_value.items():
-                    if torch.is_tensor(sub_value):
-                        cpu_optimizer_state_dict[key][param_key][sub_key] = sub_value.cpu()
-                    else:
-                        cpu_optimizer_state_dict[key][param_key][sub_key] = sub_value
-        elif key == "param_groups":
-            cpu_optimizer_state_dict[key] = []
-            for param_group in value:
-                cpu_param_group = {}
-                for param_key, param_value in param_group.items():
-                    cpu_param_group[param_key] = param_value
-                cpu_optimizer_state_dict[key].append(cpu_param_group)
-        else:
-            cpu_optimizer_state_dict[key] = value
 
     state = {
         "model_state_dict": mlp_state_dict,
-        "optimizer_state_dict": cpu_optimizer_state_dict,
+        "kan_optimizer_state_dict": _cpu_optimizer_state(kan_optimizer),
         "rng_state": torch.get_rng_state(),
         "data_generator_state": generator.get_state(),
     }
+    if lstm_optimizer is not None:
+        state["lstm_optimizer_state_dict"] = _cpu_optimizer_state(lstm_optimizer)
     if leakance_nn is not None:
         state["leakance_nn_state_dict"] = {
             key: value.cpu() for key, value in leakance_nn.state_dict().items()

@@ -149,15 +149,18 @@ class TestLeakanceLstmInit:
         assert outputs["K_D"].shape == (5, 4)
         assert outputs["d_gw"].shape == (5, 4)
 
-    def test_single_layer_no_dropout(self) -> None:
-        """Test that single-layer LSTM has dropout=0 regardless of config."""
+    def test_output_dropout_layer(self) -> None:
+        """Test that output dropout layer exists with correct probability."""
         m = leakance_lstm(
             input_var_names=["a"],
             forcing_var_names=["P"],
             hidden_size=16,
             num_layers=1,
-            dropout=0.5,  # Should be overridden to 0.0
+            dropout=0.5,
             seed=0,
             device="cpu",
         )
+        assert isinstance(m.dropout, torch.nn.Dropout)
+        assert m.dropout.p == 0.5
+        # LSTM's built-in dropout is unused (always 0)
         assert m.lstm.dropout == 0.0

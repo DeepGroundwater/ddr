@@ -8,13 +8,14 @@ This guide covers training DDR models to learn optimal routing parameters from o
 
 ## Overview
 
-DDR training optimizes a neural network (KAN) to predict physical routing parameters (Manning's n, channel geometry) from catchment attributes. The training loop:
+DDR training optimizes two neural networks — a KAN (static spatial parameters) and a CudaLSTM (time-varying parameters) — to predict physical routing parameters from catchment attributes and meteorological forcings. The training loop:
 
 1. Reads lateral inflow (Q') from unit catchment predictions
-2. Predicts routing parameters using the KAN
-3. Routes flow through the river network using Muskingum-Cunge
-4. Computes loss against observed streamflow
-5. Backpropagates gradients through the entire system
+2. Predicts static parameters (channel geometry, K_D) using the KAN
+3. Predicts time-varying parameters (Manning's n, d_gw) using the CudaLSTM
+4. Routes flow through the river network using Muskingum-Cunge
+5. Computes loss against observed streamflow
+6. Backpropagates gradients through the entire system
 
 ## Quick Start
 
@@ -33,9 +34,6 @@ geodataset: lynker_hydrofabric  # or merit
 experiment:
   epochs: 5                    # Number of training epochs
   batch_size: 64               # Gauges per batch
-  learning_rate:
-    1: 0.005                   # LR for epoch 1
-    3: 0.001                   # LR for epoch 3+
   rho: 365                     # Training window (days)
   warmup: 3                    # Warmup days excluded from loss
   shuffle: true                # Shuffle training data
@@ -54,11 +52,11 @@ kan:
     - meanP
     - log10_uparea
     # ... more attributes
-  learnable_parameters:        # Parameters to learn
-    - n                        # Manning's roughness
+  learnable_parameters:        # Static spatial parameters to learn
     - q_spatial                # Shape factor
     - top_width                # Channel width
     - side_slope               # Channel side slope
+    - K_D_delta                # Hydraulic conductivity correction (leakance)
   grid: 50                     # KAN grid size
   k: 2                         # KAN spline order
 ```
@@ -87,14 +85,24 @@ For each batch:
 # Get lateral inflows
 streamflow_predictions = flow(routing_dataclass=routing_dataclass)
 
-# Predict parameters from attributes
-spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes)
+# Select attribute columns for each network
+attr_names = routing_dataclass.attribute_names
+normalized_attrs = routing_dataclass.normalized_spatial_attributes
+kan_attrs = select_columns(normalized_attrs, cfg.kan.input_var_names, attr_names)
+lstm_attrs = select_columns(normalized_attrs, cfg.cuda_lstm.input_var_names, attr_names)
+
+# Predict static spatial parameters (channel geometry, K_D)
+spatial_params = nn(inputs=kan_attrs)
+
+# Predict time-varying parameters (Manning's n, d_gw)
+lstm_params = lstm_nn(forcings=forcing_data, attributes=lstm_attrs)
 
 # Route flow through network
 dmc_output = routing_model(
     routing_dataclass=routing_dataclass,
     spatial_parameters=spatial_params,
     streamflow=streamflow_predictions,
+    lstm_params=lstm_params,
 )
 ```
 
@@ -138,8 +146,7 @@ Training logs include:
 
 - Loss values per mini-batch
 - NSE, RMSE, KGE metrics periodically
-- Learning rate changes
-- Parameter statistics
+- Parameter statistics (e.g., median Manning's n)
 
 ## Tips
 

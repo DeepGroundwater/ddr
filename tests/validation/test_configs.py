@@ -15,15 +15,18 @@ def _minimal_config_dict(**overrides):
         "data_sources": {
             "geospatial_fabric_gpkg": "/tmp/fake.gpkg",
             "conus_adjacency": "/tmp/fake_adj",
+            "forcings": "mock://forcings",
         },
         "geodataset": "merit",
         "mode": "training",
         "params": {},
         "kan": {
             "input_var_names": ["slope", "length"],
+            "learnable_parameters": ["q_spatial"],
         },
-        "leakance_lstm": {
+        "cuda_lstm": {
             "input_var_names": ["slope", "length"],
+            "learnable_parameters": ["n"],
         },
     }
     base.update(overrides)
@@ -144,7 +147,7 @@ class TestParamsDefaults:
 
     def test_log_space_parameters_default(self) -> None:
         p = Params()
-        assert p.log_space_parameters == ["top_width", "side_slope"]
+        assert p.log_space_parameters == ["top_width", "side_slope", "d_gw"]
 
 
 class TestSetSeed:

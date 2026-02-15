@@ -71,6 +71,10 @@ class DataSources(BaseModel):
     target_catchments: list[str] | None = Field(
         default=None, description="Optional list of specific catchment IDs to route to (overrides gages)"
     )
+    forcings: str | None = Field(
+        default=None,
+        description="Path to icechunk store with meteorological forcings (P, PET, Temp)",
+    )
 
 
 class Params(BaseModel):
@@ -95,8 +99,7 @@ class Params(BaseModel):
             "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
             "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
             "K_D": [1e-8, 1e-6],  # Hydraulic exchange rate (1/s)
-            "d_gw": [-2.0, 2.0],  # Groundwater depth threshold (m)
-            "leakance_factor": [0.0, 1.0],  # Gating factor (-)
+            "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
         },
         description="The parameter space bounds [min, max] to project learned physical values to",
     )
@@ -104,6 +107,7 @@ class Params(BaseModel):
         default_factory=lambda: [
             "top_width",
             "side_slope",
+            "d_gw",
         ],
         description="Parameters to denormalize in log-space for right-skewed distributions",
     )
@@ -116,7 +120,7 @@ class Params(BaseModel):
     use_leakance: bool = Field(
         default=False,
         description="Enable groundwater-surface water exchange (leakance) in routing. "
-        "When True, K_D, d_gw, and leakance_factor must be in kan.learnable_parameters and params.parameter_ranges.",
+        "When True, K_D and d_gw must be in params.parameter_ranges.",
     )
     tau: int = Field(
         default=3,
@@ -127,8 +131,8 @@ class Params(BaseModel):
     )
 
 
-class LeakanceLstm(BaseModel):
-    """LSTM configuration for time-varying leakance parameter prediction."""
+class CudaLstm(BaseModel):
+    """LSTM configuration for time-varying parameter prediction."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -138,8 +142,16 @@ class LeakanceLstm(BaseModel):
         default=0.5,
         description="Dropout rate (applied between LSTM layers if num_layers > 1)",
     )
+    forcing_var_names: list[str] = Field(
+        default_factory=lambda: ["P", "PET", "Temp"],
+        description="Forcing variable names used as LSTM dynamic inputs",
+    )
     input_var_names: list[str] = Field(
-        description="Static attribute names used as LSTM inputs alongside q_prime"
+        description="Static attribute names used as LSTM inputs alongside forcings"
+    )
+    learnable_parameters: list[str] = Field(
+        default_factory=lambda: ["n", "d_gw"],
+        description="Names of time-varying parameters the LSTM will learn to predict",
     )
 
 
@@ -229,11 +241,11 @@ class Config(BaseModel):
     mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
-    leakance_lstm: LeakanceLstm = Field(
-        description="LSTM config for time-varying leakance parameter prediction.",
+    cuda_lstm: CudaLstm = Field(
+        description="CudaLSTM config for time-varying parameter prediction (n, d_gw).",
     )
-    np_seed: int = Field(default=1, description="Random seed for NumPy operations to ensure reproducibility")
-    seed: int = Field(default=0, description="Random seed for PyTorch operations to ensure reproducibility")
+    np_seed: int = Field(default=42, description="Random seed for NumPy operations to ensure reproducibility")
+    seed: int = Field(default=42, description="Random seed for PyTorch operations to ensure reproducibility")
     device: int | str = Field(
         default=0, description="Compute device specification (GPU index number, 'cpu', or 'cuda', or 'mps')"
     )
@@ -268,20 +280,34 @@ class Config(BaseModel):
                     "If using a jupyter notebook, manually set save_path."
                 )
 
-        # Validate leakance configuration
+        # LSTM and KAN learnable_parameters must not overlap
+        lstm_params = set(self.cuda_lstm.learnable_parameters)
+        kan_params = set(self.kan.learnable_parameters)
+        overlap = lstm_params & kan_params
+        if overlap:
+            raise ValueError(f"LSTM and KAN learnable_parameters must not overlap. Found in both: {overlap}")
+
+        # All LSTM + KAN params must exist in parameter_ranges
+        all_learned = lstm_params | kan_params
+        missing = [p for p in all_learned if p not in self.params.parameter_ranges]
+        if missing:
+            raise ValueError(
+                f"Parameters {missing} are in learnable_parameters but missing from parameter_ranges"
+            )
+
+        # Forcings store required for LSTM dynamic inputs
+        if self.data_sources.forcings is None:
+            raise ValueError(
+                "data_sources.forcings must be set "
+                "(path to icechunk store with meteorological forcings for the LSTM)"
+            )
+
+        # When use_leakance=True, K_D and d_gw must be in parameter_ranges
         if self.params.use_leakance:
-            required_leakance_params = ["K_D", "d_gw", "leakance_factor"]
+            required_leakance_params = ["K_D", "d_gw"]
             missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
-
-            # LSTM produces leakance params — they must NOT be in kan.learnable_parameters
-            conflicting = [p for p in required_leakance_params if p in self.kan.learnable_parameters]
-            if conflicting:
-                raise ValueError(
-                    f"leakance_lstm is set, so {conflicting} must NOT be in kan.learnable_parameters "
-                    f"(LSTM produces them instead of KAN)"
-                )
 
         return self
 

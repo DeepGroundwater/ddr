@@ -127,9 +127,9 @@ kan:
   k: 2                            # B-spline order
 
 # --- Leakance LSTM (GW-SW exchange) ---
-# LSTM that predicts time-varying K_D, d_gw, leakance_factor from daily Q'
+# LSTM that predicts time-varying K_D, d_gw from daily Q'
 # and static catchment attributes. Only used when params.use_leakance is true.
-leakance_lstm:
+cuda_lstm:
   hidden_size: 64
   num_layers: 1
   dropout: 0.5

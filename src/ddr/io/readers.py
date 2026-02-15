@@ -1,6 +1,7 @@
 """A file to handle all reading from data sources"""
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -498,6 +499,95 @@ class IcechunkUSGSReader:
         padded_gage_ids = [str(gage_id).zfill(8) for gage_id in self.gage_dict["STAID"]]
         ds_ = self.ds.sel(gage_id=padded_gage_ids).isel(time=dates.numerical_time_range)
         return ds_
+
+
+class ForcingsReader(torch.nn.Module):
+    """A class to read meteorological forcings (P, PET, Temp) from an icechunk store."""
+
+    def __init__(self, cfg: Config) -> None:
+        super().__init__()
+        self.cfg = cfg
+        assert cfg.data_sources.forcings is not None, "data_sources.forcings must be set"
+        self.ds = read_ic(cfg.data_sources.forcings, region=cfg.s3_region)
+        self.forcing_var_names = list(cfg.cuda_lstm.forcing_var_names)
+        # Index Lookup Dictionary
+        self.divide_id_to_index = {divide_id: idx for idx, divide_id in enumerate(self.ds.divide_id.values)}
+        # Compute time offset: forcings store may not start at 1980-01-01 (the Dates origin)
+        first_time = pd.Timestamp(self.ds.time.values[0])
+        origin = pd.Timestamp("1980-01-01")
+        self._time_offset = (first_time - origin).days
+
+        # Load or compute forcing statistics for z-score normalization
+        from ddr.io.statistics import set_forcing_statistics
+
+        forcing_stats = set_forcing_statistics(cfg, self.ds)
+        self.forcing_means = torch.tensor(
+            [forcing_stats[var]["mean"] for var in self.forcing_var_names],
+            dtype=torch.float32,
+        )
+        self.forcing_stds = torch.tensor(
+            [forcing_stats[var]["std"] for var in self.forcing_var_names],
+            dtype=torch.float32,
+        )
+
+    def forward(self, **kwargs: Any) -> torch.Tensor:
+        """Read forcing variables for the given routing dataclass.
+
+        Returns
+        -------
+        torch.Tensor
+            Forcing data with shape (T_daily, N, num_forcing_vars), dtype float32.
+        """
+        routing_dataclass = kwargs["routing_dataclass"]
+        device = kwargs.get("device", "cpu")
+        dtype = kwargs.get("dtype", torch.float32)
+
+        valid_divide_indices = []
+        divide_idx_mask: list[int] = []
+        missing_count = 0
+
+        for i, divide_id in enumerate(routing_dataclass.divide_ids):
+            if divide_id in self.divide_id_to_index:
+                valid_divide_indices.append(self.divide_id_to_index[divide_id])
+                divide_idx_mask.append(i)
+            else:
+                missing_count += 1
+
+        if missing_count > 0:
+            total = len(routing_dataclass.divide_ids)
+            log.info(f"{missing_count}/{total} divide IDs missing from forcings (zero-filled)")
+
+        assert len(valid_divide_indices) != 0, "No valid divide IDs found in forcings store"
+
+        # Convert Dates numerical_time_range (days from 1980-01-01) to forcings store indices
+        forcings_indices = routing_dataclass.dates.numerical_time_range - self._time_offset
+
+        N = len(routing_dataclass.divide_ids)
+        T = len(forcings_indices)
+        num_vars = len(self.forcing_var_names)
+
+        # Read each forcing variable and stack
+        var_tensors = []
+        for var_name in self.forcing_var_names:
+            _ds = self.ds[var_name].isel(time=forcings_indices, divide_id=valid_divide_indices)
+            data = _ds.compute().values.astype(np.float32).T  # (T, num_valid)
+            # Fill NaN with per-basin temporal mean; if entire basin is NaN, fall back to 0.0
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                basin_means = np.nanmean(data, axis=0, keepdims=True)  # (1, num_valid)
+            nan_mask = np.isnan(data)
+            data = np.where(nan_mask, basin_means, data)
+            data = np.nan_to_num(data, nan=0.0)
+            var_tensor = torch.full((T, N), 0.0, dtype=dtype)
+            var_tensor[:, divide_idx_mask] = torch.tensor(data, dtype=dtype)
+            var_tensors.append(var_tensor)
+
+        # Stack: [T, N, num_vars]
+        output = torch.stack(var_tensors, dim=-1).to(device)
+        assert output.shape == (T, N, num_vars)
+        # Z-score normalize: (x - mean) / std
+        output = (output - self.forcing_means.to(device)) / self.forcing_stds.to(device)
+        return output
 
 
 class AttributesReader(torch.nn.Module):

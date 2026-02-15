@@ -56,3 +56,49 @@ def set_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
             json.dump(json_, f, indent=2)
 
     return df
+
+
+def set_forcing_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
+    """Compute or load normalization statistics for forcing variables.
+
+    Parameters
+    ----------
+    cfg : Config
+        The configuration object.
+    ds : xr.Dataset
+        The forcings xarray dataset (dims: divide_id × time).
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns = forcing var names, rows = [min, max, mean, std, p10, p90].
+    """
+    assert cfg.data_sources.forcings is not None, "data_sources.forcings must be set"
+    forcing_store_name = Path(cfg.data_sources.forcings).name
+    statistics_path = Path(cfg.data_sources.statistics)
+    statistics_path.mkdir(exist_ok=True)
+    stats_file = statistics_path / f"{cfg.geodataset.value}_forcing_statistics_{forcing_store_name}.json"
+
+    if stats_file.exists():
+        log.info(f"Reading Forcing Statistics from file: {stats_file.name}")
+        with open(stats_file) as f:
+            loaded = json.load(f)
+        return pd.DataFrame(loaded)
+
+    log.info(f"Computing forcing statistics for {forcing_store_name}")
+    json_: dict[str, dict[str, float]] = {}
+    for var in cfg.cuda_lstm.forcing_var_names:
+        data = ds[var].values  # (divide_id, time)
+        json_[var] = {
+            "min": float(np.nanmin(data)),
+            "max": float(np.nanmax(data)),
+            "mean": float(np.nanmean(data)),
+            "std": float(np.nanstd(data)),
+            "p10": float(np.nanpercentile(data, 10)),
+            "p90": float(np.nanpercentile(data, 90)),
+        }
+
+    with open(stats_file, "w") as f:
+        json.dump(json_, f, indent=2)
+
+    return pd.DataFrame(json_)

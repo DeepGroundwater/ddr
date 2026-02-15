@@ -116,6 +116,47 @@ Negative zeta (gaining) increases it, adding groundwater baseflow.
 
 The `d_gw` range spans shallow alluvial aquifers (0.01 m) to deep bedrock settings (300 m), consistent with CONUS water table depth observations (Fan et al., 2013; Maxwell et al.).
 
+## Changes Since Song et al. (2025)
+
+The original leakance implementation (Song et al. 2025, Eq. 12-14) defined `d_gw` as the **height of the water table above the channel bed**, with the channel bed as the reference datum:
+
+```
+Old equation:  zeta = A_wetted * K_D * (depth - d_gw)
+Old range:     d_gw in [-2.0, 2.0] m  (linear space)
+Old reference: channel bed = 0
+```
+
+```
+        │~~~│   <-- depth (flow depth, relative to channel bed)
+        │   │
+════════╧═══╧════  <-- channel bed (datum = 0)
+        .   .
+~ ~ ~ ~ ~ ~ ~ ~ ~  <-- water table at d_gw above channel bed
+```
+
+In that formulation:
+
+- **Positive `d_gw`** (e.g. +1.0 m) = water table above channel bed. If `d_gw > depth`, then `depth - d_gw < 0` giving a gaining stream.
+- **Negative `d_gw`** (e.g. -1.0 m) = water table below channel bed. `depth - d_gw` is always positive, giving a losing stream.
+
+### Problems
+
+1. **Negative `d_gw` is nonsensical as a "height"** -- the parameter was used as a signed offset relative to the channel bed rather than a true physical quantity.
+2. **Range [-2.0, 2.0] m is far too narrow** -- real CONUS water table depths span 0 to 300+ meters below ground surface (Fan et al. 2013, Maxwell et al.).
+3. **Wrong reference frame** -- hydrogeology convention measures water table depth from the ground surface, not from the channel bed. The channel bed's position relative to the ground surface was never accounted for.
+
+### Current formulation
+
+The updated equation explicitly computes where the channel bed sits relative to the ground surface using `h_bed = top_width / (2 * side_slope)` from existing trapezoidal geometry, then builds the head difference from a common datum (ground surface = 0):
+
+```
+New equation:  zeta = A_wetted * K_D * (depth - h_bed + d_gw)
+New range:     d_gw in [0.01, 300.0] m  (log space)
+New reference: ground surface = 0
+```
+
+This makes `d_gw` a proper physical quantity with a physically meaningful range, and the sign convention follows naturally from the geometry rather than from an arbitrary signed offset.
+
 ## Implementation
 
 - **Core math**: `src/ddr/routing/mmc.py` -- `_compute_zeta()`

@@ -152,11 +152,18 @@ def _compute_zeta(
     length: torch.Tensor,
     K_D: torch.Tensor,
     d_gw: torch.Tensor,
+    top_width: torch.Tensor,
+    side_slope: torch.Tensor,
 ) -> torch.Tensor:
     """Compute groundwater-surface water exchange (leakance) term.
 
     Implements the zeta term from Song et al. (2025), Eq. 12-14, using
-    power-law depth/width geometry.
+    power-law depth/width geometry. The head difference is computed as:
+
+        Δh = depth - h_bed + d_gw
+
+    where h_bed = top_width / (2 * side_slope) is the channel incision
+    depth from trapezoidal geometry.
 
     Parameters
     ----------
@@ -175,7 +182,11 @@ def _compute_zeta(
     K_D : torch.Tensor
         Hydraulic exchange rate [1/s]
     d_gw : torch.Tensor
-        Groundwater depth threshold [m]
+        Depth to water table from ground surface [m]
+    top_width : torch.Tensor
+        Channel top width [m]
+    side_slope : torch.Tensor
+        Channel side slope (z horizontal : 1 vertical)
 
     Returns
     -------
@@ -190,7 +201,8 @@ def _compute_zeta(
     )
     width = torch.pow(p_spatial * depth, q_spatial)
     area = width * length
-    zeta = area * K_D * (depth - d_gw)
+    h_bed = top_width / (2.0 * side_slope)
+    zeta = area * K_D * (depth - h_bed + d_gw)
     return zeta
 
 
@@ -635,6 +647,8 @@ class MuskingumCunge:
                 self.length,
                 self.K_D,
                 self.d_gw,
+                self.top_width,
+                self.side_slope,
             )
             self._last_zeta = zeta.detach().clone()
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp) - zeta

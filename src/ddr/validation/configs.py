@@ -99,7 +99,7 @@ class Params(BaseModel):
             "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
             "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
             "K_D": [1e-8, 1e-6],  # Hydraulic exchange rate (1/s)
-            "d_gw": [0.01, 300.0],  # Groundwater table height above channel bed (m)
+            "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
         },
         description="The parameter space bounds [min, max] to project learned physical values to",
     )

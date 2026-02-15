@@ -38,6 +38,8 @@ class TestComputeZeta:
             "length": torch.ones(n) * 1000.0,
             "K_D": torch.ones(n) * 1e-7,
             "d_gw": torch.ones(n) * 0.5,
+            "top_width": torch.ones(n) * 10.0,
+            "side_slope": torch.ones(n) * 2.0,
         }
 
     def test_zeta_shape_matches_inputs(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
@@ -45,17 +47,18 @@ class TestComputeZeta:
         zeta = _compute_zeta(**zeta_inputs)
         assert_tensor_properties(zeta, (10,))
 
-    def test_zeta_positive_when_depth_gt_d_gw(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
-        """Test that zeta is positive when water depth > groundwater depth (losing stream)."""
-        # Set d_gw very negative so depth > d_gw always
-        zeta_inputs["d_gw"] = torch.ones(10) * -10.0
+    def test_zeta_positive_when_deep_water_table(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
+        """Test that zeta is positive when water table is deep (losing stream)."""
+        # Large d_gw = deep water table => Δh = depth - h_bed + d_gw >> 0 => zeta > 0
+        zeta_inputs["d_gw"] = torch.ones(10) * 200.0
         zeta = _compute_zeta(**zeta_inputs)
         assert (zeta > 0).all(), f"Expected all positive (losing stream), got {zeta}"
 
-    def test_zeta_negative_when_depth_lt_d_gw(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
-        """Test that zeta is negative when water depth < groundwater depth (gaining stream)."""
-        # Set d_gw very large so depth < d_gw always
-        zeta_inputs["d_gw"] = torch.ones(10) * 100.0
+    def test_zeta_negative_when_shallow_water_table(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
+        """Test that zeta is negative when water table is shallow (gaining stream)."""
+        # Small d_gw = shallow water table => Δh = depth - h_bed + d_gw < 0 when h_bed > depth + d_gw
+        # h_bed = 10/(2*2) = 2.5m, depth ≈ 0.65m, so Δh ≈ 0.65 - 2.5 + 0.01 < 0 => gaining
+        zeta_inputs["d_gw"] = torch.ones(10) * 0.01
         zeta = _compute_zeta(**zeta_inputs)
         assert (zeta < 0).all(), f"Expected all negative (gaining stream), got {zeta}"
 
@@ -131,7 +134,7 @@ class TestLeakanceInRouting:
         mc_no_leak.setup_inputs(hydrofabric, streamflow, spatial_params_no_leak)
         mapper_no_leak, _, _ = mc_no_leak.create_pattern_mapper()
 
-        # Run WITH leakance (losing stream: d_gw very negative => depth > d_gw => zeta > 0)
+        # Run WITH leakance (losing stream: d_gw=300m deep water table => zeta > 0)
         cfg_leak = create_mock_config_with_leakance()
         mc_leak = MuskingumCunge(cfg_leak, device="cpu")
         spatial_params_leak = {
@@ -143,7 +146,7 @@ class TestLeakanceInRouting:
         # Set leakance params via LSTM path
         leakance_params = {
             "K_D": torch.ones(1, num_reaches) * 0.5,  # Normalized, will be denormalized to [1e-8, 1e-6]
-            "d_gw": torch.zeros(1, num_reaches),  # Normalized 0.0 => d_gw = -2.0 (very negative)
+            "d_gw": torch.ones(1, num_reaches),  # Normalized 1.0 => d_gw = 300m (deep water table)
         }
         mc_leak.setup_leakance_params(leakance_params)
         assert mc_leak._K_D_t is not None
@@ -451,7 +454,7 @@ class TestLeakanceConfigValidation:
                     "n": [0.01, 0.1],
                     "q_spatial": [0.1, 0.9],
                     "K_D": [1e-8, 1e-6],
-                    "d_gw": [-2.0, 2.0],
+                    "d_gw": [0.01, 300.0],
                 },
                 "defaults": {"p_spatial": 1.0},
                 "attribute_minimums": {
@@ -513,7 +516,7 @@ class TestLeakanceConfigValidation:
                     "n": [0.01, 0.1],
                     "q_spatial": [0.1, 0.9],
                     "K_D": [1e-8, 1e-6],
-                    "d_gw": [-2.0, 2.0],
+                    "d_gw": [0.01, 300.0],
                 },
                 "defaults": {"p_spatial": 1.0},
                 "attribute_minimums": {

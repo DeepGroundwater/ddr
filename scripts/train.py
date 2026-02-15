@@ -13,7 +13,8 @@ from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
 from ddr._version import __version__
-from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
+from ddr.routing.utils import select_columns
+from ddr.scripts_utils import load_checkpoint
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
@@ -32,11 +33,10 @@ def train(
     data_generator.manual_seed(cfg.seed)
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
-    lr = cfg.experiment.learning_rate[1]
     start_epoch = 1
     start_mini_batch = 0
 
-    kan_optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
+    kan_optimizer = torch.optim.Adadelta(params=nn.parameters())
     lstm_optimizer = torch.optim.Adadelta(params=lstm_nn.parameters())
 
     if cfg.experiment.checkpoint:
@@ -52,9 +52,6 @@ def train(
         start_mini_batch = (
             0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
         )  # Start from the next mini-batch
-        lr = resolve_learning_rate(cfg.experiment.learning_rate, start_epoch)
-        for param_group in kan_optimizer.param_groups:
-            param_group["lr"] = lr
     else:
         log.info("Creating new spatial model")
     sampler = RandomSampler(
@@ -71,11 +68,6 @@ def train(
     )
 
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
-        if epoch in cfg.experiment.learning_rate.keys():
-            log.info(f"Setting KAN learning rate: {cfg.experiment.learning_rate[epoch]}")
-            for param_group in kan_optimizer.param_groups:
-                param_group["lr"] = cfg.experiment.learning_rate[epoch]
-
         for i, routing_dataclass in enumerate(dataloader, start=0):
             if i < start_mini_batch:
                 log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")
@@ -88,13 +80,17 @@ def train(
                 streamflow_predictions = flow(
                     routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
                 )
-                spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
+                attr_names = routing_dataclass.attribute_names
+                normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
+                kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
+                spatial_params = nn(inputs=kan_attrs)
                 forcing_data = forcings_reader_nn(
                     routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
                 )
+                lstm_attrs = select_columns(normalized_attrs, list(cfg.cuda_lstm.input_var_names), attr_names)
                 lstm_params = lstm_nn(
                     forcings=forcing_data,
-                    attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
+                    attributes=lstm_attrs,
                 )
                 dmc_kwargs = {
                     "routing_dataclass": routing_dataclass,

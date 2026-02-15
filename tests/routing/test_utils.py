@@ -218,7 +218,7 @@ def create_mock_config_with_leakance() -> Config:
             "parameter_ranges": {
                 "n": [0.01, 0.1],
                 "q_spatial": [0.1, 0.9],
-                "K_D": [1e-8, 1e-6],
+                "K_D_delta": [-2.0, 2.0],
                 "d_gw": [0.01, 300.0],
             },
             "defaults": {"p_spatial": 1.0},
@@ -235,8 +235,10 @@ def create_mock_config_with_leakance() -> Config:
         "kan": {
             "input_var_names": [
                 "mock",
+                "SoilGrids1km_sand",
+                "SoilGrids1km_clay",
             ],
-            "learnable_parameters": ["q_spatial", "K_D"],
+            "learnable_parameters": ["q_spatial", "K_D_delta"],
         },
         "cuda_lstm": {
             "input_var_names": ["mock"],
@@ -267,7 +269,7 @@ def create_mock_config_with_cuda_lstm() -> Config:
             "parameter_ranges": {
                 "n": [0.01, 0.1],
                 "q_spatial": [0.1, 0.9],
-                "K_D": [1e-8, 1e-6],
+                "K_D_delta": [-2.0, 2.0],
                 "d_gw": [0.01, 300.0],
             },
             "defaults": {"p_spatial": 1.0},
@@ -284,8 +286,10 @@ def create_mock_config_with_cuda_lstm() -> Config:
         "kan": {
             "input_var_names": [
                 "mock",
+                "SoilGrids1km_sand",
+                "SoilGrids1km_clay",
             ],
-            "learnable_parameters": ["q_spatial", "K_D"],
+            "learnable_parameters": ["q_spatial", "K_D_delta"],
         },
         "cuda_lstm": {
             "forcing_var_names": ["P", "PET", "Temp"],

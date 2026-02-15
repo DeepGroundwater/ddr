@@ -95,7 +95,7 @@ class TestLeakanceInRouting:
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=num_reaches)
         spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
         # K_D now comes from spatial_parameters (KAN)
-        spatial_params["K_D"] = torch.rand(num_reaches)
+        spatial_params["K_D_delta"] = torch.rand(num_reaches)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
         # Set LSTM params (n and d_gw)
@@ -146,7 +146,7 @@ class TestLeakanceInRouting:
         mc_leak = MuskingumCunge(cfg_leak, device="cpu")
         spatial_params_leak = {
             "q_spatial": spatial_params_no_leak["q_spatial"].clone(),
-            "K_D": torch.ones(num_reaches) * 0.5,  # Normalized, will be denormalized to [1e-8, 1e-6]
+            "K_D_delta": torch.ones(num_reaches) * 0.5,  # Normalized, will be denormalized to [-2, 2]
         }
         mc_leak.setup_inputs(hydrofabric, streamflow, spatial_params_leak)
 
@@ -193,7 +193,7 @@ class TestLeakanceInRouting:
         streamflow = create_mock_streamflow(num_timesteps=num_timesteps, num_reaches=num_reaches)
         spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
         # K_D now from KAN (spatial_parameters)
-        spatial_params["K_D"] = torch.rand(num_reaches)
+        spatial_params["K_D_delta"] = torch.rand(num_reaches)
 
         T_daily = num_timesteps // 24
         lstm_params = {
@@ -245,7 +245,7 @@ class TestLeakanceGradientFlow:
         streamflow_data = create_mock_streamflow(num_timesteps=num_timesteps, num_reaches=num_reaches)
         spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
         # K_D now from KAN (spatial_parameters)
-        spatial_params["K_D"] = torch.rand(num_reaches)
+        spatial_params["K_D_delta"] = torch.rand(num_reaches)
         lstm_nn = create_mock_cuda_lstm()
 
         all_params = list(lstm_nn.parameters())
@@ -320,7 +320,7 @@ class TestLeakanceLstmInRouting:
         streamflow_data = create_mock_streamflow(num_timesteps=num_timesteps, num_reaches=num_reaches)
         spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
         # K_D from KAN (spatial_parameters)
-        spatial_params["K_D"] = torch.rand(num_reaches)
+        spatial_params["K_D_delta"] = torch.rand(num_reaches)
 
         T_daily = num_timesteps // 24
         lstm_params = {
@@ -375,7 +375,7 @@ class TestLeakanceLstmInRouting:
         streamflow_data = create_mock_streamflow(num_timesteps=num_timesteps, num_reaches=num_reaches)
         spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
         # K_D from KAN (spatial_parameters)
-        spatial_params["K_D"] = torch.rand(num_reaches)
+        spatial_params["K_D_delta"] = torch.rand(num_reaches)
 
         lstm_nn = create_mock_cuda_lstm()
         T_daily = num_timesteps // 24
@@ -452,7 +452,7 @@ class TestLeakanceConfigValidation:
             validate_config(DictConfig(cfg_dict), save_config=False)
 
     def test_use_leakance_true_with_proper_param_split_valid(self) -> None:
-        """Test that use_leakance=True is valid with K_D in KAN, n+d_gw in LSTM."""
+        """Test that use_leakance=True is valid with K_D_delta in KAN, n+d_gw in LSTM."""
         cfg_dict = {
             "name": "mock",
             "mode": "training",
@@ -469,7 +469,7 @@ class TestLeakanceConfigValidation:
                 "parameter_ranges": {
                     "n": [0.01, 0.1],
                     "q_spatial": [0.1, 0.9],
-                    "K_D": [1e-8, 1e-6],
+                    "K_D_delta": [-2.0, 2.0],
                     "d_gw": [0.01, 300.0],
                 },
                 "defaults": {"p_spatial": 1.0},
@@ -484,8 +484,8 @@ class TestLeakanceConfigValidation:
                 "use_leakance": True,
             },
             "kan": {
-                "input_var_names": ["mock"],
-                "learnable_parameters": ["q_spatial", "K_D"],
+                "input_var_names": ["mock", "SoilGrids1km_sand", "SoilGrids1km_clay"],
+                "learnable_parameters": ["q_spatial", "K_D_delta"],
             },
             "cuda_lstm": {
                 "input_var_names": ["mock"],
@@ -496,7 +496,7 @@ class TestLeakanceConfigValidation:
         }
         cfg = validate_config(DictConfig(cfg_dict), save_config=False)
         assert cfg.params.use_leakance is True
-        assert "K_D" in cfg.kan.learnable_parameters
+        assert "K_D_delta" in cfg.kan.learnable_parameters
         assert "n" in cfg.cuda_lstm.learnable_parameters
         assert "d_gw" in cfg.cuda_lstm.learnable_parameters
 
@@ -508,10 +508,10 @@ class TestLeakanceConfigValidation:
         assert cfg.params.use_leakance is False
 
     def test_cuda_lstm_config_valid(self) -> None:
-        """Test that LSTM config is accepted with K_D in KAN, n+d_gw in LSTM."""
+        """Test that LSTM config is accepted with K_D_delta in KAN, n+d_gw in LSTM."""
         cfg = create_mock_config_with_cuda_lstm()
         assert cfg.params.use_leakance is True
-        assert "K_D" in cfg.kan.learnable_parameters
+        assert "K_D_delta" in cfg.kan.learnable_parameters
         assert "n" in cfg.cuda_lstm.learnable_parameters
         assert "d_gw" in cfg.cuda_lstm.learnable_parameters
 
@@ -533,7 +533,7 @@ class TestLeakanceConfigValidation:
                 "parameter_ranges": {
                     "n": [0.01, 0.1],
                     "q_spatial": [0.1, 0.9],
-                    "K_D": [1e-8, 1e-6],
+                    "K_D_delta": [-2.0, 2.0],
                     "d_gw": [0.01, 300.0],
                 },
                 "defaults": {"p_spatial": 1.0},
@@ -548,8 +548,8 @@ class TestLeakanceConfigValidation:
                 "use_leakance": True,
             },
             "kan": {
-                "input_var_names": ["mock"],
-                "learnable_parameters": ["q_spatial", "K_D", "n"],
+                "input_var_names": ["mock", "SoilGrids1km_sand", "SoilGrids1km_clay"],
+                "learnable_parameters": ["q_spatial", "K_D_delta", "n"],
             },
             "cuda_lstm": {
                 "input_var_names": ["mock"],

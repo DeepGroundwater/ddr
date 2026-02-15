@@ -163,6 +163,31 @@ def get_network_idx(mapper: PatternMapper) -> tuple[torch.Tensor, torch.Tensor]:
     return torch.tensor(rows), torch.tensor(cols)
 
 
+def select_columns(
+    attributes: torch.Tensor,
+    var_names: list[str],
+    all_var_names: list[str],
+) -> torch.Tensor:
+    """Select attribute columns by name from the full union tensor.
+
+    Parameters
+    ----------
+    attributes : torch.Tensor
+        Full attribute tensor, shape (num_reaches, num_all_vars).
+    var_names : list[str]
+        Variable names to select (subset of all_var_names).
+    all_var_names : list[str]
+        All variable names corresponding to columns in attributes.
+
+    Returns
+    -------
+    torch.Tensor
+        Selected columns, shape (num_reaches, len(var_names)).
+    """
+    indices = [all_var_names.index(v) for v in var_names]
+    return attributes[:, indices]
+
+
 def denormalize(value: torch.Tensor, bounds: list[float], log_space: bool = False) -> torch.Tensor:
     """Denormalizing neural network outputs to physical bounds
 

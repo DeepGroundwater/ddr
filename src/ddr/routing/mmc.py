@@ -6,6 +6,7 @@ implementation.
 """
 
 import logging
+import math
 from typing import Any
 
 import torch
@@ -20,6 +21,22 @@ from ddr.routing.utils import (
 from ddr.validation.configs import Config
 
 log = logging.getLogger(__name__)
+
+# Cosby et al. (1984) pedotransfer function constants
+_COSBY_INTERCEPT = -0.60
+_COSBY_SAND_COEFF = 0.0126
+_COSBY_CLAY_COEFF = -0.0064
+_LOG10_INCHES_HR_TO_M_S = math.log10(7.056e-6)  # inches/hr → m/s ≈ -5.151
+
+
+def _cosby_log10_ks(sand_pct: torch.Tensor, clay_pct: torch.Tensor) -> torch.Tensor:
+    """Cosby et al. (1984) PTF: log10(Ks) in m/s from sand/clay percentages."""
+    return (
+        _COSBY_INTERCEPT
+        + _COSBY_SAND_COEFF * sand_pct
+        + _COSBY_CLAY_COEFF * clay_pct
+        + _LOG10_INCHES_HR_TO_M_S
+    )
 
 
 def compute_hotstart_discharge(
@@ -266,7 +283,7 @@ class MuskingumCunge:
 
         # Leakance parameters
         self.use_leakance: bool = cfg.params.use_leakance
-        self.K_D: torch.Tensor | None = None  # Static, from KAN (when use_leakance=True)
+        self.K_D: torch.Tensor | None = None  # Cosby PTF + KAN delta (when use_leakance=True)
         self.d_gw: torch.Tensor | None = None
 
         # Time-varying parameters (from LSTM, daily resolution)
@@ -283,6 +300,14 @@ class MuskingumCunge:
         self._group_ids: torch.Tensor | None = None
         self._num_outputs: int | None = None
         self._scatter_input: torch.Tensor | None = None
+
+        # Cosby PTF indices for K_D_delta (resolved from KAN input_var_names)
+        self._ptf_sand_idx: int | None = None
+        self._ptf_clay_idx: int | None = None
+        if self.use_leakance and hasattr(cfg, "kan"):
+            kan_vars = list(cfg.kan.input_var_names)
+            self._ptf_sand_idx = kan_vars.index(cfg.params.ptf_sand_var)
+            self._ptf_clay_idx = kan_vars.index(cfg.params.ptf_clay_var)
 
     def set_progress_info(self, epoch: int, mini_batch: int) -> None:
         """Set progress information for display purposes.
@@ -371,13 +396,21 @@ class MuskingumCunge:
             log_space="q_spatial" in log_space_params,
         )
 
-        # K_D is static (from KAN) when use_leakance is enabled
-        if self.use_leakance and "K_D" in spatial_parameters:
-            self.K_D = denormalize(
-                value=spatial_parameters["K_D"],
-                bounds=self.parameter_bounds["K_D"],
-                log_space="K_D" in log_space_params,
+        # K_D via Cosby PTF + KAN delta correction (when use_leakance is enabled)
+        if self.use_leakance and "K_D_delta" in spatial_parameters:
+            delta = denormalize(
+                spatial_parameters["K_D_delta"],
+                self.parameter_bounds["K_D_delta"],
+                log_space=False,
             )
+            assert self.routing_dataclass is not None
+            raw_attrs = self.routing_dataclass.spatial_attributes
+            assert raw_attrs is not None
+            assert self._ptf_sand_idx is not None and self._ptf_clay_idx is not None
+            sand_pct = raw_attrs[self._ptf_sand_idx].to(self.device).to(torch.float32)
+            clay_pct = raw_attrs[self._ptf_clay_idx].to(self.device).to(torch.float32)
+            log10_ks = _cosby_log10_ks(sand_pct, clay_pct)
+            self.K_D = torch.pow(torch.tensor(10.0, device=self.device), log10_ks + delta)
 
         routing_dataclass = self.routing_dataclass
         if routing_dataclass.top_width.numel() == 0:

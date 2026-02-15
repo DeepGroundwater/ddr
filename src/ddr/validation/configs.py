@@ -98,7 +98,7 @@ class Params(BaseModel):
             "q_spatial": [0.0, 1.0],  # Channel shape: 0=rectangular, 1=triangular (-)
             "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
             "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
-            "K_D": [1e-8, 1e-6],  # Hydraulic exchange rate (1/s)
+            "K_D_delta": [-2.0, 2.0],  # Log-space delta from Cosby PTF prior (-)
             "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
         },
         description="The parameter space bounds [min, max] to project learned physical values to",
@@ -120,7 +120,15 @@ class Params(BaseModel):
     use_leakance: bool = Field(
         default=False,
         description="Enable groundwater-surface water exchange (leakance) in routing. "
-        "When True, K_D and d_gw must be in params.parameter_ranges.",
+        "When True, K_D_delta and d_gw must be in params.parameter_ranges.",
+    )
+    ptf_sand_var: str = Field(
+        default="SoilGrids1km_sand",
+        description="Sand % variable name for Cosby PTF (must be in kan.input_var_names)",
+    )
+    ptf_clay_var: str = Field(
+        default="SoilGrids1km_clay",
+        description="Clay % variable name for Cosby PTF (must be in kan.input_var_names)",
     )
     tau: int = Field(
         default=3,
@@ -302,12 +310,19 @@ class Config(BaseModel):
                 "(path to icechunk store with meteorological forcings for the LSTM)"
             )
 
-        # When use_leakance=True, K_D and d_gw must be in parameter_ranges
+        # When use_leakance=True, K_D_delta and d_gw must be in parameter_ranges
         if self.params.use_leakance:
-            required_leakance_params = ["K_D", "d_gw"]
+            required_leakance_params = ["K_D_delta", "d_gw"]
             missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
+
+            # Validate PTF variables exist in KAN input_var_names
+            kan_vars = self.kan.input_var_names
+            if self.params.ptf_sand_var not in kan_vars:
+                raise ValueError(f"ptf_sand_var '{self.params.ptf_sand_var}' must be in kan.input_var_names")
+            if self.params.ptf_clay_var not in kan_vars:
+                raise ValueError(f"ptf_clay_var '{self.params.ptf_clay_var}' must be in kan.input_var_names")
 
         return self
 

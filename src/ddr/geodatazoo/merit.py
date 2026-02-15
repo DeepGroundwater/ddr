@@ -52,7 +52,12 @@ class Merit(BaseGeoDataset):
         self.attribute_ds = self._load_attributes()
         self.attr_stats = set_statistics(self.cfg, self.attribute_ds)
         self.id_to_index = {comid: idx for idx, comid in enumerate(self.attribute_ds.COMID.values)}
-        self.attributes_list = list(self.cfg.kan.input_var_names)
+        all_names = list(self.cfg.kan.input_var_names)
+        if self.cfg.cuda_lstm is not None:
+            for name in self.cfg.cuda_lstm.input_var_names:
+                if name not in all_names:
+                    all_names.append(name)
+        self.attributes_list = all_names
 
         # Precompute mean/std tensors for normalization
         self.means = torch.tensor(
@@ -269,6 +274,7 @@ class Merit(BaseGeoDataset):
             outflow_idx=outflow_idx,
             gage_catchment=gage_catchment,
             flow_scale=flow_scale,
+            attribute_names=self.attributes_list,
         )
 
     def _build_common_tensors(
@@ -397,6 +403,7 @@ class Merit(BaseGeoDataset):
             divide_ids=compressed_merit_ids,
             outflow_idx=outflow_idx,
             gage_catchment=None,
+            attribute_names=self.attributes_list,
         )
 
     def _build_routing_data_all_catchments(self) -> RoutingDataclass:
@@ -435,6 +442,7 @@ class Merit(BaseGeoDataset):
             divide_ids=self.merit_ids,
             outflow_idx=None,
             gage_catchment=None,
+            attribute_names=self.attributes_list,
         )
 
     def _build_routing_data_gages(self) -> RoutingDataclass:
@@ -515,4 +523,5 @@ class Merit(BaseGeoDataset):
             outflow_idx=outflow_idx,
             gage_catchment=gage_catchment,
             flow_scale=flow_scale,
+            attribute_names=self.attributes_list,
         )

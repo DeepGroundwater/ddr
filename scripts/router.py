@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader, SequentialSampler
 
 from ddr import CudaLSTM, dmc, forcings_reader, kan, streamflow
 from ddr._version import __version__
+from ddr.routing.utils import select_columns
 from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
 from ddr.validation import Config, validate_config
 
@@ -87,13 +88,20 @@ def route_trained_model(
             streamflow_predictions = flow(
                 routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
             )
-            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
+            attr_names = routing_dataclass.attribute_names
+            normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
+            kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
+            spatial_params = nn(inputs=kan_attrs)
             lstm_batch_size = 1_000
             # Load forcings to CPU to avoid GPU OOM on full CONUS (~180k reaches)
             forcing_data = forcings_reader_nn(
                 routing_dataclass=routing_dataclass, device="cpu", dtype=torch.float32
             )
-            all_attrs = routing_dataclass.normalized_spatial_attributes
+            all_attrs = select_columns(
+                routing_dataclass.normalized_spatial_attributes,
+                list(cfg.cuda_lstm.input_var_names),
+                attr_names,
+            )
             n_reaches = all_attrs.shape[0]
 
             # Save full hidden states from previous dataloader batch (None on first)

@@ -192,10 +192,13 @@ def create_mock_spatial_parameters(num_reaches: int, device: str = "cpu") -> dic
     Dict[str, torch.Tensor]
         Mock spatial parameters (normalized values between 0 and 1)
     """
-    return {
+    params: dict[str, torch.Tensor] = {
         "n": torch.rand(num_reaches, device=device),  # Normalized Manning's n
         "q_spatial": torch.rand(num_reaches, device=device),  # Normalized q_spatial
     }
+    # Include K_D for leakance-enabled configs
+    params["K_D"] = torch.rand(num_reaches, device=device)
+    return params
 
 
 def create_mock_config_with_leakance() -> Config:
@@ -234,7 +237,7 @@ def create_mock_config_with_leakance() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["n", "q_spatial"],
+            "learnable_parameters": ["n", "q_spatial", "K_D"],
         },
         "leakance_lstm": {
             "input_var_names": ["mock"],
@@ -282,7 +285,7 @@ def create_mock_config_with_leakance_lstm() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["n", "q_spatial"],  # NOT including leakance params
+            "learnable_parameters": ["n", "q_spatial", "K_D"],
         },
         "leakance_lstm": {
             "forcing_var_names": ["P", "PET", "Temp"],

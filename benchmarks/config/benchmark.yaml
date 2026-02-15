@@ -56,6 +56,7 @@ kan:
     - q_spatial
     - top_width
     - side_slope
+    - K_D
   grid: 50
   k: 2
 

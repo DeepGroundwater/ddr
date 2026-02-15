@@ -278,17 +278,17 @@ class Config(BaseModel):
 
         # Validate leakance configuration
         if self.params.use_leakance:
-            # K_D must be in parameter_ranges and KAN learnable_parameters (static, per-reach)
-            if "K_D" not in self.params.parameter_ranges:
-                raise ValueError("use_leakance=True requires K_D in params.parameter_ranges")
-            if "K_D" not in self.kan.learnable_parameters:
-                raise ValueError("use_leakance=True requires K_D in kan.learnable_parameters")
+            required_leakance_params = ["K_D", "d_gw"]
+            missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
+            if missing_ranges:
+                raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
 
-            # d_gw must be in parameter_ranges but NOT in KAN (LSTM produces it)
-            if "d_gw" not in self.params.parameter_ranges:
-                raise ValueError("use_leakance=True requires d_gw in params.parameter_ranges")
-            if "d_gw" in self.kan.learnable_parameters:
-                raise ValueError("d_gw must NOT be in kan.learnable_parameters (LSTM produces it)")
+            conflicting = [p for p in required_leakance_params if p in self.kan.learnable_parameters]
+            if conflicting:
+                raise ValueError(
+                    f"leakance_lstm is set, so {conflicting} must NOT be in kan.learnable_parameters "
+                    f"(LSTM produces them instead of KAN)"
+                )
 
             # Forcings store required for LSTM dynamic inputs
             if self.data_sources.forcings is None:

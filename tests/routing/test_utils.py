@@ -196,8 +196,6 @@ def create_mock_spatial_parameters(num_reaches: int, device: str = "cpu") -> dic
         "n": torch.rand(num_reaches, device=device),  # Normalized Manning's n
         "q_spatial": torch.rand(num_reaches, device=device),  # Normalized q_spatial
     }
-    # Include K_D for leakance-enabled configs
-    params["K_D"] = torch.rand(num_reaches, device=device)
     return params
 
 
@@ -237,7 +235,7 @@ def create_mock_config_with_leakance() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["n", "q_spatial", "K_D"],
+            "learnable_parameters": ["n", "q_spatial"],
         },
         "leakance_lstm": {
             "input_var_names": ["mock"],
@@ -285,7 +283,7 @@ def create_mock_config_with_leakance_lstm() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["n", "q_spatial", "K_D"],
+            "learnable_parameters": ["n", "q_spatial"],
         },
         "leakance_lstm": {
             "forcing_var_names": ["P", "PET", "Temp"],

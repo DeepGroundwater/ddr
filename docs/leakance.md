@@ -93,7 +93,7 @@ Where:
 
 - `A_wetted = width * length` = wetted streambed area [m^2]
 - `width = (p_spatial * depth)^q_spatial` = power-law width [m]
-- `K_D` = hydraulic exchange rate [1/s] (static, per-reach; learned by KAN)
+- `K_D` = hydraulic exchange rate [1/s] (time-varying, daily; learned by LSTM)
 - `d_gw` = depth to water table from ground surface [m] (time-varying, daily; learned by LSTM)
 
 ## Modified Routing Equation
@@ -160,7 +160,6 @@ This makes `d_gw` a proper physical quantity with a physically meaningful range,
 ## Implementation
 
 - **Core math**: `src/ddr/routing/mmc.py` -- `_compute_zeta()`
-- **KAN prediction**: `src/ddr/nn/kan.py` -- produces static `K_D` (per-reach) from catchment attributes
-- **LSTM prediction**: `src/ddr/nn/leakance_lstm.py` -- produces daily `d_gw` from forcings + attributes
+- **LSTM prediction**: `src/ddr/nn/leakance_lstm.py` -- produces daily `K_D` and `d_gw` from forcings + attributes
 - **Config**: `src/ddr/validation/configs.py` -- `params.use_leakance`, `params.parameter_ranges`
-- **Daily-to-hourly mapping**: In `MuskingumCunge.forward()`, `day_idx = (timestep - 1) // 24` (for `d_gw` only)
+- **Daily-to-hourly mapping**: In `MuskingumCunge.forward()`, `day_idx = (timestep - 1) // 24`

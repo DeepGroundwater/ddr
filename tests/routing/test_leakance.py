@@ -96,13 +96,16 @@ class TestLeakanceInRouting:
         spatial_params = create_mock_spatial_parameters(num_reaches=num_reaches)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
-        # Set leakance params via LSTM path (1 day of daily d_gw)
+        # Set leakance params via LSTM path (1 day of daily K_D and d_gw)
         leakance_params = {
+            "K_D": torch.rand(1, num_reaches),
             "d_gw": torch.rand(1, num_reaches),
         }
         mc.setup_leakance_params(leakance_params)
-        # Manually set current-timestep d_gw from day 0
+        # Manually set current-timestep K_D and d_gw from day 0
+        assert mc._K_D_t is not None
         assert mc._d_gw_t is not None
+        mc.K_D = mc._K_D_t[0]
         mc.d_gw = mc._d_gw_t[0]
 
         mapper, _, _ = mc.create_pattern_mapper()
@@ -137,16 +140,18 @@ class TestLeakanceInRouting:
         spatial_params_leak = {
             "n": spatial_params_no_leak["n"].clone(),
             "q_spatial": spatial_params_no_leak["q_spatial"].clone(),
-            "K_D": torch.ones(num_reaches) * 0.5,  # Normalized, will be denormalized to [1e-8, 1e-6]
         }
         mc_leak.setup_inputs(hydrofabric, streamflow, spatial_params_leak)
 
-        # Set d_gw via LSTM path
+        # Set K_D and d_gw via LSTM path
         leakance_params = {
+            "K_D": torch.ones(1, num_reaches) * 0.5,  # Normalized, will be denormalized to [1e-8, 1e-6]
             "d_gw": torch.ones(1, num_reaches),  # Normalized 1.0 => d_gw = 300m (deep water table)
         }
         mc_leak.setup_leakance_params(leakance_params)
+        assert mc_leak._K_D_t is not None
         assert mc_leak._d_gw_t is not None
+        mc_leak.K_D = mc_leak._K_D_t[0]
         mc_leak.d_gw = mc_leak._d_gw_t[0]
         mapper_leak, _, _ = mc_leak.create_pattern_mapper()
 
@@ -183,6 +188,7 @@ class TestLeakanceInRouting:
 
         T_daily = num_timesteps // 24
         leakance_params = {
+            "K_D": torch.rand(T_daily, num_reaches),
             "d_gw": torch.rand(T_daily, num_reaches),
         }
 
@@ -276,16 +282,19 @@ class TestLeakanceLstmInRouting:
     """Test time-varying leakance from LSTM in routing."""
 
     def test_setup_leakance_params_denormalizes(self) -> None:
-        """Test that setup_leakance_params stores denormalized daily d_gw tensor."""
+        """Test that setup_leakance_params stores denormalized daily K_D and d_gw tensors."""
         cfg = create_mock_config_with_leakance_lstm()
         mc = MuskingumCunge(cfg, device="cpu")
 
         T_daily, N = 3, 10
         leakance_params = {
+            "K_D": torch.ones(T_daily, N) * 0.5,
             "d_gw": torch.ones(T_daily, N) * 0.5,
         }
         mc.setup_leakance_params(leakance_params)
 
+        assert mc._K_D_t is not None
+        assert mc._K_D_t.shape == (T_daily, N)
         assert mc._d_gw_t is not None
         assert mc._d_gw_t.shape == (T_daily, N)
 
@@ -302,6 +311,7 @@ class TestLeakanceLstmInRouting:
 
         T_daily = num_timesteps // 24
         leakance_params = {
+            "K_D": torch.rand(T_daily, num_reaches),
             "d_gw": torch.rand(T_daily, num_reaches),
         }
 
@@ -328,6 +338,7 @@ class TestLeakanceLstmInRouting:
         T_daily, N = 2, 5
         # Set up different values for each day so we can verify indexing
         leakance_params = {
+            "K_D": torch.zeros(T_daily, N),
             "d_gw": torch.zeros(T_daily, N),
         }
         leakance_params["d_gw"][0] = 0.2
@@ -424,8 +435,8 @@ class TestLeakanceConfigValidation:
         with pytest.raises(ValueError, match="params.parameter_ranges"):
             validate_config(DictConfig(cfg_dict), save_config=False)
 
-    def test_use_leakance_true_with_K_D_in_kan_valid(self) -> None:
-        """Test that use_leakance=True is valid when K_D is in kan.learnable_parameters."""
+    def test_use_leakance_true_without_kan_learnable_params_valid(self) -> None:
+        """Test that use_leakance=True is valid when K_D and d_gw are NOT in kan.learnable_parameters."""
         cfg_dict = {
             "name": "mock",
             "mode": "training",
@@ -458,7 +469,7 @@ class TestLeakanceConfigValidation:
             },
             "kan": {
                 "input_var_names": ["mock"],
-                "learnable_parameters": ["n", "q_spatial", "K_D"],
+                "learnable_parameters": ["n", "q_spatial"],
             },
             "leakance_lstm": {
                 "input_var_names": ["mock"],
@@ -468,7 +479,7 @@ class TestLeakanceConfigValidation:
         }
         cfg = validate_config(DictConfig(cfg_dict), save_config=False)
         assert cfg.params.use_leakance is True
-        assert "K_D" in cfg.kan.learnable_parameters
+        assert "K_D" not in cfg.kan.learnable_parameters
         assert "d_gw" not in cfg.kan.learnable_parameters
 
     def test_use_leakance_false_is_default(self) -> None:
@@ -479,14 +490,14 @@ class TestLeakanceConfigValidation:
         assert cfg.params.use_leakance is False
 
     def test_leakance_lstm_config_valid(self) -> None:
-        """Test that LSTM leakance config is accepted when K_D in KAN, d_gw NOT in KAN."""
+        """Test that LSTM leakance config is accepted when K_D and d_gw NOT in KAN."""
         cfg = create_mock_config_with_leakance_lstm()
         assert cfg.params.use_leakance is True
-        assert "K_D" in cfg.kan.learnable_parameters
+        assert "K_D" not in cfg.kan.learnable_parameters
         assert "d_gw" not in cfg.kan.learnable_parameters
 
-    def test_d_gw_in_kan_raises(self) -> None:
-        """Test that d_gw in kan.learnable_parameters raises (LSTM produces it)."""
+    def test_leakance_lstm_with_kan_params_raises(self) -> None:
+        """Test that K_D and d_gw in kan.learnable_parameters raises (LSTM produces them)."""
         cfg_dict = {
             "name": "mock",
             "mode": "training",
@@ -530,50 +541,5 @@ class TestLeakanceConfigValidation:
             "s3_region": "us-east-1",
             "device": "cpu",
         }
-        with pytest.raises(ValueError, match="d_gw must NOT be in kan.learnable_parameters"):
-            validate_config(DictConfig(cfg_dict), save_config=False)
-
-    def test_use_leakance_without_K_D_in_kan_raises(self) -> None:
-        """Test that use_leakance=True without K_D in kan.learnable_parameters raises."""
-        cfg_dict = {
-            "name": "mock",
-            "mode": "training",
-            "geodataset": "lynker_hydrofabric",
-            "data_sources": {
-                "geospatial_fabric_gpkg": "mock.gpkg",
-                "streamflow": "mock://streamflow/store",
-                "conus_adjacency": "mock.zarr",
-                "gages_adjacency": "mock.zarr",
-                "gages": "mock.csv",
-                "forcings": "mock://forcings/store",
-            },
-            "params": {
-                "parameter_ranges": {
-                    "n": [0.01, 0.1],
-                    "q_spatial": [0.1, 0.9],
-                    "K_D": [1e-8, 1e-6],
-                    "d_gw": [0.01, 300.0],
-                },
-                "defaults": {"p_spatial": 1.0},
-                "attribute_minimums": {
-                    "velocity": 0.1,
-                    "depth": 0.01,
-                    "discharge": 0.001,
-                    "bottom_width": 0.1,
-                    "slope": 0.0001,
-                },
-                "tau": 7,
-                "use_leakance": True,
-            },
-            "kan": {
-                "input_var_names": ["mock"],
-                "learnable_parameters": ["n", "q_spatial"],
-            },
-            "leakance_lstm": {
-                "input_var_names": ["mock"],
-            },
-            "s3_region": "us-east-1",
-            "device": "cpu",
-        }
-        with pytest.raises(ValueError, match="K_D in kan.learnable_parameters"):
+        with pytest.raises(ValueError, match="must NOT be in kan.learnable_parameters"):
             validate_config(DictConfig(cfg_dict), save_config=False)

@@ -35,21 +35,23 @@ class TestLeakanceLstmOutput:
     """Test output shape, range, and keys."""
 
     def test_output_shape(self, model: leakance_lstm, sample_inputs: dict[str, torch.Tensor]) -> None:
-        """Test that d_gw output has shape (T_daily, N)."""
+        """Test that K_D and d_gw outputs have shape (T_daily, N)."""
         outputs = model(**sample_inputs)
         T, N, _ = sample_inputs["forcings"].shape
+        assert outputs["K_D"].shape == (T, N), f"K_D shape {outputs['K_D'].shape} != ({T}, {N})"
         assert outputs["d_gw"].shape == (T, N), f"d_gw shape {outputs['d_gw'].shape} != ({T}, {N})"
 
     def test_output_range(self, model: leakance_lstm, sample_inputs: dict[str, torch.Tensor]) -> None:
         """Test that outputs are in [0, 1] (sigmoid)."""
         outputs = model(**sample_inputs)
-        assert outputs["d_gw"].min() >= 0.0, f"d_gw min {outputs['d_gw'].min()} < 0"
-        assert outputs["d_gw"].max() <= 1.0, f"d_gw max {outputs['d_gw'].max()} > 1"
+        for key in ["K_D", "d_gw"]:
+            assert outputs[key].min() >= 0.0, f"{key} min {outputs[key].min()} < 0"
+            assert outputs[key].max() <= 1.0, f"{key} max {outputs[key].max()} > 1"
 
     def test_output_keys(self, model: leakance_lstm, sample_inputs: dict[str, torch.Tensor]) -> None:
         """Test that output dict keys match learnable_parameters."""
         outputs = model(**sample_inputs)
-        assert set(outputs.keys()) == {"d_gw"}
+        assert set(outputs.keys()) == {"K_D", "d_gw"}
 
     def test_no_nan_or_inf(self, model: leakance_lstm, sample_inputs: dict[str, torch.Tensor]) -> None:
         """Test that outputs contain no NaN or Inf values."""
@@ -144,6 +146,7 @@ class TestLeakanceLstmInit:
         )
         # Should run without error
         outputs = m(forcings=torch.rand(5, 4, 2), attributes=torch.rand(4, 1))
+        assert outputs["K_D"].shape == (5, 4)
         assert outputs["d_gw"].shape == (5, 4)
 
     def test_single_layer_no_dropout(self) -> None:

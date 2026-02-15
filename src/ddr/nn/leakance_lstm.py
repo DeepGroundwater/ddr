@@ -8,15 +8,13 @@ log = logging.getLogger(__name__)
 
 
 class leakance_lstm(torch.nn.Module):
-    """An LSTM for time-varying depth-to-water-table (d_gw) prediction.
+    """An LSTM for time-varying leakance parameter prediction (K_D and d_gw).
 
     Follows the CudnnLstmModel/LstmModel architecture from generic_deltamodel:
-    Linear(nx, hidden) -> ReLU -> LSTM(hidden, hidden) -> Linear(hidden, 1) -> Sigmoid
+    Linear(nx, hidden) -> ReLU -> LSTM(hidden, hidden) -> Linear(hidden, 2) -> Sigmoid
 
     Concatenates meteorological forcings (P, PET, Temp) with static catchment attributes
-    at each timestep, producing time-varying d_gw in [0,1].
-
-    K_D (hydraulic exchange rate) is a static streambed property predicted by the KAN.
+    at each timestep, producing time-varying K_D and d_gw in [0,1].
     """
 
     def __init__(
@@ -33,7 +31,7 @@ class leakance_lstm(torch.nn.Module):
         self.num_forcing_vars = len(forcing_var_names)
         self.input_size = len(input_var_names) + self.num_forcing_vars
         self.hidden_size = hidden_size
-        self.learnable_parameters = ["d_gw"]
+        self.learnable_parameters = ["K_D", "d_gw"]
         self.output_size = len(self.learnable_parameters)
 
         torch.manual_seed(seed)
@@ -73,7 +71,7 @@ class leakance_lstm(torch.nn.Module):
         Returns
         -------
         dict[str, torch.Tensor]
-            Dictionary with d_gw shape (T_daily, N) in [0, 1].
+            Dictionary with K_D and d_gw, each shape (T_daily, N) in [0, 1].
         """
         forcings: torch.Tensor = kwargs["forcings"]  # [T_daily, N, num_forcing_vars]
         attributes: torch.Tensor = kwargs["attributes"]

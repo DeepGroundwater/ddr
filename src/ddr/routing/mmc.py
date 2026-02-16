@@ -281,16 +281,12 @@ class MuskingumCunge:
         self.epoch = 0
         self.mini_batch = 0
 
-        # Spatial baseline Manning's n (from KAN, when present)
-        self.n_base: torch.Tensor | None = None
-
         # Leakance parameters
         self.use_leakance: bool = cfg.params.use_leakance
         self.K_D: torch.Tensor | None = None  # Cosby PTF + KAN delta (when use_leakance=True)
         self.d_gw: torch.Tensor | None = None
 
         # Time-varying parameters (from LSTM, daily resolution)
-        self._n_t: torch.Tensor | None = None  # Manning's n (always from LSTM)
         self._d_gw_t: torch.Tensor | None = None  # d_gw (from LSTM when use_leakance=True)
 
         # Leakance diagnostic accumulators (populated during forward())
@@ -326,11 +322,9 @@ class MuskingumCunge:
         self.routing_dataclass = None
         self.q_prime = None
         self.spatial_parameters = None
-        self._n_t = None
         self._d_gw_t = None
         self.K_D = None
         self.d_gw = None
-        self.n_base = None
         self._zeta_sum = None
         self._q_prime_sum = torch.empty(0)
         self._last_zeta = torch.empty(0)
@@ -406,12 +400,12 @@ class MuskingumCunge:
             log10_ks = _cosby_log10_ks(sand_pct, clay_pct)
             self.K_D = torch.pow(torch.tensor(10.0, device=self.device), log10_ks + delta)
 
-        # Spatial baseline Manning's n (from KAN, when present)
-        if "n_base" in spatial_parameters:
-            self.n_base = denormalize(
-                value=spatial_parameters["n_base"],
-                bounds=self.parameter_bounds["n_base"],
-                log_space="n_base" in log_space_params,
+        # Manning's n (from KAN, static spatial)
+        if "n" in spatial_parameters:
+            self.n = denormalize(
+                value=spatial_parameters["n"],
+                bounds=self.parameter_bounds["n"],
+                log_space="n" in log_space_params,
             )
 
         routing_dataclass = self.routing_dataclass
@@ -438,16 +432,10 @@ class MuskingumCunge:
         Parameters
         ----------
         lstm_params : dict[str, torch.Tensor]
-            Dict with n (always) and optionally d_gw, each shape (T_daily, N) in [0,1].
+            Dict with d_gw, shape (T_daily, N) in [0,1].
             Stored as daily tensors; mapped to hourly timesteps in forward().
         """
         log_space = self.cfg.params.log_space_parameters
-        n_temporal = denormalize(lstm_params["n"], self.parameter_bounds["n"], "n" in log_space)
-        if self.n_base is not None:
-            # Combine spatial baseline (KAN) × temporal modulator (LSTM)
-            self._n_t = self.n_base.unsqueeze(0) * n_temporal
-        else:
-            self._n_t = n_temporal
         if "d_gw" in lstm_params:
             self._d_gw_t = denormalize(
                 lstm_params["d_gw"], self.parameter_bounds["d_gw"], "d_gw" in log_space
@@ -556,11 +544,7 @@ class MuskingumCunge:
             # Map hourly timestep to daily index for LSTM time-varying params
             day_idx = (timestep - 1) // 24
 
-            # Always: time-varying n from LSTM
-            if self._n_t is not None:
-                self.n = self._n_t[min(day_idx, self._n_t.shape[0] - 1)]
-
-            # Conditionally: leakance d_gw
+            # Time-varying d_gw from LSTM (when leakance enabled)
             if self.use_leakance and self._d_gw_t is not None:
                 self.d_gw = self._d_gw_t[min(day_idx, self._d_gw_t.shape[0] - 1)]
 

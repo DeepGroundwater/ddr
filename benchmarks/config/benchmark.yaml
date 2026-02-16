@@ -26,36 +26,30 @@ params:
   save_path: ./
   use_leakance: true
   parameter_ranges:
-    n: [0.5, 1.5]          # Temporal modulator centered at 1.0 (LSTM)
-    n_base: [0.015, 0.25]  # Spatial baseline Manning's roughness (KAN)
+    n: [0.015, 0.25]       # Manning's roughness (KAN, static spatial)
 
 experiment:
   batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-15_10-54-35/saved_models/_ddr-v0.5.0-merit-training_epoch_5_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-15_20-34-33/saved_models/_ddr-v0.5.0-merit-training_epoch_15_mb_43.pt
 
 kan:
-  hidden_size: 21
+  hidden_size: 11
   input_var_names:
-    - SoilGrids1km_clay
     - aridity
     - meanelevation
-    - meanP
     - NDVI
     - meanslope
     - log10_uparea
-    - SoilGrids1km_sand
-    - ETPOT_Hargr
-    - Porosity
   num_hidden_layers: 2
   learnable_parameters:
     - q_spatial
     - top_width
     - side_slope
     - K_D_delta
-    - n_base
+    - n
   grid: 50
   k: 2
 
@@ -68,13 +62,12 @@ cuda_lstm:
     - PET
     - Temp
   learnable_parameters:
-    - n
     - d_gw
   input_var_names:
     - SoilGrids1km_clay
-    - aridity
+    - glaciers
     - meanelevation
-    - meanP
+    - snowfall_fraction
     - NDVI
     - meanslope
     - log10_uparea

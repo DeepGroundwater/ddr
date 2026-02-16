@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, RandomSampler
 from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
 from ddr._version import __version__
 from ddr.routing.utils import select_columns
-from ddr.scripts_utils import load_checkpoint
+from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
@@ -36,8 +36,9 @@ def train(
     start_epoch = 1
     start_mini_batch = 0
 
-    kan_optimizer = torch.optim.Adadelta(params=nn.parameters())
-    lstm_optimizer = torch.optim.Adadelta(params=lstm_nn.parameters())
+    lr = resolve_learning_rate(cfg.experiment.learning_rate, 1)
+    kan_optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
+    lstm_optimizer = torch.optim.Adam(params=lstm_nn.parameters(), lr=lr)
 
     if cfg.experiment.checkpoint:
         state = load_checkpoint(
@@ -52,6 +53,11 @@ def train(
         start_mini_batch = (
             0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
         )  # Start from the next mini-batch
+        lr = resolve_learning_rate(cfg.experiment.learning_rate, start_epoch)
+        for param_group in kan_optimizer.param_groups:
+            param_group["lr"] = lr
+        for param_group in lstm_optimizer.param_groups:
+            param_group["lr"] = lr
     else:
         log.info("Creating new spatial model")
     sampler = RandomSampler(
@@ -68,6 +74,13 @@ def train(
     )
 
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
+        if epoch in cfg.experiment.learning_rate:
+            lr = cfg.experiment.learning_rate[epoch]
+            log.info(f"Setting learning rate: {lr}")
+            for param_group in kan_optimizer.param_groups:
+                param_group["lr"] = lr
+            for param_group in lstm_optimizer.param_groups:
+                param_group["lr"] = lr
         for i, routing_dataclass in enumerate(dataloader, start=0):
             if i < start_mini_batch:
                 log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")

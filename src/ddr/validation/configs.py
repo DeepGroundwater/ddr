@@ -79,7 +79,6 @@ class DataSources(BaseModel):
 
 _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
     "n": [0.015, 0.25],  # Manning's roughness (s/m¹ᐟ³)
-    "n_base": [0.015, 0.25],  # Spatial baseline Manning's roughness (KAN)
     "q_spatial": [0.0, 1.0],  # Channel shape: 0=rectangular, 1=triangular (-)
     "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
     "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
@@ -115,7 +114,7 @@ class Params(BaseModel):
         """Merge user-provided parameter_ranges on top of defaults.
 
         This allows YAML configs to specify only the ranges they want to override
-        (e.g. just n and n_base) without wiping out defaults for other parameters.
+        (e.g. just n) without wiping out defaults for other parameters.
         """
         if isinstance(v, dict):
             merged = dict(_DEFAULT_PARAMETER_RANGES)
@@ -178,7 +177,7 @@ class CudaLstm(BaseModel):
         description="Static attribute names used as LSTM inputs alongside forcings"
     )
     learnable_parameters: list[str] = Field(
-        default_factory=lambda: ["n", "d_gw"],
+        default_factory=lambda: ["d_gw"],
         description="Names of time-varying parameters the LSTM will learn to predict",
     )
 
@@ -236,6 +235,11 @@ class ExperimentConfig(BaseModel):
         "Gages exceeding this threshold are excluded from training/evaluation. None disables filtering. "
         "For MERIT geodataset, the DA_VALID column in gage CSVs is preferred.",
     )
+    learning_rate: dict[int, float] = Field(
+        default_factory=lambda: {1: 0.001, 5: 0.0005, 9: 0.0001},
+        description="Learning rate schedule mapping epoch number to LR. "
+        "At each epoch, the most recent entry at or before the current epoch is used.",
+    )
 
     @field_validator("checkpoint", mode="before")
     @classmethod
@@ -266,7 +270,7 @@ class Config(BaseModel):
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
     cuda_lstm: CudaLstm = Field(
-        description="CudaLSTM config for time-varying parameter prediction (n, d_gw).",
+        description="CudaLSTM config for time-varying parameter prediction (d_gw).",
     )
     np_seed: int = Field(default=42, description="Random seed for NumPy operations to ensure reproducibility")
     seed: int = Field(default=42, description="Random seed for PyTorch operations to ensure reproducibility")

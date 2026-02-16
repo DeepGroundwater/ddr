@@ -22,11 +22,11 @@ def _minimal_config_dict(**overrides):
         "params": {},
         "kan": {
             "input_var_names": ["slope", "length"],
-            "learnable_parameters": ["q_spatial"],
+            "learnable_parameters": ["q_spatial", "n"],
         },
         "cuda_lstm": {
             "input_var_names": ["slope", "length"],
-            "learnable_parameters": ["n"],
+            "learnable_parameters": [],
         },
     }
     base.update(overrides)
@@ -141,7 +141,6 @@ class TestParamsDefaults:
     def test_parameter_ranges_defaults(self) -> None:
         p = Params()
         assert "n" in p.parameter_ranges
-        assert "n_base" in p.parameter_ranges
         assert "q_spatial" in p.parameter_ranges
         assert "top_width" in p.parameter_ranges
         assert "side_slope" in p.parameter_ranges

@@ -162,8 +162,8 @@ class dmc(torch.nn.Module):
             Keyword arguments containing:
             - routing_dataclass: routing_dataclass object with network and channel properties
             - streamflow: Input streamflow tensor
-            - spatial_parameters: Dictionary of spatial parameters (q_spatial, K_D, etc.)
-            - lstm_params: Dictionary of time-varying parameters from LSTM (n, d_gw)
+            - spatial_parameters: Dictionary of spatial parameters (q_spatial, n, K_D, etc.)
+            - lstm_params: Dictionary of time-varying parameters from LSTM (d_gw)
 
         Returns
         -------
@@ -185,7 +185,7 @@ class dmc(torch.nn.Module):
             carry_state=carry_state,
         )
 
-        # Setup time-varying LSTM params (n, and optionally d_gw)
+        # Setup time-varying LSTM params (d_gw)
         lstm_params = kwargs.get("lstm_params", None)
         if lstm_params is not None:
             self.routing_engine.setup_lstm_params(lstm_params)
@@ -202,7 +202,7 @@ class dmc(torch.nn.Module):
 
         # Update state AFTER forward() so they reference current-batch values
         self._discharge_t = self.routing_engine._discharge_t
-        self.n = self.routing_engine.n  # Last timestep value from LSTM
+        self.n = self.routing_engine.n  # Static spatial value from KAN
         if self.routing_engine.use_leakance:
             self.K_D = self.routing_engine.K_D
             self.d_gw = self.routing_engine.d_gw
@@ -233,8 +233,6 @@ class dmc(torch.nn.Module):
                     spatial_params["side_slope"].retain_grad()
                 if "p_spatial" in spatial_params:
                     spatial_params["p_spatial"].retain_grad()
-                if "n_base" in spatial_params:
-                    spatial_params["n_base"].retain_grad()
                 if "K_D" in spatial_params:
                     spatial_params["K_D"].retain_grad()
                 if "d_gw" in spatial_params:

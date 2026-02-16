@@ -104,6 +104,33 @@ def load_checkpoint(
     return state
 
 
+def resolve_learning_rate(
+    learning_rate_schedule: dict[int, float],
+    epoch: int,
+) -> float:
+    """Resolve the learning rate for a given epoch from the schedule.
+
+    Finds the largest epoch key <= the current epoch. Falls back to the
+    smallest key if no key matches.
+
+    Parameters
+    ----------
+    learning_rate_schedule : dict[int, float]
+        Mapping of epoch numbers to learning rates.
+    epoch : int
+        Current epoch number.
+
+    Returns
+    -------
+    float
+        The learning rate to use.
+    """
+    applicable = {k: v for k, v in learning_rate_schedule.items() if k <= epoch}
+    if applicable:
+        return float(applicable[max(applicable)])
+    return float(learning_rate_schedule[min(learning_rate_schedule)])
+
+
 def safe_percentile(arr: np.ndarray, percentile: float) -> float:
     """Percentile ignoring NaN values. Returns np.nan if all NaN.
 

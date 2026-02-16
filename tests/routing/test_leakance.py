@@ -448,7 +448,7 @@ class TestLeakanceConfigValidation:
             "s3_region": "us-east-1",
             "device": "cpu",
         }
-        with pytest.raises(ValueError, match="params.parameter_ranges"):
+        with pytest.raises(ValueError, match="ptf_sand_var"):
             validate_config(DictConfig(cfg_dict), save_config=False)
 
     def test_use_leakance_true_with_proper_param_split_valid(self) -> None:

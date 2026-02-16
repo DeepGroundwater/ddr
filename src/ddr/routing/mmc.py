@@ -304,14 +304,6 @@ class MuskingumCunge:
         self._num_outputs: int | None = None
         self._scatter_input: torch.Tensor | None = None
 
-        # Cosby PTF indices for K_D_delta (resolved from KAN input_var_names)
-        self._ptf_sand_idx: int | None = None
-        self._ptf_clay_idx: int | None = None
-        if self.use_leakance and hasattr(cfg, "kan"):
-            kan_vars = list(cfg.kan.input_var_names)
-            self._ptf_sand_idx = kan_vars.index(cfg.params.ptf_sand_var)
-            self._ptf_clay_idx = kan_vars.index(cfg.params.ptf_clay_var)
-
     def set_progress_info(self, epoch: int, mini_batch: int) -> None:
         """Set progress information for display purposes.
 
@@ -408,11 +400,9 @@ class MuskingumCunge:
                 log_space=False,
             )
             assert self.routing_dataclass is not None
-            raw_attrs = self.routing_dataclass.spatial_attributes
-            assert raw_attrs is not None
-            assert self._ptf_sand_idx is not None and self._ptf_clay_idx is not None
-            sand_pct = raw_attrs[self._ptf_sand_idx].to(self.device).to(torch.float32)
-            clay_pct = raw_attrs[self._ptf_clay_idx].to(self.device).to(torch.float32)
+            assert self.routing_dataclass.sand_pct is not None and self.routing_dataclass.clay_pct is not None
+            sand_pct = self.routing_dataclass.sand_pct.to(self.device).to(torch.float32)
+            clay_pct = self.routing_dataclass.clay_pct.to(self.device).to(torch.float32)
             log10_ks = _cosby_log10_ks(sand_pct, clay_pct)
             self.K_D = torch.pow(torch.tensor(10.0, device=self.device), log10_ks + delta)
 

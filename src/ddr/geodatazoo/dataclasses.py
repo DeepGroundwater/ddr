@@ -208,3 +208,5 @@ class RoutingDataclass:
     gage_catchment: list[str] | None = field(default=None)
     flow_scale: torch.Tensor | None = field(default=None)
     attribute_names: list[str] | None = field(default=None)
+    sand_pct: torch.Tensor | None = field(default=None)
+    clay_pct: torch.Tensor | None = field(default=None)

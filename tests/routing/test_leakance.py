@@ -410,47 +410,6 @@ class TestLeakanceLstmInRouting:
 class TestLeakanceConfigValidation:
     """Test configuration validation for leakance."""
 
-    def test_use_leakance_true_without_param_ranges_raises(self) -> None:
-        """Test that use_leakance=True without K_D/d_gw in parameter_ranges raises."""
-        cfg_dict = {
-            "name": "mock",
-            "mode": "training",
-            "geodataset": "lynker_hydrofabric",
-            "data_sources": {
-                "geospatial_fabric_gpkg": "mock.gpkg",
-                "streamflow": "mock://streamflow/store",
-                "conus_adjacency": "mock.zarr",
-                "gages_adjacency": "mock.zarr",
-                "gages": "mock.csv",
-                "forcings": "mock://forcings/store",
-            },
-            "params": {
-                "parameter_ranges": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9]},
-                "defaults": {"p_spatial": 1.0},
-                "attribute_minimums": {
-                    "velocity": 0.1,
-                    "depth": 0.01,
-                    "discharge": 0.001,
-                    "bottom_width": 0.1,
-                    "slope": 0.0001,
-                },
-                "tau": 7,
-                "use_leakance": True,
-            },
-            "kan": {
-                "input_var_names": ["mock"],
-                "learnable_parameters": ["q_spatial"],
-            },
-            "cuda_lstm": {
-                "input_var_names": ["mock"],
-                "learnable_parameters": ["n"],
-            },
-            "s3_region": "us-east-1",
-            "device": "cpu",
-        }
-        with pytest.raises(ValueError, match="ptf_sand_var"):
-            validate_config(DictConfig(cfg_dict), save_config=False)
-
     def test_use_leakance_true_with_proper_param_split_valid(self) -> None:
         """Test that use_leakance=True is valid with K_D_delta in KAN, n+d_gw in LSTM."""
         cfg_dict = {
@@ -484,7 +443,7 @@ class TestLeakanceConfigValidation:
                 "use_leakance": True,
             },
             "kan": {
-                "input_var_names": ["mock", "SoilGrids1km_sand", "SoilGrids1km_clay"],
+                "input_var_names": ["mock"],
                 "learnable_parameters": ["q_spatial", "K_D_delta"],
             },
             "cuda_lstm": {
@@ -548,7 +507,7 @@ class TestLeakanceConfigValidation:
                 "use_leakance": True,
             },
             "kan": {
-                "input_var_names": ["mock", "SoilGrids1km_sand", "SoilGrids1km_clay"],
+                "input_var_names": ["mock"],
                 "learnable_parameters": ["q_spatial", "K_D_delta", "n"],
             },
             "cuda_lstm": {

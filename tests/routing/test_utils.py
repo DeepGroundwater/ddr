@@ -123,6 +123,10 @@ class MockRoutingDataclass:
         self.stds = self.spatial_attributes.std(dim=1, keepdim=True)
         self.normalized_spatial_attributes = self.spatial_attributes.sub(self.means).div(self.stds).T
 
+        # mock soil attributes for Cosby PTF (leakance)
+        self.sand_pct = torch.rand(num_reaches, device=device) * 50 + 25  # 25-75%
+        self.clay_pct = torch.rand(num_reaches, device=device) * 30 + 10  # 10-40%
+
         # mock gauge outflows
         self.outflow_idx = [np.array([-1])]  # Picking two values as there are two gages in obs
         self.gage_catchment = ["wb-1"]
@@ -235,8 +239,6 @@ def create_mock_config_with_leakance() -> Config:
         "kan": {
             "input_var_names": [
                 "mock",
-                "SoilGrids1km_sand",
-                "SoilGrids1km_clay",
             ],
             "learnable_parameters": ["q_spatial", "K_D_delta"],
         },
@@ -286,8 +288,6 @@ def create_mock_config_with_cuda_lstm() -> Config:
         "kan": {
             "input_var_names": [
                 "mock",
-                "SoilGrids1km_sand",
-                "SoilGrids1km_clay",
             ],
             "learnable_parameters": ["q_spatial", "K_D_delta"],
         },

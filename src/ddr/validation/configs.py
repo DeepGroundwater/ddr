@@ -144,11 +144,11 @@ class Params(BaseModel):
     )
     ptf_sand_var: str = Field(
         default="SoilGrids1km_sand",
-        description="Sand % variable name for Cosby PTF (must be in kan.input_var_names)",
+        description="Sand % variable name in the attribute dataset for Cosby PTF",
     )
     ptf_clay_var: str = Field(
         default="SoilGrids1km_clay",
-        description="Clay % variable name for Cosby PTF (must be in kan.input_var_names)",
+        description="Clay % variable name in the attribute dataset for Cosby PTF",
     )
     tau: int = Field(
         default=3,
@@ -332,13 +332,6 @@ class Config(BaseModel):
             missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
-
-            # Validate PTF variables exist in KAN input_var_names
-            kan_vars = self.kan.input_var_names
-            if self.params.ptf_sand_var not in kan_vars:
-                raise ValueError(f"ptf_sand_var '{self.params.ptf_sand_var}' must be in kan.input_var_names")
-            if self.params.ptf_clay_var not in kan_vars:
-                raise ValueError(f"ptf_clay_var '{self.params.ptf_clay_var}' must be in kan.input_var_names")
 
         return self
 

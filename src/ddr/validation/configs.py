@@ -95,10 +95,11 @@ class Params(BaseModel):
     parameter_ranges: dict[str, list[float]] = Field(
         default_factory=lambda: {
             "n": [0.015, 0.25],  # Manning's roughness (s/m¹ᐟ³)
+            "n_base": [0.015, 0.25],  # Spatial baseline Manning's roughness (KAN)
             "q_spatial": [0.0, 1.0],  # Channel shape: 0=rectangular, 1=triangular (-)
             "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
             "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
-            "K_D_delta": [-2.0, 2.0],  # Log-space delta from Cosby PTF prior (-)
+            "K_D_delta": [-3.0, 1.0],  # Log-space delta from Cosby PTF prior (-)
             "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
         },
         description="The parameter space bounds [min, max] to project learned physical values to",

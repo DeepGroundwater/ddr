@@ -25,6 +25,9 @@ data_sources:
 params:
   save_path: ./
   use_leakance: true
+  parameter_ranges:
+    n: [0.5, 1.5]          # Temporal modulator centered at 1.0 (LSTM)
+    n_base: [0.015, 0.25]  # Spatial baseline Manning's roughness (KAN)
 
 experiment:
   batch_size: 365
@@ -52,6 +55,7 @@ kan:
     - top_width
     - side_slope
     - K_D_delta
+    - n_base
   grid: 50
   k: 2
 

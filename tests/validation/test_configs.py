@@ -141,6 +141,7 @@ class TestParamsDefaults:
     def test_parameter_ranges_defaults(self) -> None:
         p = Params()
         assert "n" in p.parameter_ranges
+        assert "n_base" in p.parameter_ranges
         assert "q_spatial" in p.parameter_ranges
         assert "top_width" in p.parameter_ranges
         assert "side_slope" in p.parameter_ranges

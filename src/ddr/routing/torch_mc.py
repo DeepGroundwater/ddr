@@ -233,6 +233,8 @@ class dmc(torch.nn.Module):
                     spatial_params["side_slope"].retain_grad()
                 if "p_spatial" in spatial_params:
                     spatial_params["p_spatial"].retain_grad()
+                if "n_base" in spatial_params:
+                    spatial_params["n_base"].retain_grad()
                 if "K_D" in spatial_params:
                     spatial_params["K_D"].retain_grad()
                 if "d_gw" in spatial_params:

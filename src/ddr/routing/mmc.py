@@ -281,6 +281,9 @@ class MuskingumCunge:
         self.epoch = 0
         self.mini_batch = 0
 
+        # Spatial baseline Manning's n (from KAN, when present)
+        self.n_base: torch.Tensor | None = None
+
         # Leakance parameters
         self.use_leakance: bool = cfg.params.use_leakance
         self.K_D: torch.Tensor | None = None  # Cosby PTF + KAN delta (when use_leakance=True)
@@ -335,6 +338,7 @@ class MuskingumCunge:
         self._d_gw_t = None
         self.K_D = None
         self.d_gw = None
+        self.n_base = None
         self._zeta_sum = None
         self._q_prime_sum = torch.empty(0)
         self._last_zeta = torch.empty(0)
@@ -412,6 +416,14 @@ class MuskingumCunge:
             log10_ks = _cosby_log10_ks(sand_pct, clay_pct)
             self.K_D = torch.pow(torch.tensor(10.0, device=self.device), log10_ks + delta)
 
+        # Spatial baseline Manning's n (from KAN, when present)
+        if "n_base" in spatial_parameters:
+            self.n_base = denormalize(
+                value=spatial_parameters["n_base"],
+                bounds=self.parameter_bounds["n_base"],
+                log_space="n_base" in log_space_params,
+            )
+
         routing_dataclass = self.routing_dataclass
         if routing_dataclass.top_width.numel() == 0:
             self.top_width = denormalize(
@@ -440,7 +452,12 @@ class MuskingumCunge:
             Stored as daily tensors; mapped to hourly timesteps in forward().
         """
         log_space = self.cfg.params.log_space_parameters
-        self._n_t = denormalize(lstm_params["n"], self.parameter_bounds["n"], "n" in log_space)
+        n_temporal = denormalize(lstm_params["n"], self.parameter_bounds["n"], "n" in log_space)
+        if self.n_base is not None:
+            # Combine spatial baseline (KAN) × temporal modulator (LSTM)
+            self._n_t = self.n_base.unsqueeze(0) * n_temporal
+        else:
+            self._n_t = n_temporal
         if "d_gw" in lstm_params:
             self._d_gw_t = denormalize(
                 lstm_params["d_gw"], self.parameter_bounds["d_gw"], "d_gw" in log_space

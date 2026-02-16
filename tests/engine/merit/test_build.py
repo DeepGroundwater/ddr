@@ -150,9 +150,9 @@ class TestBuildGaugeAdjacencies:
 
     def test_headwater_gauge(self, tmp_path, mock_merit_fp, sandbox_zarr_path):
         """Headwater COMID gauge (10) → subgroup with 0 edges."""
-        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+        from tests.engine.merit.conftest import make_gauge_set
 
-        headwater_gauges = MockGaugeSet(gauges=[MockGauge(STAID="00000010", COMID=10)])
+        headwater_gauges = make_gauge_set([{"STAID": "00000010", "COMID": 10}])
         out_path = tmp_path / "hw_gages.zarr"
         build_gauge_adjacencies(mock_merit_fp, sandbox_zarr_path, headwater_gauges, out_path)
         root = zarr.open_group(store=out_path, mode="r")

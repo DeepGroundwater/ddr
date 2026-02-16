@@ -218,7 +218,7 @@ def create_mock_config_with_leakance() -> Config:
             "parameter_ranges": {
                 "n": [0.01, 0.1],
                 "q_spatial": [0.1, 0.9],
-                "K_D_delta": [-2.0, 2.0],
+                "K_D_delta": [-3.0, 1.0],
                 "d_gw": [0.01, 300.0],
             },
             "defaults": {"p_spatial": 1.0},
@@ -269,7 +269,7 @@ def create_mock_config_with_cuda_lstm() -> Config:
             "parameter_ranges": {
                 "n": [0.01, 0.1],
                 "q_spatial": [0.1, 0.9],
-                "K_D_delta": [-2.0, 2.0],
+                "K_D_delta": [-3.0, 1.0],
                 "d_gw": [0.01, 300.0],
             },
             "defaults": {"p_spatial": 1.0},

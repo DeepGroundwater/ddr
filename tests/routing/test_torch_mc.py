@@ -374,11 +374,11 @@ class TestdmcPyTorchIntegration:
         routing_dataclass = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
 
-        # Create spatial parameters that require gradients (n now from LSTM)
+        # Create spatial parameters that require gradients (n now from KAN)
         spatial_params = {
             "q_spatial": torch.rand(5, requires_grad=True),
+            "n": torch.rand(5, requires_grad=True),
         }
-        lstm_params = create_mock_lstm_params(num_timesteps=12, num_reaches=5)
 
         model.set_progress_info(1, 0)
 
@@ -386,7 +386,6 @@ class TestdmcPyTorchIntegration:
             "routing_dataclass": routing_dataclass,
             "streamflow": streamflow,
             "spatial_parameters": spatial_params,
-            "lstm_params": lstm_params,
         }
 
         with patch("ddr.routing.mmc.triangular_sparse_solve") as mock_solve:

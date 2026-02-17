@@ -9,7 +9,7 @@ defaults:
 mode: testing
 geodataset: merit
 name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
-device: 3
+device: 1
 
 data_sources:
   attributes: /projects/mhpi/tbindas/ddr/data/merit_global_attributes_v2.nc
@@ -25,25 +25,27 @@ data_sources:
 params:
   save_path: ./
   use_leakance: true
+  parameter_ranges:
+    n: [0.015, 0.25]       # Manning's roughness (KAN, static spatial)
 
 experiment:
   batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-14_21-55-58/saved_models/_ddr-v0.5.0-merit-training_epoch_5_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-15_20-34-33/saved_models/_ddr-v0.5.0-merit-training_epoch_15_mb_43.pt
 
 kan:
   hidden_size: 21
   input_var_names:
-    - SoilGrids1km_clay
+    - FW
     - aridity
     - meanelevation
     - meanP
     - NDVI
     - meanslope
     - log10_uparea
-    - SoilGrids1km_sand
+    - glaciers
     - ETPOT_Hargr
     - Porosity
   num_hidden_layers: 2
@@ -51,28 +53,28 @@ kan:
     - q_spatial
     - top_width
     - side_slope
-    - K_D
+    - K_D_delta
+    - n
   grid: 50
   k: 2
 
 cuda_lstm:
   hidden_size: 128
   num_layers: 1
-  dropout: 0.5
+  dropout: 0.4
   forcing_var_names:
     - P
     - PET
     - Temp
   learnable_parameters:
-    - n
     - d_gw
   input_var_names:
     - SoilGrids1km_clay
     - aridity
+    - glaciers
     - meanelevation
-    - meanP
+    - snowfall_fraction
     - NDVI
-    - meanslope
     - log10_uparea
     - SoilGrids1km_sand
     - permeability

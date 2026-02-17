@@ -54,6 +54,12 @@ class CudaLSTM(torch.nn.Module):
         # Output projection
         self.linear_out = torch.nn.Linear(hidden_size, self.output_size, device=device)
 
+        # Weight initialization (KAN pattern: tight output weights for neutral sigmoid start)
+        torch.nn.init.kaiming_normal_(self.linear_in.weight, nonlinearity="relu")
+        torch.nn.init.zeros_(self.linear_in.bias)
+        torch.nn.init.xavier_normal_(self.linear_out.weight, gain=0.1)
+        torch.nn.init.zeros_(self.linear_out.bias)
+
         # Hidden state management (generic_deltamodel pattern)
         # Training: cache_states=False -> hn/cn stay None, zeros created each batch
         # Inference: cache_states=True -> hn/cn carried over (detached) between batches

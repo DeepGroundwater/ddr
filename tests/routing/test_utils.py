@@ -18,7 +18,7 @@ def create_mock_nn() -> kan:
             "mean.elevation",
             "mean.smcmax_soil_layers_stag=1",
         ],
-        learnable_parameters=["q_spatial", "p_spatial"],
+        learnable_parameters=["q_spatial", "p_spatial", "n"],
         hidden_size=11,
         num_hidden_layers=1,
         grid=3,
@@ -58,11 +58,11 @@ def create_mock_config() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["q_spatial"],
+            "learnable_parameters": ["q_spatial", "n"],
         },
         "cuda_lstm": {
             "input_var_names": ["mock"],
-            "learnable_parameters": ["n"],
+            "learnable_parameters": [],
         },
         "s3_region": "us-east-1",
         "device": "cpu",
@@ -122,6 +122,10 @@ class MockRoutingDataclass:
         self.means = self.spatial_attributes.mean(dim=1, keepdim=True)
         self.stds = self.spatial_attributes.std(dim=1, keepdim=True)
         self.normalized_spatial_attributes = self.spatial_attributes.sub(self.means).div(self.stds).T
+
+        # mock soil attributes for Cosby PTF (leakance)
+        self.sand_pct = torch.rand(num_reaches, device=device) * 50 + 25  # 25-75%
+        self.clay_pct = torch.rand(num_reaches, device=device) * 30 + 10  # 10-40%
 
         # mock gauge outflows
         self.outflow_idx = [np.array([-1])]  # Picking two values as there are two gages in obs
@@ -196,6 +200,7 @@ def create_mock_spatial_parameters(num_reaches: int, device: str = "cpu") -> dic
     """
     params: dict[str, torch.Tensor] = {
         "q_spatial": torch.rand(num_reaches, device=device),  # Normalized q_spatial
+        "n": torch.rand(num_reaches, device=device),  # Normalized Manning's n
     }
     return params
 
@@ -218,7 +223,7 @@ def create_mock_config_with_leakance() -> Config:
             "parameter_ranges": {
                 "n": [0.01, 0.1],
                 "q_spatial": [0.1, 0.9],
-                "K_D": [1e-8, 1e-6],
+                "K_D_delta": [-3.0, 1.0],
                 "d_gw": [0.01, 300.0],
             },
             "defaults": {"p_spatial": 1.0},
@@ -236,11 +241,11 @@ def create_mock_config_with_leakance() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["q_spatial", "K_D"],
+            "learnable_parameters": ["q_spatial", "K_D_delta", "n"],
         },
         "cuda_lstm": {
             "input_var_names": ["mock"],
-            "learnable_parameters": ["n", "d_gw"],
+            "learnable_parameters": ["d_gw"],
         },
         "s3_region": "us-east-1",
         "device": "cpu",
@@ -267,7 +272,7 @@ def create_mock_config_with_cuda_lstm() -> Config:
             "parameter_ranges": {
                 "n": [0.01, 0.1],
                 "q_spatial": [0.1, 0.9],
-                "K_D": [1e-8, 1e-6],
+                "K_D_delta": [-3.0, 1.0],
                 "d_gw": [0.01, 300.0],
             },
             "defaults": {"p_spatial": 1.0},
@@ -285,7 +290,7 @@ def create_mock_config_with_cuda_lstm() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["q_spatial", "K_D"],
+            "learnable_parameters": ["q_spatial", "K_D_delta", "n"],
         },
         "cuda_lstm": {
             "forcing_var_names": ["P", "PET", "Temp"],
@@ -294,7 +299,7 @@ def create_mock_config_with_cuda_lstm() -> Config:
                 "mean.elevation",
                 "mean.smcmax_soil_layers_stag=1",
             ],
-            "learnable_parameters": ["n", "d_gw"],
+            "learnable_parameters": ["d_gw"],
             "hidden_size": 32,
             "num_layers": 1,
             "dropout": 0.0,
@@ -315,7 +320,7 @@ def create_mock_cuda_lstm(device: str = "cpu") -> CudaLSTM:
             "mean.smcmax_soil_layers_stag=1",
         ],
         forcing_var_names=["P", "PET", "Temp"],
-        learnable_parameters=["n", "d_gw"],
+        learnable_parameters=["d_gw"],
         hidden_size=32,
         num_layers=1,
         dropout=0.0,
@@ -327,7 +332,7 @@ def create_mock_cuda_lstm(device: str = "cpu") -> CudaLSTM:
 def create_mock_lstm_params(
     num_timesteps: int, num_reaches: int, device: str = "cpu"
 ) -> dict[str, torch.Tensor]:
-    """Create mock LSTM output params (n, and optionally d_gw) for testing.
+    """Create mock LSTM output params (d_gw) for testing.
 
     Parameters
     ----------
@@ -341,12 +346,9 @@ def create_mock_lstm_params(
     Returns
     -------
     dict[str, torch.Tensor]
-        Mock LSTM params with 'n' key, shape (T_daily, num_reaches) in [0,1]
+        Mock LSTM params (empty dict — d_gw only added when leakance enabled)
     """
-    T_daily = max(num_timesteps // 24, 1)
-    return {
-        "n": torch.rand(T_daily, num_reaches, device=device) * 0.5 + 0.25,  # [0.25, 0.75]
-    }
+    return {}
 
 
 def assert_tensor_properties(

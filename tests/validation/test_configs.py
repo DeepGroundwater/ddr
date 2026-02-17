@@ -22,11 +22,11 @@ def _minimal_config_dict(**overrides):
         "params": {},
         "kan": {
             "input_var_names": ["slope", "length"],
-            "learnable_parameters": ["q_spatial"],
+            "learnable_parameters": ["q_spatial", "n"],
         },
         "cuda_lstm": {
             "input_var_names": ["slope", "length"],
-            "learnable_parameters": ["n"],
+            "learnable_parameters": [],
         },
     }
     base.update(overrides)

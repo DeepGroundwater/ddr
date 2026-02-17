@@ -6,6 +6,7 @@ implementation.
 """
 
 import logging
+import math
 from typing import Any
 
 import torch
@@ -20,6 +21,22 @@ from ddr.routing.utils import (
 from ddr.validation.configs import Config
 
 log = logging.getLogger(__name__)
+
+# Cosby et al. (1984) pedotransfer function constants
+_COSBY_INTERCEPT = -0.60
+_COSBY_SAND_COEFF = 0.0126
+_COSBY_CLAY_COEFF = -0.0064
+_LOG10_INCHES_HR_TO_M_S = math.log10(7.056e-6)  # inches/hr → m/s ≈ -5.151
+
+
+def _cosby_log10_ks(sand_pct: torch.Tensor, clay_pct: torch.Tensor) -> torch.Tensor:
+    """Cosby et al. (1984) PTF: log10(Ks) in m/s from sand/clay percentages."""
+    return (
+        _COSBY_INTERCEPT
+        + _COSBY_SAND_COEFF * sand_pct
+        + _COSBY_CLAY_COEFF * clay_pct
+        + _LOG10_INCHES_HR_TO_M_S
+    )
 
 
 def compute_hotstart_discharge(
@@ -266,11 +283,10 @@ class MuskingumCunge:
 
         # Leakance parameters
         self.use_leakance: bool = cfg.params.use_leakance
-        self.K_D: torch.Tensor | None = None  # Static, from KAN (when use_leakance=True)
+        self.K_D: torch.Tensor | None = None  # Cosby PTF + KAN delta (when use_leakance=True)
         self.d_gw: torch.Tensor | None = None
 
         # Time-varying parameters (from LSTM, daily resolution)
-        self._n_t: torch.Tensor | None = None  # Manning's n (always from LSTM)
         self._d_gw_t: torch.Tensor | None = None  # d_gw (from LSTM when use_leakance=True)
 
         # Leakance diagnostic accumulators (populated during forward())
@@ -306,7 +322,6 @@ class MuskingumCunge:
         self.routing_dataclass = None
         self.q_prime = None
         self.spatial_parameters = None
-        self._n_t = None
         self._d_gw_t = None
         self.K_D = None
         self.d_gw = None
@@ -371,12 +386,26 @@ class MuskingumCunge:
             log_space="q_spatial" in log_space_params,
         )
 
-        # K_D is static (from KAN) when use_leakance is enabled
-        if self.use_leakance and "K_D" in spatial_parameters:
-            self.K_D = denormalize(
-                value=spatial_parameters["K_D"],
-                bounds=self.parameter_bounds["K_D"],
-                log_space="K_D" in log_space_params,
+        # K_D via Cosby PTF + KAN delta correction (when use_leakance is enabled)
+        if self.use_leakance and "K_D_delta" in spatial_parameters:
+            delta = denormalize(
+                spatial_parameters["K_D_delta"],
+                self.parameter_bounds["K_D_delta"],
+                log_space=False,
+            )
+            assert self.routing_dataclass is not None
+            assert self.routing_dataclass.sand_pct is not None and self.routing_dataclass.clay_pct is not None
+            sand_pct = self.routing_dataclass.sand_pct.to(self.device).to(torch.float32)
+            clay_pct = self.routing_dataclass.clay_pct.to(self.device).to(torch.float32)
+            log10_ks = _cosby_log10_ks(sand_pct, clay_pct)
+            self.K_D = torch.pow(torch.tensor(10.0, device=self.device), log10_ks + delta)
+
+        # Manning's n (from KAN, static spatial)
+        if "n" in spatial_parameters:
+            self.n = denormalize(
+                value=spatial_parameters["n"],
+                bounds=self.parameter_bounds["n"],
+                log_space="n" in log_space_params,
             )
 
         routing_dataclass = self.routing_dataclass
@@ -403,11 +432,10 @@ class MuskingumCunge:
         Parameters
         ----------
         lstm_params : dict[str, torch.Tensor]
-            Dict with n (always) and optionally d_gw, each shape (T_daily, N) in [0,1].
+            Dict with d_gw, shape (T_daily, N) in [0,1].
             Stored as daily tensors; mapped to hourly timesteps in forward().
         """
         log_space = self.cfg.params.log_space_parameters
-        self._n_t = denormalize(lstm_params["n"], self.parameter_bounds["n"], "n" in log_space)
         if "d_gw" in lstm_params:
             self._d_gw_t = denormalize(
                 lstm_params["d_gw"], self.parameter_bounds["d_gw"], "d_gw" in log_space
@@ -516,11 +544,7 @@ class MuskingumCunge:
             # Map hourly timestep to daily index for LSTM time-varying params
             day_idx = (timestep - 1) // 24
 
-            # Always: time-varying n from LSTM
-            if self._n_t is not None:
-                self.n = self._n_t[min(day_idx, self._n_t.shape[0] - 1)]
-
-            # Conditionally: leakance d_gw
+            # Time-varying d_gw from LSTM (when leakance enabled)
             if self.use_leakance and self._d_gw_t is not None:
                 self.d_gw = self._d_gw_t[min(day_idx, self._d_gw_t.shape[0] - 1)]
 
@@ -659,7 +683,7 @@ class MuskingumCunge:
                 self.side_slope,
             )
             self._last_zeta = zeta.detach().clone()
-            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp) - zeta
+            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * (q_prime_clamp - zeta))
         else:
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)
 

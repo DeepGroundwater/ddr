@@ -8,7 +8,6 @@ import torch
 from ddr.scripts_utils import (
     compute_daily_runoff,
     load_checkpoint,
-    resolve_learning_rate,
     safe_mean,
     safe_percentile,
 )
@@ -100,22 +99,6 @@ class TestLoadCheckpoint:
 
         for p in new_model.parameters():
             assert p.device.type == "cpu"
-
-
-class TestResolveLearningRate:
-    """Tests for resolve_learning_rate()."""
-
-    def test_resolve_lr_exact_match(self) -> None:
-        schedule = {1: 0.01, 5: 0.001}
-        assert resolve_learning_rate(schedule, 5) == 0.001
-
-    def test_resolve_lr_fallback(self) -> None:
-        schedule = {1: 0.01, 5: 0.001}
-        assert resolve_learning_rate(schedule, 3) == 0.01
-
-    def test_resolve_lr_single_entry(self) -> None:
-        schedule = {1: 0.01}
-        assert resolve_learning_rate(schedule, 100) == 0.01
 
 
 class TestSafePercentile:

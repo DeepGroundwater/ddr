@@ -434,11 +434,11 @@ def create_ddr_config():
         },
         "kan": {
             "input_var_names": ["mock"],
-            "learnable_parameters": ["q_spatial", "top_width", "side_slope"],
+            "learnable_parameters": ["n", "q_spatial", "top_width", "side_slope"],
         },
         "cuda_lstm": {
             "input_var_names": ["mock"],
-            "learnable_parameters": ["n"],
+            "learnable_parameters": [],
         },
         "s3_region": "us-east-2",
         "device": "cpu",
@@ -535,7 +535,7 @@ def run_ddr_routing(sandbox_zarr_path: Path, sandbox_hourly_qprime: torch.Tensor
     from ddr import dmc
 
     num_reaches = 5
-    learnable_params = ["q_spatial", "top_width", "side_slope"]
+    learnable_params = ["n", "q_spatial", "top_width", "side_slope"]
 
     # Create components
     cfg = create_ddr_config()
@@ -557,12 +557,8 @@ def run_ddr_routing(sandbox_zarr_path: Path, sandbox_hourly_qprime: torch.Tensor
     # Get spatial params from mock KAN
     spatial_params = mock_kan()
 
-    # Create mock LSTM params (n from LSTM, time-varying)
-    num_timesteps = qprime.shape[0]
-    T_daily = max(num_timesteps // 24, 1)
-    lstm_params = {
-        "n": torch.full((T_daily, num_reaches), 0.5, dtype=torch.float32),
-    }
+    # No LSTM params needed — n is now static from KAN, no leakance in tests
+    lstm_params: dict[str, torch.Tensor] = {}
 
     # Run DDR routing
     routing_model.set_progress_info(epoch=0, mini_batch=0)

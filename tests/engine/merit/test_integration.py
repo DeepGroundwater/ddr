@@ -251,9 +251,9 @@ class TestHeadwaterGaugeAdjacency:
 
     def test_headwater_gauge_gets_zarr_group(self, tmp_path, fp_with_isolated, merit_zarr_path):
         """A gauge at a connected headwater (COMID 10) should produce a zarr subgroup."""
-        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+        from tests.engine.merit.conftest import make_gauge_set
 
-        gauge_set = MockGaugeSet(gauges=[MockGauge(STAID="00000010", COMID=10)])
+        gauge_set = make_gauge_set([{"STAID": "00000010", "COMID": 10}])
         out_path = tmp_path / "gauge_adj.zarr"
 
         build_gauge_adjacencies(fp_with_isolated, merit_zarr_path, gauge_set, out_path)
@@ -263,9 +263,9 @@ class TestHeadwaterGaugeAdjacency:
 
     def test_headwater_gauge_has_empty_coo(self, tmp_path, fp_with_isolated, merit_zarr_path):
         """Headwater gauge zarr subgroup should have empty indices (no edges)."""
-        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+        from tests.engine.merit.conftest import make_gauge_set
 
-        gauge_set = MockGaugeSet(gauges=[MockGauge(STAID="00000010", COMID=10)])
+        gauge_set = make_gauge_set([{"STAID": "00000010", "COMID": 10}])
         out_path = tmp_path / "gauge_adj_empty.zarr"
 
         build_gauge_adjacencies(fp_with_isolated, merit_zarr_path, gauge_set, out_path)
@@ -278,9 +278,9 @@ class TestHeadwaterGaugeAdjacency:
 
     def test_isolated_gauge_gets_zarr_group(self, tmp_path, fp_with_isolated, merit_zarr_path):
         """A gauge at an isolated COMID (99) should produce a zarr subgroup."""
-        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+        from tests.engine.merit.conftest import make_gauge_set
 
-        gauge_set = MockGaugeSet(gauges=[MockGauge(STAID="00000099", COMID=99)])
+        gauge_set = make_gauge_set([{"STAID": "00000099", "COMID": 99}])
         out_path = tmp_path / "gauge_adj_isolated.zarr"
 
         build_gauge_adjacencies(fp_with_isolated, merit_zarr_path, gauge_set, out_path)
@@ -296,13 +296,13 @@ class TestHeadwaterGaugeAdjacency:
 
     def test_mixed_gauges_all_present(self, tmp_path, fp_with_isolated, merit_zarr_path):
         """A batch with connected gauge (50), headwater (10), and isolated (99) should all produce zarr groups."""
-        from tests.engine.merit.conftest import MockGauge, MockGaugeSet
+        from tests.engine.merit.conftest import make_gauge_set
 
-        gauge_set = MockGaugeSet(
-            gauges=[
-                MockGauge(STAID="00000050", COMID=50),
-                MockGauge(STAID="00000010", COMID=10),
-                MockGauge(STAID="00000099", COMID=99),
+        gauge_set = make_gauge_set(
+            [
+                {"STAID": "00000050", "COMID": 50},
+                {"STAID": "00000010", "COMID": 10},
+                {"STAID": "00000099", "COMID": 99},
             ]
         )
         out_path = tmp_path / "gauge_adj_mixed.zarr"

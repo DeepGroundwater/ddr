@@ -108,24 +108,27 @@ def resolve_learning_rate(
     learning_rate_schedule: dict[int, float],
     epoch: int,
 ) -> float:
-    """Resolve LR for epoch from schedule dict. Falls back to first entry.
+    """Resolve the learning rate for a given epoch from the schedule.
+
+    Finds the largest epoch key <= the current epoch. Falls back to the
+    smallest key if no key matches.
 
     Parameters
     ----------
     learning_rate_schedule : dict[int, float]
-        Mapping of epoch number → learning rate.
+        Mapping of epoch numbers to learning rates.
     epoch : int
-        Current epoch.
+        Current epoch number.
 
     Returns
     -------
     float
-        Learning rate for the given epoch.
+        The learning rate to use.
     """
-    if epoch in learning_rate_schedule:
-        return float(learning_rate_schedule[epoch])
-    key_list = list(learning_rate_schedule.keys())
-    return float(learning_rate_schedule[key_list[0]])
+    applicable = {k: v for k, v in learning_rate_schedule.items() if k <= epoch}
+    if applicable:
+        return float(applicable[max(applicable)])
+    return float(learning_rate_schedule[min(learning_rate_schedule)])
 
 
 def safe_percentile(arr: np.ndarray, percentile: float) -> float:

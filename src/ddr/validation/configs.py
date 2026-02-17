@@ -77,6 +77,16 @@ class DataSources(BaseModel):
     )
 
 
+_DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
+    "n": [0.015, 0.25],  # Manning's roughness (s/m¹ᐟ³)
+    "q_spatial": [0.0, 1.0],  # Channel shape: 0=rectangular, 1=triangular (-)
+    "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
+    "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
+    "K_D_delta": [-3.0, 1.0],  # Log-space delta from Cosby PTF prior (-)
+    "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
+}
+
+
 class Params(BaseModel):
     """Parameters configuration"""
 
@@ -93,16 +103,25 @@ class Params(BaseModel):
         },
     )
     parameter_ranges: dict[str, list[float]] = Field(
-        default_factory=lambda: {
-            "n": [0.015, 0.25],  # Manning's roughness (s/m¹ᐟ³)
-            "q_spatial": [0.0, 1.0],  # Channel shape: 0=rectangular, 1=triangular (-)
-            "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
-            "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
-            "K_D": [1e-8, 1e-6],  # Hydraulic exchange rate (1/s)
-            "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
-        },
-        description="The parameter space bounds [min, max] to project learned physical values to",
+        default_factory=lambda: dict(_DEFAULT_PARAMETER_RANGES),
+        description="The parameter space bounds [min, max] to project learned physical values to. "
+        "Partial overrides are merged with defaults — only specify the ranges you want to change.",
     )
+
+    @field_validator("parameter_ranges", mode="before")
+    @classmethod
+    def merge_parameter_ranges_with_defaults(cls, v: dict[str, list[float]]) -> dict[str, list[float]]:
+        """Merge user-provided parameter_ranges on top of defaults.
+
+        This allows YAML configs to specify only the ranges they want to override
+        (e.g. just n) without wiping out defaults for other parameters.
+        """
+        if isinstance(v, dict):
+            merged = dict(_DEFAULT_PARAMETER_RANGES)
+            merged.update(v)
+            return merged
+        return v
+
     log_space_parameters: list[str] = Field(
         default_factory=lambda: [
             "top_width",
@@ -120,7 +139,15 @@ class Params(BaseModel):
     use_leakance: bool = Field(
         default=False,
         description="Enable groundwater-surface water exchange (leakance) in routing. "
-        "When True, K_D and d_gw must be in params.parameter_ranges.",
+        "When True, K_D_delta and d_gw must be in params.parameter_ranges.",
+    )
+    ptf_sand_var: str = Field(
+        default="SoilGrids1km_sand",
+        description="Sand % variable name in the attribute dataset for Cosby PTF",
+    )
+    ptf_clay_var: str = Field(
+        default="SoilGrids1km_clay",
+        description="Clay % variable name in the attribute dataset for Cosby PTF",
     )
     tau: int = Field(
         default=3,
@@ -150,7 +177,7 @@ class CudaLstm(BaseModel):
         description="Static attribute names used as LSTM inputs alongside forcings"
     )
     learnable_parameters: list[str] = Field(
-        default_factory=lambda: ["n", "d_gw"],
+        default_factory=lambda: ["d_gw"],
         description="Names of time-varying parameters the LSTM will learn to predict",
     )
 
@@ -192,10 +219,6 @@ class ExperimentConfig(BaseModel):
         default=None, description="Path to checkpoint file (.pt) for resuming model from previous state"
     )
     epochs: int = Field(default=1, description="Number of complete passes through the training dataset")
-    learning_rate: dict[int, float] = Field(
-        default_factory=lambda: {1: 0.005, 3: 0.001},
-        description="Learning rate schedule mapping epoch numbers to learning rate values",
-    )
     rho: int | None = Field(
         default=None, description="Number of consecutive days selected in each training batch"
     )
@@ -211,6 +234,11 @@ class ExperimentConfig(BaseModel):
         description="Maximum absolute drainage area difference (km²) between USGS gage and COMID. "
         "Gages exceeding this threshold are excluded from training/evaluation. None disables filtering. "
         "For MERIT geodataset, the DA_VALID column in gage CSVs is preferred.",
+    )
+    learning_rate: dict[int, float] = Field(
+        default_factory=lambda: {1: 0.001, 5: 0.0005, 9: 0.0001},
+        description="Learning rate schedule mapping epoch number to LR. "
+        "At each epoch, the most recent entry at or before the current epoch is used.",
     )
 
     @field_validator("checkpoint", mode="before")
@@ -242,7 +270,7 @@ class Config(BaseModel):
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
     cuda_lstm: CudaLstm = Field(
-        description="CudaLSTM config for time-varying parameter prediction (n, d_gw).",
+        description="CudaLSTM config for time-varying parameter prediction (d_gw).",
     )
     np_seed: int = Field(default=42, description="Random seed for NumPy operations to ensure reproducibility")
     seed: int = Field(default=42, description="Random seed for PyTorch operations to ensure reproducibility")
@@ -302,9 +330,9 @@ class Config(BaseModel):
                 "(path to icechunk store with meteorological forcings for the LSTM)"
             )
 
-        # When use_leakance=True, K_D and d_gw must be in parameter_ranges
+        # When use_leakance=True, K_D_delta and d_gw must be in parameter_ranges
         if self.params.use_leakance:
-            required_leakance_params = ["K_D", "d_gw"]
+            required_leakance_params = ["K_D_delta", "d_gw"]
             missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")

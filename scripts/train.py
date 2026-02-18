@@ -153,7 +153,23 @@ def train(
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
                 log.info(f"Loss: {loss.item()}")
 
-                log.info(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
+                n_vals = routing_model.n.detach().cpu()
+                log.info(
+                    f"Manning's n: median={n_vals.median().item():.4f}, "
+                    f"mean={n_vals.mean().item():.4f}, "
+                    f"min={n_vals.min().item():.4f}, max={n_vals.max().item():.4f}"
+                )
+
+                if "leakance_gate" in spatial_params:
+                    gate_raw = spatial_params["leakance_gate"].detach().cpu()
+                    gate_on = (gate_raw > 0.5).sum().item()
+                    gate_total = gate_raw.numel()
+                    log.info(
+                        f"Leakance Gate: median={gate_raw.median().item():.4f}, "
+                        f"mean={gate_raw.mean().item():.4f}, "
+                        f"min={gate_raw.min().item():.4f}, max={gate_raw.max().item():.4f}, "
+                        f"ON={gate_on}/{gate_total} ({100 * gate_on / gate_total:.1f}%)"
+                    )
 
                 random_gage = -1  # TODO: scale out when we have more gauges
                 plot_time_series(

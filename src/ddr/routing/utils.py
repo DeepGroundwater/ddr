@@ -210,6 +210,27 @@ def denormalize(value: torch.Tensor, bounds: list[float], log_space: bool = Fals
         return (value * (bounds[1] - bounds[0])) + bounds[0]
 
 
+def straight_through_binary(x: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
+    """Binary step with straight-through estimator for gradient.
+
+    Forward pass produces hard 0/1 values. Backward pass passes gradients
+    through as if the threshold were not there (straight-through estimator).
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input tensor (typically sigmoid outputs in [0, 1]).
+    threshold : float
+        Threshold for binarization. Default 0.5.
+
+    Returns
+    -------
+    torch.Tensor
+        Binary tensor (0.0 or 1.0) with gradient flowing through x.
+    """
+    return (x > threshold).float() - x.detach() + x
+
+
 def _backward_cpu(
     A_values: torch.Tensor,
     crow_indices: torch.Tensor,

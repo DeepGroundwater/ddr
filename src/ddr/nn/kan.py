@@ -21,6 +21,7 @@ class kan(torch.nn.Module):
         k: int,
         seed: int,
         device: int | str = "cpu",
+        gate_parameters: list[str] | None = None,
     ):
         super().__init__()
         self.input_size = len(input_var_names)
@@ -46,6 +47,16 @@ class kan(torch.nn.Module):
         torch.nn.init.xavier_normal_(self.output.weight, gain=0.1)
         torch.nn.init.zeros_(self.input.bias)
         torch.nn.init.zeros_(self.output.bias)
+
+        # Initialize gate parameter biases to +1.0 so sigmoid(1) ≈ 0.73 → gate starts ON.
+        # Model must experience leakance to learn where it helps/hurts. Starting OFF gives
+        # no gradient signal to turn ON (chicken-and-egg). Starting ON lets the model turn
+        # OFF reaches where leakance hurts (strong error signal from bad leakance).
+        if gate_parameters:
+            with torch.no_grad():
+                for param_name in gate_parameters:
+                    idx = self.learnable_parameters.index(param_name)
+                    self.output.bias[idx] = 1.0
 
     def forward(self, *args: Any, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass of the neural network"""

@@ -84,6 +84,7 @@ _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
     "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
     "K_D_delta": [-3.0, 1.0],  # Log-space delta from Cosby PTF prior (-)
     "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
+    "leakance_gate": [0.0, 1.0],  # Binary STE gate for leakance (-)
 }
 
 
@@ -199,6 +200,10 @@ class Kan(BaseModel):
     )
     grid: int = Field(default=3, description="Grid size for KAN spline basis functions")
     k: int = Field(default=3, description="Order of B-spline basis functions in KAN layers")
+    gate_parameters: list[str] = Field(
+        default_factory=list,
+        description="Parameters that use binary STE gating (bias initialized to OFF)",
+    )
 
 
 class ExperimentConfig(BaseModel):
@@ -330,12 +335,24 @@ class Config(BaseModel):
                 "(path to icechunk store with meteorological forcings for the LSTM)"
             )
 
-        # When use_leakance=True, K_D_delta and d_gw must be in parameter_ranges
+        # When use_leakance=True, K_D_delta, d_gw, and leakance_gate must be in parameter_ranges
         if self.params.use_leakance:
-            required_leakance_params = ["K_D_delta", "d_gw"]
+            required_leakance_params = ["K_D_delta", "d_gw", "leakance_gate"]
             missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
+
+            # leakance_gate must be in KAN learnable_parameters when leakance is enabled
+            if "leakance_gate" not in self.kan.learnable_parameters:
+                raise ValueError("use_leakance=True requires 'leakance_gate' in kan.learnable_parameters")
+
+        # All gate_parameters must be in kan.learnable_parameters
+        invalid_gates = [g for g in self.kan.gate_parameters if g not in self.kan.learnable_parameters]
+        if invalid_gates:
+            raise ValueError(
+                f"gate_parameters {invalid_gates} not found in kan.learnable_parameters. "
+                f"gate_parameters must be a subset of learnable_parameters."
+            )
 
         return self
 

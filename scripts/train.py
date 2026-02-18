@@ -8,7 +8,6 @@ import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
-from torch.nn.functional import mse_loss
 from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
@@ -130,10 +129,12 @@ def train(
 
                 filtered_predictions = daily_runoff[~np_nan_mask]
 
-                loss = mse_loss(
-                    input=filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
-                    target=filtered_observations.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
-                )
+                # Song et al. (2025) Eq. 10: normalized squared error
+                # Equivalent to optimizing mean(1 - NSE) across gages
+                pred = filtered_predictions[:, cfg.experiment.warmup :]
+                target = filtered_observations[:, cfg.experiment.warmup :]
+                obs_variance = filtered_observations.var(dim=1)  # [N] per-gage variance (full window)
+                loss = ((pred - target) ** 2 / (obs_variance.unsqueeze(1) + 0.1)).mean()
 
                 log.info("Running backpropagation")
 

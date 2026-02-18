@@ -630,8 +630,8 @@ class TestLeakanceGateInit:
             gate_parameters=["leakance_gate"],
         )
         gate_idx = learnable.index("leakance_gate")
-        assert nn.output.bias[gate_idx].item() == pytest.approx(-1.0), (
-            f"Expected gate bias=-1.0, got {nn.output.bias[gate_idx].item()}"
+        assert nn.output.bias[gate_idx].item() == pytest.approx(1.0), (
+            f"Expected gate bias=1.0, got {nn.output.bias[gate_idx].item()}"
         )
         # Other biases should be 0.0 (from zeros_ init)
         for i, name in enumerate(learnable):

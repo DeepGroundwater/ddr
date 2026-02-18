@@ -403,10 +403,17 @@ class MuskingumCunge:
             self.K_D = torch.pow(torch.tensor(10.0, device=self.device), log10_ks + delta)
 
         # Binary STE gate for leakance (raw sigmoid [0,1] → hard 0/1)
-        if self.use_leakance and "leakance_gate" in spatial_parameters:
-            from ddr.routing.utils import straight_through_binary
+        if self.use_leakance:
+            if "leakance_gate" in spatial_parameters:
+                from ddr.routing.utils import straight_through_binary
 
-            self.leakance_gate = straight_through_binary(spatial_parameters["leakance_gate"])
+                self.leakance_gate = straight_through_binary(spatial_parameters["leakance_gate"])
+            else:
+                log.warning(
+                    "use_leakance=True but 'leakance_gate' not in spatial_parameters. "
+                    "Leakance will be applied without gating. "
+                    "Add 'leakance_gate' to kan.learnable_parameters to enable spatial gating."
+                )
 
         # Manning's n (from KAN, static spatial)
         if "n" in spatial_parameters:

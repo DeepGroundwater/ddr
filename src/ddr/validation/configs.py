@@ -342,6 +342,18 @@ class Config(BaseModel):
             if missing_ranges:
                 raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
 
+            # leakance_gate must be in KAN learnable_parameters when leakance is enabled
+            if "leakance_gate" not in self.kan.learnable_parameters:
+                raise ValueError("use_leakance=True requires 'leakance_gate' in kan.learnable_parameters")
+
+        # All gate_parameters must be in kan.learnable_parameters
+        invalid_gates = [g for g in self.kan.gate_parameters if g not in self.kan.learnable_parameters]
+        if invalid_gates:
+            raise ValueError(
+                f"gate_parameters {invalid_gates} not found in kan.learnable_parameters. "
+                f"gate_parameters must be a subset of learnable_parameters."
+            )
+
         return self
 
 

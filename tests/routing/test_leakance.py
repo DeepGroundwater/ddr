@@ -467,6 +467,97 @@ class TestLeakanceConfigValidation:
         assert "n" in cfg.kan.learnable_parameters
         assert "d_gw" in cfg.cuda_lstm.learnable_parameters
 
+    def test_use_leakance_without_gate_in_kan_raises(self) -> None:
+        """Test that use_leakance=True without leakance_gate in KAN learnable_parameters raises."""
+        cfg_dict = {
+            "name": "mock",
+            "mode": "training",
+            "geodataset": "lynker_hydrofabric",
+            "data_sources": {
+                "geospatial_fabric_gpkg": "mock.gpkg",
+                "streamflow": "mock://streamflow/store",
+                "conus_adjacency": "mock.zarr",
+                "gages_adjacency": "mock.zarr",
+                "gages": "mock.csv",
+                "forcings": "mock://forcings/store",
+            },
+            "params": {
+                "parameter_ranges": {
+                    "n": [0.01, 0.1],
+                    "q_spatial": [0.1, 0.9],
+                    "K_D_delta": [-3.0, 1.0],
+                    "d_gw": [0.01, 300.0],
+                    "leakance_gate": [0.0, 1.0],
+                },
+                "defaults": {"p_spatial": 1.0},
+                "attribute_minimums": {
+                    "velocity": 0.1,
+                    "depth": 0.01,
+                    "discharge": 0.001,
+                    "bottom_width": 0.1,
+                    "slope": 0.0001,
+                },
+                "tau": 7,
+                "use_leakance": True,
+            },
+            "kan": {
+                "input_var_names": ["mock"],
+                "learnable_parameters": ["q_spatial", "K_D_delta", "n"],  # Missing leakance_gate!
+            },
+            "cuda_lstm": {
+                "input_var_names": ["mock"],
+                "learnable_parameters": ["d_gw"],
+            },
+            "s3_region": "us-east-1",
+            "device": "cpu",
+        }
+        with pytest.raises(ValueError, match="leakance_gate.*kan.learnable_parameters"):
+            validate_config(DictConfig(cfg_dict), save_config=False)
+
+    def test_gate_parameters_not_in_learnable_raises(self) -> None:
+        """Test that gate_parameters not in learnable_parameters raises."""
+        cfg_dict = {
+            "name": "mock",
+            "mode": "training",
+            "geodataset": "lynker_hydrofabric",
+            "data_sources": {
+                "geospatial_fabric_gpkg": "mock.gpkg",
+                "streamflow": "mock://streamflow/store",
+                "conus_adjacency": "mock.zarr",
+                "gages_adjacency": "mock.zarr",
+                "gages": "mock.csv",
+                "forcings": "mock://forcings/store",
+            },
+            "params": {
+                "parameter_ranges": {
+                    "n": [0.01, 0.1],
+                    "q_spatial": [0.1, 0.9],
+                },
+                "defaults": {"p_spatial": 1.0},
+                "attribute_minimums": {
+                    "velocity": 0.1,
+                    "depth": 0.01,
+                    "discharge": 0.001,
+                    "bottom_width": 0.1,
+                    "slope": 0.0001,
+                },
+                "tau": 7,
+            },
+            "kan": {
+                "input_var_names": ["mock"],
+                "learnable_parameters": ["q_spatial", "n"],
+                "gate_parameters": ["bogus_gate"],  # Not in learnable_parameters
+            },
+            "cuda_lstm": {
+                "input_var_names": ["mock"],
+                "learnable_parameters": [],
+            },
+            "s3_region": "us-east-1",
+            "device": "cpu",
+        }
+        with pytest.raises(ValueError, match="gate_parameters.*not found in kan.learnable_parameters"):
+            validate_config(DictConfig(cfg_dict), save_config=False)
+
     def test_lstm_kan_overlap_raises(self) -> None:
         """Test that overlapping LSTM and KAN learnable_parameters raises."""
         cfg_dict = {
@@ -517,6 +608,57 @@ class TestLeakanceConfigValidation:
         }
         with pytest.raises(ValueError, match="must not overlap"):
             validate_config(DictConfig(cfg_dict), save_config=False)
+
+
+class TestLeakanceGateInit:
+    """Test that KAN gate bias is correctly initialized from config."""
+
+    def test_kan_gate_bias_initialized(self) -> None:
+        """Test that constructing KAN with gate_parameters sets the correct bias."""
+        from ddr.nn.kan import kan as KanClass
+
+        learnable = ["q_spatial", "K_D_delta", "n", "leakance_gate"]
+        nn = KanClass(
+            input_var_names=["mock"],
+            learnable_parameters=learnable,
+            hidden_size=11,
+            num_hidden_layers=1,
+            grid=3,
+            k=3,
+            seed=42,
+            device="cpu",
+            gate_parameters=["leakance_gate"],
+        )
+        gate_idx = learnable.index("leakance_gate")
+        assert nn.output.bias[gate_idx].item() == pytest.approx(-1.0), (
+            f"Expected gate bias=-1.0, got {nn.output.bias[gate_idx].item()}"
+        )
+        # Other biases should be 0.0 (from zeros_ init)
+        for i, name in enumerate(learnable):
+            if name != "leakance_gate":
+                assert nn.output.bias[i].item() == pytest.approx(0.0), (
+                    f"Expected bias=0.0 for {name}, got {nn.output.bias[i].item()}"
+                )
+
+    def test_kan_no_gate_parameters_leaves_default_bias(self) -> None:
+        """Test that KAN without gate_parameters leaves all biases at 0.0."""
+        from ddr.nn.kan import kan as KanClass
+
+        learnable = ["q_spatial", "n"]
+        nn = KanClass(
+            input_var_names=["mock"],
+            learnable_parameters=learnable,
+            hidden_size=11,
+            num_hidden_layers=1,
+            grid=3,
+            k=3,
+            seed=42,
+            device="cpu",
+        )
+        for i, name in enumerate(learnable):
+            assert nn.output.bias[i].item() == pytest.approx(0.0), (
+                f"Expected bias=0.0 for {name}, got {nn.output.bias[i].item()}"
+            )
 
 
 class TestLeakanceGate:

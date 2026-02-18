@@ -225,6 +225,7 @@ def create_mock_config_with_leakance() -> Config:
                 "q_spatial": [0.1, 0.9],
                 "K_D_delta": [-3.0, 1.0],
                 "d_gw": [0.01, 300.0],
+                "leakance_gate": [0.0, 1.0],
             },
             "defaults": {"p_spatial": 1.0},
             "attribute_minimums": {
@@ -241,7 +242,8 @@ def create_mock_config_with_leakance() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["q_spatial", "K_D_delta", "n"],
+            "learnable_parameters": ["q_spatial", "K_D_delta", "n", "leakance_gate"],
+            "gate_parameters": ["leakance_gate"],
         },
         "cuda_lstm": {
             "input_var_names": ["mock"],
@@ -274,6 +276,7 @@ def create_mock_config_with_cuda_lstm() -> Config:
                 "q_spatial": [0.1, 0.9],
                 "K_D_delta": [-3.0, 1.0],
                 "d_gw": [0.01, 300.0],
+                "leakance_gate": [0.0, 1.0],
             },
             "defaults": {"p_spatial": 1.0},
             "attribute_minimums": {
@@ -290,7 +293,8 @@ def create_mock_config_with_cuda_lstm() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["q_spatial", "K_D_delta", "n"],
+            "learnable_parameters": ["q_spatial", "K_D_delta", "n", "leakance_gate"],
+            "gate_parameters": ["leakance_gate"],
         },
         "cuda_lstm": {
             "forcing_var_names": ["P", "PET", "Temp"],
@@ -349,6 +353,22 @@ def create_mock_lstm_params(
         Mock LSTM params (empty dict — d_gw only added when leakance enabled)
     """
     return {}
+
+
+def test_straight_through_binary() -> None:
+    """Test STE produces correct forward/backward behavior."""
+    from ddr.routing.utils import straight_through_binary
+
+    # Forward: values below threshold → 0, above → 1
+    x = torch.tensor([0.1, 0.4, 0.5, 0.6, 0.9], requires_grad=True)
+    result = straight_through_binary(x)
+    assert result.tolist() == [0.0, 0.0, 0.0, 1.0, 1.0], f"Expected [0,0,0,1,1], got {result.tolist()}"
+
+    # Backward: gradient flows through as identity (STE)
+    result.sum().backward()
+    assert x.grad is not None
+    expected_grad = torch.ones_like(x)
+    torch.testing.assert_close(x.grad, expected_grad)
 
 
 def assert_tensor_properties(

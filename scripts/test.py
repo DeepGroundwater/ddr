@@ -212,6 +212,7 @@ def main(cfg: DictConfig) -> None:
             k=config.kan.k,
             seed=config.seed,
             device=config.device,
+            gate_parameters=config.kan.gate_parameters,
         )
         lstm_nn = CudaLSTM(
             input_var_names=config.cuda_lstm.input_var_names,

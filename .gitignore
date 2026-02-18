@@ -207,3 +207,4 @@ CLAUDE.md
 .ruff_cache/
 !benchmarks/config/
 *.png
+notebooks/

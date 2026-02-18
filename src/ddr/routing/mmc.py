@@ -285,6 +285,7 @@ class MuskingumCunge:
         self.use_leakance: bool = cfg.params.use_leakance
         self.K_D: torch.Tensor | None = None  # Cosby PTF + KAN delta (when use_leakance=True)
         self.d_gw: torch.Tensor | None = None
+        self.leakance_gate: torch.Tensor | None = None
 
         # Time-varying parameters (from LSTM, daily resolution)
         self._d_gw_t: torch.Tensor | None = None  # d_gw (from LSTM when use_leakance=True)
@@ -325,6 +326,7 @@ class MuskingumCunge:
         self._d_gw_t = None
         self.K_D = None
         self.d_gw = None
+        self.leakance_gate = None
         self._zeta_sum = None
         self._q_prime_sum = torch.empty(0)
         self._last_zeta = torch.empty(0)
@@ -399,6 +401,12 @@ class MuskingumCunge:
             clay_pct = self.routing_dataclass.clay_pct.to(self.device).to(torch.float32)
             log10_ks = _cosby_log10_ks(sand_pct, clay_pct)
             self.K_D = torch.pow(torch.tensor(10.0, device=self.device), log10_ks + delta)
+
+        # Binary STE gate for leakance (raw sigmoid [0,1] → hard 0/1)
+        if self.use_leakance and "leakance_gate" in spatial_parameters:
+            from ddr.routing.utils import straight_through_binary
+
+            self.leakance_gate = straight_through_binary(spatial_parameters["leakance_gate"])
 
         # Manning's n (from KAN, static spatial)
         if "n" in spatial_parameters:
@@ -682,6 +690,8 @@ class MuskingumCunge:
                 self.top_width,
                 self.side_slope,
             )
+            if self.leakance_gate is not None:
+                zeta = zeta * self.leakance_gate
             self._last_zeta = zeta.detach().clone()
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * (q_prime_clamp - zeta))
         else:

@@ -25,6 +25,8 @@ data_sources:
 params:
   save_path: ./
   use_leakance: true
+  parameter_ranges:
+    n: [0.015, 0.25]       # Manning's roughness (KAN, static spatial)
 
 experiment:
   batch_size: 365

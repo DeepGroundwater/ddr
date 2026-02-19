@@ -74,26 +74,27 @@ def hydrograph_loss(
 
 
 def _overall_loss(pred: Tensor, target: Tensor, eps: float) -> Tensor:
-    """NNSE-style normalized MSE across all timesteps.
+    """Per-gage MSE across all timesteps.
 
-    Equivalent to Song et al. (2025) Eq. 10: per-gage variance normalization
-    using the full observation window. Provides a stable background gradient
-    signal for mid-range flows not covered by peak/baseflow regimes.
+    Raw MSE provides strong, un-shrunk gradients — unlike NNSE which divides
+    by per-gage variance and attenuates gradients ~1000x (observed: leakance
+    gate learns under MSE but freezes under NNSE). Averaging per-gage MSE
+    across gages ensures each basin contributes equally regardless of magnitude.
 
     Parameters
     ----------
     pred : Tensor [N, T]
     target : Tensor [N, T]
     eps : float
-        Stabilization constant.
+        Unused, kept for API compatibility with other loss components.
 
     Returns
     -------
     Tensor
         Scalar loss averaged across gages.
     """
-    obs_var = target.detach().var(dim=1, correction=0) + eps  # [N]
-    return ((pred - target) ** 2 / obs_var.unsqueeze(1)).mean()
+    per_gage_mse = ((pred - target) ** 2).mean(dim=1)  # [N]
+    return per_gage_mse.mean()
 
 
 def _regime_loss(
@@ -151,6 +152,14 @@ def _regime_loss(
     sq_err = (pred - target) ** 2 * mask_float  # [N, T]
     per_gage_mse = sq_err.sum(dim=1) / count.clamp(min=1)  # [N]
     per_gage_loss = per_gage_mse / (masked_var + eps)  # [N]
+
+    # Cap per-gage loss to prevent variance-collapse blowup.
+    # When P98 selects few timesteps with near-identical values, masked_var ≈ 0
+    # and the denominator reduces to eps, inflating loss by ~1000x (observed
+    # peak=7720 in training). Capping at 10 keeps regime loss O(1)–O(10),
+    # comparable to overall NNSE, so it provides a targeted signal without
+    # drowning the mass-conserving overall component.
+    per_gage_loss = per_gage_loss.clamp(max=10.0)
 
     if not valid.any():
         return torch.tensor(0.0, device=pred.device, dtype=pred.dtype)

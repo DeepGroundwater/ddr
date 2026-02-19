@@ -94,7 +94,7 @@ class LossConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     overall_weight: float = Field(
-        default=1.0, description="Weight for overall NNSE component (all timesteps, full-series variance)"
+        default=0.01, description="Weight for overall MSE component (all timesteps, un-normalized)"
     )
     peak_weight: float = Field(
         default=1.0, description="Weight for peak amplitude (high-flow) loss component"

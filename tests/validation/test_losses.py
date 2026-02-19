@@ -2,7 +2,12 @@
 
 import torch
 
-from ddr.validation.losses import _overall_loss, _regime_loss, _timing_loss, hydrograph_loss
+from ddr.validation.losses import (
+    _overall_loss,
+    _regime_loss,
+    _timing_loss,
+    hydrograph_loss,
+)
 
 
 class TestBasicMath:
@@ -81,18 +86,17 @@ class TestBaseflow:
 
 
 class TestOverall:
-    """Overall NNSE component covers all timesteps with full-series variance."""
+    """Overall MSE component covers all timesteps with strong un-shrunk gradients."""
 
     def test_perfect_prediction_is_zero(self) -> None:
         obs = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
         assert torch.isclose(_overall_loss(obs, obs, eps=0.1), torch.tensor(0.0), atol=1e-6)
 
-    def test_matches_nnse_formula(self) -> None:
-        """Should reproduce the Song et al. (2025) NNSE formula."""
+    def test_matches_per_gage_mse(self) -> None:
+        """Should reproduce per-gage MSE averaged across gages."""
         pred = torch.tensor([[3.0, 4.0, 5.0]])
         target = torch.tensor([[1.0, 2.0, 3.0]])
-        var = target.var(dim=1, correction=0).item()  # 2/3
-        expected = ((pred - target) ** 2 / (var + 0.1)).mean().item()
+        expected = ((pred - target) ** 2).mean(dim=1).mean().item()
         loss = _overall_loss(pred, target, eps=0.1)
         assert torch.isclose(loss, torch.tensor(expected), rtol=1e-5)
 
@@ -137,24 +141,60 @@ class TestTiming:
         assert torch.isclose(l_small, l_large, rtol=0.1)
 
 
+class TestRegimeLossCap:
+    """Per-gage regime loss is capped at 10 to prevent variance-collapse blowup."""
+
+    def test_cap_prevents_extreme_values(self) -> None:
+        """When regime variance ≈ 0 (identical peak values), loss should be capped."""
+        # 1 gage, 100 timesteps. All peaks have value=50 (var=0 in peak regime).
+        obs = torch.cat([torch.linspace(1.0, 10.0, 99), torch.tensor([50.0])]).unsqueeze(0)
+        pred = obs.clone()
+        pred[0, -1] += 100.0  # huge error at the only peak timestep
+
+        loss = _regime_loss(pred, obs, obs, 0.98, high=True, eps=0.1)
+        # Without cap this would be 100^2 / 0.1 = 100_000. With cap it's 10.
+        assert loss.item() <= 10.0
+
+    def test_cap_does_not_affect_normal_values(self) -> None:
+        """Normal loss values (< 10) should pass through unchanged."""
+        obs = torch.linspace(1.0, 100.0, 100).unsqueeze(0)
+        pred = obs.clone()
+        pred[0, -1] += 1.0  # small error at peak
+        loss = _regime_loss(pred, obs, obs, 0.98, high=True, eps=0.1)
+        # Small error on high-variance regime → loss << 10
+        assert loss.item() < 10.0
+        assert loss.item() > 0.0
+
+
 class TestPerGageNormalization:
-    """Proportional errors → similar loss regardless of basin magnitude."""
+    """Regime components are per-gage normalized; overall MSE is not."""
 
-    def test_equal_relative_error_similar_loss(self) -> None:
-        """With small eps, proportional scaling gives nearly identical loss."""
+    def test_regime_loss_scale_invariant(self) -> None:
+        """Regime loss normalizes by regime variance → proportional errors give similar loss."""
         small = torch.linspace(1.0, 10.0, 100).unsqueeze(0)
-        small_pred = small + 0.5
-
-        # Large basin: same shape scaled 100x, error scaled proportionally
         large = small * 100.0
+
+        small_pred = small * 1.1
+        large_pred = large * 1.1
+
+        loss_small = _regime_loss(small_pred, small, small, 0.30, high=False, eps=1e-6)
+        loss_large = _regime_loss(large_pred, large, large, 0.30, high=False, eps=1e-6)
+
+        assert torch.isclose(loss_small, loss_large, rtol=0.05)
+
+    def test_overall_mse_scales_with_magnitude(self) -> None:
+        """Overall MSE intentionally scales with basin magnitude (strong gradients)."""
+        small = torch.linspace(1.0, 10.0, 100).unsqueeze(0)
+        large = small * 100.0
+
+        small_pred = small + 0.5
         large_pred = large + 50.0
 
-        # Use small eps so it doesn't dominate the variance denominator
-        loss_small = hydrograph_loss(small_pred, small, eps=1e-6)
-        loss_large = hydrograph_loss(large_pred, large, eps=1e-6)
+        loss_small = _overall_loss(small_pred, small, eps=0.1)
+        loss_large = _overall_loss(large_pred, large, eps=0.1)
 
-        # Should be very close when eps is negligible
-        assert torch.isclose(loss_small, loss_large, rtol=0.05)
+        # Large basin error (50.0) is 100x small basin error (0.5) → MSE scales by 100^2
+        assert loss_large > loss_small * 100
 
 
 class TestGradients:

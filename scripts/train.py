@@ -14,7 +14,7 @@ from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
 from ddr._version import __version__
 from ddr.routing.utils import select_columns
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
-from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
+from ddr.validation import Config, Metrics, hydrograph_loss, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
 
@@ -129,12 +129,34 @@ def train(
 
                 filtered_predictions = daily_runoff[~np_nan_mask]
 
-                # Song et al. (2025) Eq. 10: normalized squared error
-                # Equivalent to optimizing mean(1 - NSE) across gages
                 pred = filtered_predictions[:, cfg.experiment.warmup :]
                 target = filtered_observations[:, cfg.experiment.warmup :]
-                obs_variance = filtered_observations.var(dim=1)  # [N] per-gage variance (full window)
-                loss = ((pred - target) ** 2 / (obs_variance.unsqueeze(1) + 0.1)).mean()
+                loss_cfg = cfg.experiment.loss
+                loss = hydrograph_loss(
+                    pred=pred,
+                    target=target,
+                    peak_weight=loss_cfg.peak_weight,
+                    baseflow_weight=loss_cfg.baseflow_weight,
+                    timing_weight=loss_cfg.timing_weight,
+                    peak_percentile=loss_cfg.peak_percentile,
+                    baseflow_percentile=loss_cfg.baseflow_percentile,
+                    eps=loss_cfg.eps,
+                )
+
+                with torch.no_grad():
+                    from ddr.validation.losses import _regime_loss, _timing_loss
+
+                    l_peak = _regime_loss(
+                        pred, target, target, loss_cfg.peak_percentile, high=True, eps=loss_cfg.eps
+                    )
+                    l_base = _regime_loss(
+                        pred, target, target, loss_cfg.baseflow_percentile, high=False, eps=loss_cfg.eps
+                    )
+                    l_timing = _timing_loss(pred, target, eps=loss_cfg.eps)
+                    log.info(
+                        f"Loss components: peak={l_peak.item():.4f}, "
+                        f"base={l_base.item():.4f}, timing={l_timing.item():.4f}"
+                    )
 
                 log.info("Running backpropagation")
 

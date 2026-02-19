@@ -88,6 +88,27 @@ _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
 }
 
 
+class LossConfig(BaseModel):
+    """Multi-component hydrograph loss configuration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    peak_weight: float = Field(
+        default=1.0, description="Weight for peak amplitude (high-flow) loss component"
+    )
+    baseflow_weight: float = Field(default=1.0, description="Weight for baseflow (low-flow) loss component")
+    timing_weight: float = Field(
+        default=0.5, description="Weight for temporal gradient (timing) loss component"
+    )
+    peak_percentile: float = Field(
+        default=0.98, description="Percentile threshold (0–1) for peak flow selection"
+    )
+    baseflow_percentile: float = Field(
+        default=0.30, description="Percentile threshold (0–1) for baseflow selection"
+    )
+    eps: float = Field(default=0.1, description="Stabilization constant added to variance denominators")
+
+
 class Params(BaseModel):
     """Parameters configuration"""
 
@@ -244,6 +265,10 @@ class ExperimentConfig(BaseModel):
         default_factory=lambda: {1: 0.001, 5: 0.0005, 9: 0.0001},
         description="Learning rate schedule mapping epoch number to LR. "
         "At each epoch, the most recent entry at or before the current epoch is used.",
+    )
+    loss: LossConfig = Field(
+        default_factory=LossConfig,
+        description="Multi-component hydrograph loss weights and thresholds",
     )
 
     @field_validator("checkpoint", mode="before")

@@ -1,8 +1,8 @@
-"""Tests for the multi-component hydrograph loss (peak, baseflow, timing)."""
+"""Tests for the multi-component hydrograph loss (overall, peak, baseflow, timing)."""
 
 import torch
 
-from ddr.validation.losses import _regime_loss, _timing_loss, hydrograph_loss
+from ddr.validation.losses import _overall_loss, _regime_loss, _timing_loss, hydrograph_loss
 
 
 class TestBasicMath:
@@ -78,6 +78,30 @@ class TestBaseflow:
         pred[0, 0] += 2.0  # error at baseflow
         l_base = _regime_loss(pred, obs, obs, 0.30, high=False, eps=0.1)
         assert l_base.item() > 0
+
+
+class TestOverall:
+    """Overall NNSE component covers all timesteps with full-series variance."""
+
+    def test_perfect_prediction_is_zero(self) -> None:
+        obs = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
+        assert torch.isclose(_overall_loss(obs, obs, eps=0.1), torch.tensor(0.0), atol=1e-6)
+
+    def test_matches_nnse_formula(self) -> None:
+        """Should reproduce the Song et al. (2025) NNSE formula."""
+        pred = torch.tensor([[3.0, 4.0, 5.0]])
+        target = torch.tensor([[1.0, 2.0, 3.0]])
+        var = target.var(dim=1, correction=0).item()  # 2/3
+        expected = ((pred - target) ** 2 / (var + 0.1)).mean().item()
+        loss = _overall_loss(pred, target, eps=0.1)
+        assert torch.isclose(loss, torch.tensor(expected), rtol=1e-5)
+
+    def test_covers_midrange(self) -> None:
+        """Error only in mid-range flows should produce nonzero overall loss."""
+        obs = torch.tensor([[1.0, 2.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 50.0, 100.0]])
+        pred = obs.clone()
+        pred[0, 4] += 3.0  # error at mid-range (obs=7)
+        assert _overall_loss(pred, obs, eps=0.1).item() > 0
 
 
 class TestTiming:
@@ -181,13 +205,31 @@ class TestEdgeCases:
 class TestWeights:
     """Zero weight should disable a component."""
 
+    _ALL_OFF = {"overall_weight": 0.0, "peak_weight": 0.0, "baseflow_weight": 0.0, "timing_weight": 0.0}
+
+    def test_all_zero_is_zero(self) -> None:
+        obs = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]])
+        pred = obs + 1.0
+        loss = hydrograph_loss(pred, obs, **self._ALL_OFF)
+        assert torch.isclose(loss, torch.tensor(0.0), atol=1e-6)
+
+    def test_zero_overall_weight(self) -> None:
+        obs = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]])
+        pred = obs + 1.0
+
+        loss_with = hydrograph_loss(pred, obs, **{**self._ALL_OFF, "overall_weight": 1.0})
+        loss_without = hydrograph_loss(pred, obs, **self._ALL_OFF)
+
+        assert loss_with.item() > 0
+        assert torch.isclose(loss_without, torch.tensor(0.0), atol=1e-6)
+
     def test_zero_peak_weight(self) -> None:
         obs = torch.tensor([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 100.0]])
         pred = obs.clone()
         pred[0, -1] += 50.0  # peak error only
 
-        loss_with = hydrograph_loss(pred, obs, peak_weight=1.0, baseflow_weight=0.0, timing_weight=0.0)
-        loss_without = hydrograph_loss(pred, obs, peak_weight=0.0, baseflow_weight=0.0, timing_weight=0.0)
+        loss_with = hydrograph_loss(pred, obs, **{**self._ALL_OFF, "peak_weight": 1.0})
+        loss_without = hydrograph_loss(pred, obs, **self._ALL_OFF)
 
         assert loss_with.item() > 0
         assert torch.isclose(loss_without, torch.tensor(0.0), atol=1e-6)
@@ -197,8 +239,8 @@ class TestWeights:
         pred = obs.clone()
         pred[0, 0] += 2.0  # baseflow error only
 
-        loss_with = hydrograph_loss(pred, obs, peak_weight=0.0, baseflow_weight=1.0, timing_weight=0.0)
-        loss_without = hydrograph_loss(pred, obs, peak_weight=0.0, baseflow_weight=0.0, timing_weight=0.0)
+        loss_with = hydrograph_loss(pred, obs, **{**self._ALL_OFF, "baseflow_weight": 1.0})
+        loss_without = hydrograph_loss(pred, obs, **self._ALL_OFF)
 
         assert loss_with.item() > 0
         assert torch.isclose(loss_without, torch.tensor(0.0), atol=1e-6)
@@ -207,8 +249,8 @@ class TestWeights:
         obs = torch.tensor([[0.0, 1.0, 5.0, 10.0, 5.0, 1.0, 0.0]])
         pred = torch.tensor([[0.0, 0.0, 1.0, 5.0, 10.0, 5.0, 1.0]])  # shifted
 
-        loss_with = hydrograph_loss(pred, obs, peak_weight=0.0, baseflow_weight=0.0, timing_weight=1.0)
-        loss_without = hydrograph_loss(pred, obs, peak_weight=0.0, baseflow_weight=0.0, timing_weight=0.0)
+        loss_with = hydrograph_loss(pred, obs, **{**self._ALL_OFF, "timing_weight": 1.0})
+        loss_without = hydrograph_loss(pred, obs, **self._ALL_OFF)
 
         assert loss_with.item() > 0
         assert torch.isclose(loss_without, torch.tensor(0.0), atol=1e-6)

@@ -1,7 +1,8 @@
-"""Multi-component hydrograph loss targeting peak amplitude, baseflow, and timing.
+"""Multi-component hydrograph loss targeting peak amplitude, baseflow, timing, and overall fit.
 
-Replaces the single NNSE loss (Song et al. 2025, Eq. 10) with three complementary
+Replaces the single NNSE loss (Song et al. 2025, Eq. 10) with four complementary
 components that provide stronger gradients to specific physical parameters:
+- Overall (all timesteps, NNSE-style) → stable background signal, mid-range coverage
 - Peak amplitude (top percentile) → Manning's n + leakance
 - Baseflow (bottom percentile) → leakance gate
 - Timing (temporal gradients) → Manning's n (wave celerity)
@@ -17,6 +18,7 @@ from torch import Tensor
 def hydrograph_loss(
     pred: Tensor,
     target: Tensor,
+    overall_weight: float = 1.0,
     peak_weight: float = 1.0,
     baseflow_weight: float = 1.0,
     timing_weight: float = 0.5,
@@ -32,6 +34,8 @@ def hydrograph_loss(
         Predicted discharge (after warmup slicing).
     target : Tensor [N, T]
         Observed discharge (after warmup slicing). Used for both masking and error.
+    overall_weight : float
+        Weight for overall NNSE component (all timesteps, full-series variance).
     peak_weight : float
         Weight for peak amplitude component.
     baseflow_weight : float
@@ -52,6 +56,9 @@ def hydrograph_loss(
     """
     loss = torch.tensor(0.0, device=pred.device, dtype=pred.dtype)
 
+    if overall_weight > 0:
+        loss = loss + overall_weight * _overall_loss(pred, target, eps=eps)
+
     if peak_weight > 0:
         loss = loss + peak_weight * _regime_loss(pred, target, target, peak_percentile, high=True, eps=eps)
 
@@ -64,6 +71,29 @@ def hydrograph_loss(
         loss = loss + timing_weight * _timing_loss(pred, target, eps=eps)
 
     return loss
+
+
+def _overall_loss(pred: Tensor, target: Tensor, eps: float) -> Tensor:
+    """NNSE-style normalized MSE across all timesteps.
+
+    Equivalent to Song et al. (2025) Eq. 10: per-gage variance normalization
+    using the full observation window. Provides a stable background gradient
+    signal for mid-range flows not covered by peak/baseflow regimes.
+
+    Parameters
+    ----------
+    pred : Tensor [N, T]
+    target : Tensor [N, T]
+    eps : float
+        Stabilization constant.
+
+    Returns
+    -------
+    Tensor
+        Scalar loss averaged across gages.
+    """
+    obs_var = target.detach().var(dim=1, correction=0) + eps  # [N]
+    return ((pred - target) ** 2 / obs_var.unsqueeze(1)).mean()
 
 
 def _regime_loss(

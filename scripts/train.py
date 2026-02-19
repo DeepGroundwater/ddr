@@ -135,6 +135,7 @@ def train(
                 loss = hydrograph_loss(
                     pred=pred,
                     target=target,
+                    overall_weight=loss_cfg.overall_weight,
                     peak_weight=loss_cfg.peak_weight,
                     baseflow_weight=loss_cfg.baseflow_weight,
                     timing_weight=loss_cfg.timing_weight,
@@ -144,8 +145,9 @@ def train(
                 )
 
                 with torch.no_grad():
-                    from ddr.validation.losses import _regime_loss, _timing_loss
+                    from ddr.validation.losses import _overall_loss, _regime_loss, _timing_loss
 
+                    l_overall = _overall_loss(pred, target, eps=loss_cfg.eps)
                     l_peak = _regime_loss(
                         pred, target, target, loss_cfg.peak_percentile, high=True, eps=loss_cfg.eps
                     )
@@ -154,7 +156,7 @@ def train(
                     )
                     l_timing = _timing_loss(pred, target, eps=loss_cfg.eps)
                     log.info(
-                        f"Loss components: peak={l_peak.item():.4f}, "
+                        f"Loss components: overall={l_overall.item():.4f}, peak={l_peak.item():.4f}, "
                         f"base={l_base.item():.4f}, timing={l_timing.item():.4f}"
                     )
 

@@ -185,6 +185,15 @@ def train(
                     f"min={n_vals.min().item():.4f}, max={n_vals.max().item():.4f}"
                 )
 
+                if routing_model.routing_engine.use_retention:
+                    storage = routing_model.routing_engine._storage_t
+                    if storage is not None:
+                        s_det = storage.detach().cpu()
+                        log.info(
+                            f"Retention: storage median={s_det.median().item():.4f}, "
+                            f"max={s_det.max().item():.4f}"
+                        )
+
                 if "leakance_gate" in spatial_params:
                     gate_raw = spatial_params["leakance_gate"].detach().cpu()
                     gate_on = (gate_raw > 0.5).sum().item()
@@ -249,6 +258,7 @@ def main(cfg: DictConfig) -> None:
             seed=config.seed,
             device=config.device,
             gate_parameters=config.kan.gate_parameters,
+            off_parameters=config.kan.off_parameters,
         )
         lstm_nn = CudaLSTM(
             input_var_names=config.cuda_lstm.input_var_names,

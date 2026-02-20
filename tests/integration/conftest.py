@@ -59,6 +59,7 @@ def _build_integration_config(tmp_path: Path) -> DictConfig:
         "params": {
             "save_path": str(tmp_path),
             "use_leakance": True,
+            "use_retention": True,
         },
         "kan": {
             "hidden_size": 21,
@@ -82,8 +83,10 @@ def _build_integration_config(tmp_path: Path) -> DictConfig:
                 "K_D_delta",
                 "n",
                 "leakance_gate",
+                "alpha",
             ],
             "gate_parameters": ["leakance_gate"],
+            "off_parameters": ["alpha"],
             "grid": 50,
             "k": 2,
         },
@@ -142,6 +145,7 @@ def integration_models(
         seed=cfg.seed,
         device=cfg.device,
         gate_parameters=cfg.kan.gate_parameters,
+        off_parameters=cfg.kan.off_parameters,
     )
     lstm_nn = CudaLSTM(
         input_var_names=cfg.cuda_lstm.input_var_names,

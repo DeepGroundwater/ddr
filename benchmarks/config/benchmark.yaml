@@ -25,6 +25,7 @@ data_sources:
 params:
   save_path: ./
   use_leakance: true
+  use_retention: true
   parameter_ranges:
     n: [0.015, 0.25]       # Manning's roughness (KAN, static spatial)
 
@@ -56,8 +57,11 @@ kan:
     - K_D_delta
     - n
     - leakance_gate
+    - alpha
   gate_parameters:
     - leakance_gate
+  off_parameters:
+    - alpha
   grid: 50
   k: 2
 

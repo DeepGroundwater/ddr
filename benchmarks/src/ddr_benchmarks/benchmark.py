@@ -907,23 +907,23 @@ def benchmark(
             )
 
     # Build descriptive model labels
-    model_labels = [f"DDR v{__version__}", f"DiffRoute ({diffroute_cfg.irf_fn})", "$\\sum$ Q'"]
+    # model_labels = [f"DDR v{__version__}", f"DiffRoute ({diffroute_cfg.irf_fn})", "$\\sum$ Q'"]
 
     # Generate comparison plots
-    generate_comparison_plots(
-        cfg=cfg,
-        ddr_metrics=ddr_metrics,
-        diffroute_metrics=diffroute_metrics,
-        sqp_metrics=sqp_metrics,
-        gage_ids=all_gage_ids,
-        ddr_daily=ddr_daily,
-        diffroute_daily=diffroute_daily if diffroute_enabled else None,
-        sqp_daily=sqp_daily,
-        sqp_common_mask=sqp_common_mask,
-        daily_obs=daily_obs,
-        dates=dataset.dates,
-        model_labels=model_labels,
-    )
+    # generate_comparison_plots(
+    #     cfg=cfg,
+    #     ddr_metrics=ddr_metrics,
+    #     diffroute_metrics=diffroute_metrics,
+    #     sqp_metrics=sqp_metrics,
+    #     gage_ids=all_gage_ids,
+    #     ddr_daily=ddr_daily,
+    #     diffroute_daily=diffroute_daily if diffroute_enabled else None,
+    #     sqp_daily=sqp_daily,
+    #     sqp_common_mask=sqp_common_mask,
+    #     daily_obs=daily_obs,
+    #     dates=dataset.dates,
+    #     model_labels=model_labels,
+    # )
 
     # Save results to zarr
     save_results(cfg, ddr_daily, diffroute_daily, daily_obs, all_gage_ids, dataset.dates)

@@ -177,6 +177,10 @@ module = "tests.*"
 disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
+markers = [
+    "integration: end-to-end training tests using real HPC data (deselect by default)",
+]
+addopts = "-m 'not integration'"
 filterwarnings =  [
     # Ignore a torch UserWarning about doing std()
     # On a single element...

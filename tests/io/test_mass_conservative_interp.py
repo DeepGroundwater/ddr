@@ -8,8 +8,9 @@ Verifies that mass_conservative_rescale:
 """
 
 import numpy as np
+import torch
 
-from ddr.io.functions import mass_conservative_rescale
+from ddr.io.functions import downsample, mass_conservative_rescale
 
 
 class TestMassConservativeRescale:
@@ -185,3 +186,80 @@ class TestMassConservativeRescale:
         np.testing.assert_array_equal(result[24:], 99.0)
         # Complete day should be rescaled
         np.testing.assert_allclose(result[:24].mean(), 10.0, rtol=1e-5)
+
+    def test_roundtrip_interp_then_downsample(self) -> None:
+        """Full pipeline: daily → linear interp → mass rescale → downsample → daily.
+
+        This mirrors the actual DDR data path:
+          StreamflowReader (daily → hourly via linear + rescale)
+          → MC routing (hourly, 24 steps per day)
+          → downsample(mode="area") back to daily for loss
+
+        If no routing transformation is applied (identity pass-through),
+        the downsampled daily values must exactly recover the originals.
+        """
+        rng = np.random.default_rng(7)
+        num_days = 60
+        num_divides = 6
+        daily_data = rng.uniform(0.5, 300.0, size=(num_days, num_divides)).astype(np.float32)
+
+        # Step 1: Linear interpolation (simulate ramp between daily values)
+        num_complete_days = num_days - 1
+        hourly_data = np.empty((num_complete_days * 24, num_divides), dtype=np.float32)
+        for d in range(num_complete_days):
+            for h in range(24):
+                frac = h / 24.0
+                hourly_data[d * 24 + h] = daily_data[d] * (1 - frac) + daily_data[d + 1] * frac
+
+        # Step 2: Mass-conservative rescaling
+        hourly_corrected = mass_conservative_rescale(hourly_data, daily_data)
+
+        # Step 3: Downsample back to daily using DDR's actual downsample()
+        # downsample expects (num_reaches, num_hours) and returns (num_reaches, num_days)
+        hourly_tensor = torch.tensor(hourly_corrected.T, dtype=torch.float32)  # (divides, hours)
+        daily_recovered = downsample(hourly_tensor, rho=num_complete_days)  # (divides, days)
+        daily_recovered_np = daily_recovered.numpy().T  # (days, divides)
+
+        # Verify: recovered daily values == original daily values
+        np.testing.assert_allclose(
+            daily_recovered_np,
+            daily_data[:num_complete_days],
+            rtol=1e-4,
+            err_msg="Roundtrip daily→hourly→daily did not preserve values",
+        )
+
+    def test_roundtrip_with_extreme_variability(self) -> None:
+        """Roundtrip test with large day-to-day swings (drought ↔ flood cycles)."""
+        # Alternating low/high pattern to stress-test mass conservation
+        daily_data = np.array(
+            [
+                [1.0, 500.0],
+                [800.0, 2.0],
+                [3.0, 900.0],
+                [600.0, 0.5],
+                [2.0, 700.0],
+            ],
+            dtype=np.float32,
+        )
+        num_days = daily_data.shape[0]
+        num_divides = daily_data.shape[1]
+        num_complete_days = num_days - 1
+
+        # Linear interpolation
+        hourly_data = np.empty((num_complete_days * 24, num_divides), dtype=np.float32)
+        for d in range(num_complete_days):
+            for h in range(24):
+                frac = h / 24.0
+                hourly_data[d * 24 + h] = daily_data[d] * (1 - frac) + daily_data[d + 1] * frac
+
+        # Rescale + downsample roundtrip
+        hourly_corrected = mass_conservative_rescale(hourly_data, daily_data)
+        hourly_tensor = torch.tensor(hourly_corrected.T, dtype=torch.float32)
+        daily_recovered = downsample(hourly_tensor, rho=num_complete_days).numpy().T
+
+        np.testing.assert_allclose(
+            daily_recovered,
+            daily_data[:num_complete_days],
+            rtol=1e-4,
+            err_msg="Roundtrip failed with extreme day-to-day variability",
+        )

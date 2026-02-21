@@ -22,6 +22,7 @@ class kan(torch.nn.Module):
         seed: int,
         device: int | str = "cpu",
         gate_parameters: list[str] | None = None,
+        off_parameters: list[str] | None = None,
     ):
         super().__init__()
         self.input_size = len(input_var_names)
@@ -57,6 +58,14 @@ class kan(torch.nn.Module):
                 for param_name in gate_parameters:
                     idx = self.learnable_parameters.index(param_name)
                     self.output.bias[idx] = 1.0
+
+        # Initialize off_parameters with negative bias so sigmoid starts near 0 (OFF).
+        # Unlike gate_parameters, these remain continuous (no binary STE).
+        if off_parameters:
+            with torch.no_grad():
+                for param_name in off_parameters:
+                    idx = self.learnable_parameters.index(param_name)
+                    self.output.bias[idx] = -2.0
 
     def forward(self, *args: Any, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass of the neural network"""

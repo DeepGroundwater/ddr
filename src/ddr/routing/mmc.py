@@ -290,6 +290,11 @@ class MuskingumCunge:
         # Time-varying parameters (from LSTM, daily resolution)
         self._d_gw_t: torch.Tensor | None = None  # d_gw (from LSTM when use_leakance=True)
 
+        # Retention (linear reservoir) state
+        self.use_retention: bool = cfg.params.use_retention
+        self._storage_t: torch.Tensor | None = None  # Accumulated storage per reach
+        self.alpha: torch.Tensor | None = None  # Static retention from KAN
+
         # Leakance diagnostic accumulators (populated during forward())
         self._zeta_sum: torch.Tensor | None = None
         self._q_prime_sum: torch.Tensor = torch.empty(0)
@@ -317,8 +322,9 @@ class MuskingumCunge:
     def clear_batch_state(self) -> None:
         """Release batch-specific tensor references to free GPU memory.
 
-        Preserves ``_discharge_t`` (needed for ``carry_state=True`` inference)
-        and ``n`` / ``q_spatial`` (used for post-batch logging).
+        Preserves ``_discharge_t`` and ``_storage_t`` (needed for
+        ``carry_state=True`` inference) and ``n`` / ``q_spatial``
+        (used for post-batch logging).
         """
         self.routing_dataclass = None
         self.q_prime = None
@@ -330,6 +336,8 @@ class MuskingumCunge:
         self._zeta_sum = None
         self._q_prime_sum = torch.empty(0)
         self._last_zeta = torch.empty(0)
+        self.alpha = None
+        # NOTE: do NOT clear _storage_t — preserved like _discharge_t for carry_state
 
     def setup_inputs(
         self,
@@ -350,6 +358,8 @@ class MuskingumCunge:
         self._set_network_context(routing_dataclass, streamflow)
         self._denormalize_spatial_parameters(spatial_parameters)
         self._init_discharge_state(carry_state)
+        if self.use_retention:
+            self._init_storage_state(carry_state)
         self._precompute_scatter_indices()
 
     def _set_network_context(self, routing_dataclass: Any, streamflow: torch.Tensor) -> None:
@@ -423,6 +433,14 @@ class MuskingumCunge:
                 log_space="n" in log_space_params,
             )
 
+        # Retention alpha (from KAN, static spatial)
+        if "alpha" in spatial_parameters:
+            self.alpha = denormalize(
+                value=spatial_parameters["alpha"],
+                bounds=self.parameter_bounds["alpha"],
+                log_space="alpha" in log_space_params,
+            )
+
         routing_dataclass = self.routing_dataclass
         if routing_dataclass.top_width.numel() == 0:
             self.top_width = denormalize(
@@ -447,7 +465,7 @@ class MuskingumCunge:
         Parameters
         ----------
         lstm_params : dict[str, torch.Tensor]
-            Dict with d_gw, shape (T_daily, N) in [0,1].
+            Dict with parameter tensors, shape (T_daily, N) in [0,1].
             Stored as daily tensors; mapped to hourly timesteps in forward().
         """
         log_space = self.cfg.params.log_space_parameters
@@ -468,6 +486,13 @@ class MuskingumCunge:
             self.discharge_lb,
             self.device,
         )
+
+    def _init_storage_state(self, carry_state: bool) -> None:
+        """Initialize retention storage, or carry from previous batch."""
+        if carry_state and self._storage_t is not None:
+            return  # preserve storage from previous batch (inference)
+        assert self._discharge_t is not None
+        self._storage_t = torch.zeros(len(self._discharge_t), device=self.device)
 
     def _precompute_scatter_indices(self) -> None:
         """Precompute scatter_add indices for ragged output (gages mode)."""
@@ -571,6 +596,13 @@ class MuskingumCunge:
                 assert self._last_zeta is not None
                 self._zeta_sum += self._last_zeta
                 self._q_prime_sum += q_prime_clamp.detach().clone()
+
+            # Apply retention (post-MC-solve linear reservoir)
+            if self.use_retention and self.alpha is not None and self._storage_t is not None:
+                captured = self.alpha * q_t1
+                release = (1 - self.alpha) * self._storage_t
+                q_t1 = q_t1 - captured + release
+                self._storage_t = self._storage_t + captured - release
 
             if output_all:
                 output[:, timestep] = q_t1

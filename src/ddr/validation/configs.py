@@ -85,6 +85,7 @@ _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
     "K_D_delta": [-3.0, 1.0],  # Log-space delta from Cosby PTF prior (-)
     "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
     "leakance_gate": [0.0, 1.0],  # Binary STE gate for leakance (-)
+    "alpha": [0.0, 1.0],  # Retention fraction per reach (-)
 }
 
 
@@ -166,6 +167,11 @@ class Params(BaseModel):
         description="Enable groundwater-surface water exchange (leakance) in routing. "
         "When True, K_D_delta and d_gw must be in params.parameter_ranges.",
     )
+    use_retention: bool = Field(
+        default=False,
+        description="Enable per-reach water retention (linear reservoir) in routing. "
+        "When True, 'alpha' must be in cuda_lstm.learnable_parameters and params.parameter_ranges.",
+    )
     ptf_sand_var: str = Field(
         default="SoilGrids1km_sand",
         description="Sand % variable name in the attribute dataset for Cosby PTF",
@@ -227,6 +233,11 @@ class Kan(BaseModel):
     gate_parameters: list[str] = Field(
         default_factory=list,
         description="Parameters that use binary STE gating (bias initialized to OFF)",
+    )
+    off_parameters: list[str] = Field(
+        default_factory=list,
+        description="Parameters with bias initialized to -2.0 (sigmoid ≈ 0.12, default OFF). "
+        "Unlike gate_parameters, these remain continuous (no binary STE).",
     )
 
 
@@ -374,12 +385,27 @@ class Config(BaseModel):
             if "leakance_gate" not in self.kan.learnable_parameters:
                 raise ValueError("use_leakance=True requires 'leakance_gate' in kan.learnable_parameters")
 
+        # When use_retention=True, alpha must be in KAN learnable_parameters
+        if self.params.use_retention:
+            if "alpha" not in self.params.parameter_ranges:
+                raise ValueError("use_retention=True requires 'alpha' in params.parameter_ranges")
+            if "alpha" not in self.kan.learnable_parameters:
+                raise ValueError("use_retention=True requires 'alpha' in kan.learnable_parameters")
+
         # All gate_parameters must be in kan.learnable_parameters
         invalid_gates = [g for g in self.kan.gate_parameters if g not in self.kan.learnable_parameters]
         if invalid_gates:
             raise ValueError(
                 f"gate_parameters {invalid_gates} not found in kan.learnable_parameters. "
                 f"gate_parameters must be a subset of learnable_parameters."
+            )
+
+        # All off_parameters must be in kan.learnable_parameters
+        invalid_off = [p for p in self.kan.off_parameters if p not in self.kan.learnable_parameters]
+        if invalid_off:
+            raise ValueError(
+                f"off_parameters {invalid_off} not found in kan.learnable_parameters. "
+                f"off_parameters must be a subset of learnable_parameters."
             )
 
         return self

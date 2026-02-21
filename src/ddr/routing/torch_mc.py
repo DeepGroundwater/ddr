@@ -249,8 +249,8 @@ class dmc(torch.nn.Module):
             output_dict["zeta_sum"] = self.routing_engine._zeta_sum
             output_dict["q_prime_sum"] = self.routing_engine._q_prime_sum
 
-        if self.routing_engine.use_retention and self.routing_engine._storage_t is not None:
-            output_dict["storage"] = self.routing_engine._storage_t.detach()
+        if self.routing_engine.use_reservoir and self.routing_engine._pool_elevation_t is not None:
+            output_dict["pool_elevation"] = self.routing_engine._pool_elevation_t.detach()
 
         return output_dict
 

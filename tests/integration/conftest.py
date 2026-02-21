@@ -59,7 +59,6 @@ def _build_integration_config(tmp_path: Path) -> DictConfig:
         "params": {
             "save_path": str(tmp_path),
             "use_leakance": True,
-            "use_retention": True,
         },
         "kan": {
             "hidden_size": 21,
@@ -83,10 +82,8 @@ def _build_integration_config(tmp_path: Path) -> DictConfig:
                 "K_D_delta",
                 "n",
                 "leakance_gate",
-                "alpha",
             ],
             "gate_parameters": ["leakance_gate"],
-            "off_parameters": ["alpha"],
             "grid": 50,
             "k": 2,
         },

@@ -75,6 +75,10 @@ class DataSources(BaseModel):
         default=None,
         description="Path to icechunk store with meteorological forcings (P, PET, Temp)",
     )
+    reservoir_params: str | None = Field(
+        default=None,
+        description="Path to preprocessed HydroLAKES reservoir parameters CSV (from build_reservoir_params.py)",
+    )
 
 
 _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
@@ -85,7 +89,6 @@ _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
     "K_D_delta": [-3.0, 1.0],  # Log-space delta from Cosby PTF prior (-)
     "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
     "leakance_gate": [0.0, 1.0],  # Binary STE gate for leakance (-)
-    "alpha": [0.0, 1.0],  # Retention fraction per reach (-)
 }
 
 
@@ -167,10 +170,9 @@ class Params(BaseModel):
         description="Enable groundwater-surface water exchange (leakance) in routing. "
         "When True, K_D_delta and d_gw must be in params.parameter_ranges.",
     )
-    use_retention: bool = Field(
+    use_reservoir: bool = Field(
         default=False,
-        description="Enable per-reach water retention (linear reservoir) in routing. "
-        "When True, 'alpha' must be in cuda_lstm.learnable_parameters and params.parameter_ranges.",
+        description="Enable level pool reservoir routing for reaches intersecting HydroLAKES waterbodies.",
     )
     ptf_sand_var: str = Field(
         default="SoilGrids1km_sand",
@@ -385,12 +387,10 @@ class Config(BaseModel):
             if "leakance_gate" not in self.kan.learnable_parameters:
                 raise ValueError("use_leakance=True requires 'leakance_gate' in kan.learnable_parameters")
 
-        # When use_retention=True, alpha must be in KAN learnable_parameters
-        if self.params.use_retention:
-            if "alpha" not in self.params.parameter_ranges:
-                raise ValueError("use_retention=True requires 'alpha' in params.parameter_ranges")
-            if "alpha" not in self.kan.learnable_parameters:
-                raise ValueError("use_retention=True requires 'alpha' in kan.learnable_parameters")
+        # When use_reservoir=True, reservoir_params path must be provided
+        if self.params.use_reservoir:
+            if self.data_sources.reservoir_params is None:
+                raise ValueError("use_reservoir=True requires data_sources.reservoir_params")
 
         # All gate_parameters must be in kan.learnable_parameters
         invalid_gates = [g for g in self.kan.gate_parameters if g not in self.kan.learnable_parameters]

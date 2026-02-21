@@ -9,7 +9,7 @@ defaults:
 mode: testing
 geodataset: merit
 name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
-device: 2
+device: 0
 
 data_sources:
   attributes: /projects/mhpi/tbindas/ddr/data/merit_global_attributes_v2.nc
@@ -25,16 +25,14 @@ data_sources:
 params:
   save_path: ./
   use_leakance: true
-  use_retention: true
-  parameter_ranges:
-    n: [0.015, 0.25]       # Manning's roughness (KAN, static spatial)
+  use_reservoir: false
 
 experiment:
   batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-19_07-27-17/saved_models/_ddr-v0.5.0-merit-training_epoch_7_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.1.dev10+g9c489863f-merit-training/2026-02-20_20-12-44/saved_models/_ddr-v0.5.1.dev10+g9c489863f-merit-training_epoch_7_mb_43.pt
 
 kan:
   hidden_size: 21
@@ -57,11 +55,8 @@ kan:
     - K_D_delta
     - n
     - leakance_gate
-    - alpha
   gate_parameters:
     - leakance_gate
-  off_parameters:
-    - alpha
   grid: 50
   k: 2
 

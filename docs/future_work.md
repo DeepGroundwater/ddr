@@ -185,7 +185,7 @@ def forward(
     use_hourly: bool = False,
 ) -> torch.Tensor:
     # Returns: (T_hourly, N) float32 — lateral inflow per reach
-    # Daily data interpolated to hourly (mass_conservative_rescale) unless use_hourly=True
+    # Daily data interpolated to hourly (nearest) unless use_hourly=True
 ```
 
 #### `KAN.forward()` contract

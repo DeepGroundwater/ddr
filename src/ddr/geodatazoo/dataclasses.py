@@ -210,3 +210,13 @@ class RoutingDataclass:
     attribute_names: list[str] | None = field(default=None)
     sand_pct: torch.Tensor | None = field(default=None)
     clay_pct: torch.Tensor | None = field(default=None)
+    # Reservoir (level pool) parameters — populated when use_reservoir=True
+    reservoir_mask: torch.Tensor | None = field(default=None)  # [N] bool
+    lake_area_m2: torch.Tensor | None = field(default=None)  # [N] float
+    weir_elevation: torch.Tensor | None = field(default=None)  # [N] float
+    orifice_elevation: torch.Tensor | None = field(default=None)  # [N] float
+    weir_coeff: torch.Tensor | None = field(default=None)  # [N] float
+    weir_length: torch.Tensor | None = field(default=None)  # [N] float
+    orifice_coeff: torch.Tensor | None = field(default=None)  # [N] float
+    orifice_area: torch.Tensor | None = field(default=None)  # [N] float
+    initial_pool_elevation: torch.Tensor | None = field(default=None)  # [N] float

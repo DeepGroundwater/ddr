@@ -15,6 +15,7 @@ import zarr.storage
 from scipy import sparse
 
 from ddr.geodatazoo.dataclasses import Dates
+from ddr.io.functions import mass_conservative_rescale
 from ddr.validation.configs import Config, GeoDataset
 
 log = logging.getLogger(__name__)
@@ -453,13 +454,23 @@ class StreamflowReader(torch.nn.Module):
         ]
 
         if use_hourly is False:
-            _ds = _ds.interp(
+            # Materialize daily data once for mass-conservative correction
+            _ds_daily = _ds.compute()
+            daily_vals = _ds_daily.values.astype(np.float32).T  # (num_days, num_divides)
+
+            # Linear interpolation: smooth ramps between daily values give
+            # sub-daily variability so Manning's n, retention, and leakance
+            # see different conditions each hour instead of 24 identical copies.
+            _ds = _ds_daily.interp(
                 time=routing_dataclass.dates.batch_hourly_time_range,
-                method="nearest",
+                method="linear",
             )
         streamflow_data = (
             _ds.compute().values.astype(np.float32).T
         )  # Transposing to (num_timesteps, num_features)
+
+        if use_hourly is False:
+            streamflow_data = mass_conservative_rescale(streamflow_data, daily_vals)
 
         # Creating an output tensor where we're filling any missing data with minimum flow
         output = torch.full(

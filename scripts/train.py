@@ -167,13 +167,49 @@ def train(
                     n_losing = int((zeta > 0).sum())
                     log.info(f"Leakance: zeta/q_prime={zeta_frac.item():.4f}, losing={n_losing}/{len(zeta)}")
 
+                # --- Check forward pass output for NaN ---
+                if torch.isnan(dmc_output["runoff"]).any():
+                    nan_t = torch.isnan(dmc_output["runoff"]).any(dim=0).nonzero(as_tuple=True)[0][0].item()
+                    log.error(f"NaN in routing output at timestep {nan_t} — skipping batch")
+                    del streamflow_predictions, spatial_params, dmc_output, daily_runoff
+                    del loss, filtered_predictions, filtered_observations
+                    del forcing_data, lstm_params
+                    routing_model.clear_batch_state()
+                    continue
+
+                # --- Check loss for NaN ---
+                if torch.isnan(loss):
+                    log.error("NaN loss — skipping backward + optimizer step")
+                    del streamflow_predictions, spatial_params, dmc_output, daily_runoff
+                    del loss, filtered_predictions, filtered_observations
+                    del forcing_data, lstm_params
+                    routing_model.clear_batch_state()
+                    continue
+
                 log.info("Running backpropagation")
 
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1.0)
-                torch.nn.utils.clip_grad_norm_(lstm_nn.parameters(), max_norm=1.0)
-                kan_optimizer.step()
-                lstm_optimizer.step()
+
+                # --- NaN gradient guard ---
+                # Compute norms BEFORE clipping to detect NaN
+                kan_grad_norm = torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=float("inf"))
+                lstm_grad_norm = torch.nn.utils.clip_grad_norm_(lstm_nn.parameters(), max_norm=float("inf"))
+                has_nan_grad = torch.isnan(kan_grad_norm) or torch.isnan(lstm_grad_norm)
+                log.info(f"Grad norms: KAN={kan_grad_norm.item():.4g}, LSTM={lstm_grad_norm.item():.4g}")
+
+                if has_nan_grad:
+                    log.error(
+                        "NaN in gradients after backward — skipping optimizer step. "
+                        "Weights preserved from previous batch."
+                    )
+                    kan_optimizer.zero_grad()
+                    lstm_optimizer.zero_grad()
+                else:
+                    # Now actually clip and step
+                    torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1.0)
+                    torch.nn.utils.clip_grad_norm_(lstm_nn.parameters(), max_norm=1.0)
+                    kan_optimizer.step()
+                    lstm_optimizer.step()
 
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()

@@ -33,11 +33,12 @@ A reservoir reach stores water at pool elevation $H$ and releases through two ou
 ====================================
 ```
 
-**Reference frame:**
+**Reference frame (RFC-DA conventions):**
 
 - Elevations are absolute (from HydroLAKES Elevation field)
-- Weir crest sits at 75% of full pool: `WE = elevation - 0.25 * depth`
-- Orifice center sits at lake bottom: `OE = elevation - depth`
+- Base elevation (lake bottom): `base = elevation - depth`
+- Orifice invert at 15% of pool height: `OE = base + 0.15 * depth` (dead storage below)
+- Weir crest at 90% of pool height: `WE = base + 0.90 * depth`
 
 ## Outflow Equations
 
@@ -67,7 +68,7 @@ Q_orifice = C_o * O_a * sqrt(2g * max(H - OE, 0) + eps)
 
 Where:
 
-- `C_o` = orifice discharge coefficient (default 0.6)
+- `C_o` = orifice discharge coefficient (default 0.1, NWM/RFC-DA conservative default)
 - `O_a` = orifice cross-sectional area [m^2] (back-calculated from average discharge)
 - `H - OE` = head above orifice center [m]
 - `g` = 9.81 m/s^2
@@ -100,8 +101,8 @@ Where:
 - `Q_out` = total outflow [m^3/s] (from `_level_pool_outflow()`)
 - `A_s` = lake surface area [m^2]
 - `eps` = 1e-8 (prevents division by zero for tiny lakes)
-- `OE` = orifice elevation (lake bottom, lower clamp)
-- `WE` = weir crest elevation (upper clamp base)
+- `OE` = orifice elevation (15% of pool height from base, lower clamp)
+- `WE` = weir crest elevation (90% of pool height from base, upper clamp)
 - `D` = `WE - OE` = 0.75 * depth (clamp headroom = one full depth above weir)
 
 ### Stability Clamp
@@ -116,7 +117,7 @@ For small reservoirs (small `A_s`) or large heads (large `dQ_out/dH`), this crit
 
 The pool elevation is therefore clamped after each update to the physically reasonable range `[OE, WE + D]`:
 
-- **Lower bound** (`OE`): Pool cannot drain below the lake bottom.
+- **Lower bound** (`OE`): Pool cannot drain below the orifice invert (15% of pool height).
 - **Upper bound** (`WE + D`): Pool cannot rise more than one full depth above the weir crest. This is physically generous (no natural reservoir rises this much) but prevents the Euler instability from producing overflow values.
 
 The clamp uses `torch.maximum` / `torch.minimum`, which have subgradient 0 at the boundary and 1 elsewhere. When pool is within bounds, gradients flow normally. When pool hits a bound, the gradient is killed — this is acceptable because the system is in an unphysical regime and there is no meaningful learning signal from further elevation changes.
@@ -171,12 +172,12 @@ Multiple lakes can intersect a single COMID. Aggregation rules:
 
 | Parameter | Formula | Physical Meaning |
 |-----------|---------|-----------------|
-| `weir_elevation` | `elevation - 0.25 * depth` | Weir crest at 75% of full pool |
-| `orifice_elevation` | `elevation - depth` | Bottom of lake |
+| `weir_elevation` | `base + 0.90 * depth` | Weir crest at 90% of pool height (RFC-DA) |
+| `orifice_elevation` | `base + 0.15 * depth` | Orifice invert at 15% of pool height (RFC-DA) |
 | `weir_coeff` | 0.4 (fixed) | Broad-crested weir default |
 | `weir_length` | `max(1.0, shore_len * 0.01)` | 1% of shoreline length |
-| `orifice_coeff` | 0.6 (fixed) | Standard orifice default |
-| `orifice_area` | `dis_avg / (C_o * sqrt(2g * 0.5 * depth) + 1e-8)` | Back-calculated from average Q |
+| `orifice_coeff` | 0.1 (fixed) | NWM/RFC-DA conservative default |
+| `orifice_area` | `min(dis_avg / (C_o * sqrt(2g * 0.35 * depth) + 1e-8), 100)` | Back-calculated from average Q, capped at 100 m^2 |
 | `initial_pool_elevation` | `elevation - 0.5 * depth` | Half-full (CSV only, not used at runtime) |
 
 ### Orifice Area Back-Calculation
@@ -186,9 +187,10 @@ The orifice area is not directly observable. It is back-calculated from the aver
 ```
 Q_avg = C_o * O_a * sqrt(2g * h_mid)
 O_a   = Q_avg / (C_o * sqrt(2g * h_mid) + eps)
+O_a   = min(O_a, 100.0)                          # stability cap [m^2]
 ```
 
-Where `h_mid = 0.5 * depth` (head at the midpoint).
+Where `h_mid = (0.5 - 0.15) * depth = 0.35 * depth` is the head above the orifice invert at half-depth pool. The 100 m^2 cap prevents forward Euler instability for small reservoirs where large orifice areas would violate the Courant-like stability criterion (see Stability Clamp section).
 
 ## Integration with MC Routing (Single-Solve RHS Override)
 

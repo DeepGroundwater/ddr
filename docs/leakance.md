@@ -93,8 +93,10 @@ Where:
 
 - `A_wetted = width * length` = wetted streambed area [m^2]
 - `width = (p_spatial * depth)^q_spatial` = power-law width [m]
-- `K_D` = hydraulic exchange rate [1/s] (time-varying, daily; learned by LSTM)
+- `K_D` = hydraulic exchange rate [1/s] (Cosby PTF + KAN delta correction)
 - `d_gw` = depth to water table from ground surface [m] (time-varying, daily; learned by LSTM)
+
+Flow depth in `_compute_zeta()` is clamped to `depth_lb` (matching `_get_trapezoid_velocity()`) to prevent gradient singularities from `pow(~0, a<1)` at near-zero discharge.
 
 ## Modified Routing Equation
 

@@ -40,6 +40,7 @@ class TestComputeZeta:
             "d_gw": torch.ones(n) * 0.5,
             "top_width": torch.ones(n) * 10.0,
             "side_slope": torch.ones(n) * 2.0,
+            "depth_lb": torch.tensor(0.001),
         }
 
     def test_zeta_shape_matches_inputs(self, zeta_inputs: dict[str, torch.Tensor]) -> None:

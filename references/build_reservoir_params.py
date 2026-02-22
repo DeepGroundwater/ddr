@@ -34,6 +34,7 @@ C_W_DEFAULT = 0.4  # broad-crested weir discharge coefficient
 C_O_DEFAULT = 0.1  # orifice discharge coefficient (NWM/RFC-DA conservative default)
 SHORE_FRAC = 0.01  # fraction of shoreline used as weir length
 MIN_WEIR_LENGTH = 1.0  # minimum weir length [m]
+MAX_ORIFICE_AREA = 100.0  # physical cap [m^2] — prevents forward Euler instability
 
 # RFC-DA elevation fractions (nhf-builds convention)
 CREST_FRAC = 0.90  # weir crest at 90% of pool height from base
@@ -132,6 +133,7 @@ def derive_reservoir_params(agg: pd.DataFrame) -> pd.DataFrame:
     # Head above orifice at half-depth pool: (0.5 - INVERT_FRAC) * depth = 0.35 * depth
     h_mid = (0.5 - INVERT_FRAC) * depth
     orifice_area = dis_avg / (C_O_DEFAULT * np.sqrt(2 * G * h_mid) + 1e-8)
+    orifice_area = orifice_area.clip(upper=MAX_ORIFICE_AREA)
 
     # Initial pool elevation at half-full
     initial_pool_elevation = elev - 0.5 * depth

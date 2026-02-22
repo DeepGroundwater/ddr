@@ -185,6 +185,15 @@ def train(
                     f"min={n_vals.min().item():.4f}, max={n_vals.max().item():.4f}"
                 )
 
+                if routing_model.routing_engine.use_reservoir:
+                    pool_elev = routing_model.routing_engine._pool_elevation_t
+                    res_mask = routing_model.routing_engine.reservoir_mask
+                    if pool_elev is not None and res_mask is not None and res_mask.any():
+                        p = pool_elev[res_mask].detach().cpu()
+                        log.info(
+                            f"Pool elevation: median={p.median():.2f}, range=[{p.min():.2f}, {p.max():.2f}]"
+                        )
+
                 if "leakance_gate" in spatial_params:
                     gate_raw = spatial_params["leakance_gate"].detach().cpu()
                     gate_on = (gate_raw > 0.5).sum().item()
@@ -249,6 +258,7 @@ def main(cfg: DictConfig) -> None:
             seed=config.seed,
             device=config.device,
             gate_parameters=config.kan.gate_parameters,
+            off_parameters=config.kan.off_parameters,
         )
         lstm_nn = CudaLSTM(
             input_var_names=config.cuda_lstm.input_var_names,

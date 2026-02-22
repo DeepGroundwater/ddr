@@ -75,6 +75,10 @@ class DataSources(BaseModel):
         default=None,
         description="Path to icechunk store with meteorological forcings (P, PET, Temp)",
     )
+    reservoir_params: str | None = Field(
+        default=None,
+        description="Path to preprocessed HydroLAKES reservoir parameters CSV (from build_reservoir_params.py)",
+    )
 
 
 _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
@@ -166,6 +170,10 @@ class Params(BaseModel):
         description="Enable groundwater-surface water exchange (leakance) in routing. "
         "When True, K_D_delta and d_gw must be in params.parameter_ranges.",
     )
+    use_reservoir: bool = Field(
+        default=False,
+        description="Enable level pool reservoir routing for reaches intersecting HydroLAKES waterbodies.",
+    )
     ptf_sand_var: str = Field(
         default="SoilGrids1km_sand",
         description="Sand % variable name in the attribute dataset for Cosby PTF",
@@ -227,6 +235,11 @@ class Kan(BaseModel):
     gate_parameters: list[str] = Field(
         default_factory=list,
         description="Parameters that use binary STE gating (bias initialized to OFF)",
+    )
+    off_parameters: list[str] = Field(
+        default_factory=list,
+        description="Parameters with bias initialized to -2.0 (sigmoid ≈ 0.12, default OFF). "
+        "Unlike gate_parameters, these remain continuous (no binary STE).",
     )
 
 
@@ -374,12 +387,25 @@ class Config(BaseModel):
             if "leakance_gate" not in self.kan.learnable_parameters:
                 raise ValueError("use_leakance=True requires 'leakance_gate' in kan.learnable_parameters")
 
+        # When use_reservoir=True, reservoir_params path must be provided
+        if self.params.use_reservoir:
+            if self.data_sources.reservoir_params is None:
+                raise ValueError("use_reservoir=True requires data_sources.reservoir_params")
+
         # All gate_parameters must be in kan.learnable_parameters
         invalid_gates = [g for g in self.kan.gate_parameters if g not in self.kan.learnable_parameters]
         if invalid_gates:
             raise ValueError(
                 f"gate_parameters {invalid_gates} not found in kan.learnable_parameters. "
                 f"gate_parameters must be a subset of learnable_parameters."
+            )
+
+        # All off_parameters must be in kan.learnable_parameters
+        invalid_off = [p for p in self.kan.off_parameters if p not in self.kan.learnable_parameters]
+        if invalid_off:
+            raise ValueError(
+                f"off_parameters {invalid_off} not found in kan.learnable_parameters. "
+                f"off_parameters must be a subset of learnable_parameters."
             )
 
         return self

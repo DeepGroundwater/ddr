@@ -223,6 +223,100 @@ def _compute_zeta(
     return zeta
 
 
+def _level_pool_outflow(
+    pool_elevation: torch.Tensor,
+    weir_elevation: torch.Tensor,
+    orifice_elevation: torch.Tensor,
+    weir_coeff: torch.Tensor,
+    weir_length: torch.Tensor,
+    orifice_coeff: torch.Tensor,
+    orifice_area: torch.Tensor,
+    discharge_lb: torch.Tensor,
+) -> torch.Tensor:
+    """Compute reservoir outflow via weir + orifice discharge.
+
+    Parameters
+    ----------
+    pool_elevation : torch.Tensor
+        Current pool water surface elevation [m].
+    weir_elevation : torch.Tensor
+        Weir crest elevation [m].
+    orifice_elevation : torch.Tensor
+        Orifice center elevation [m].
+    weir_coeff : torch.Tensor
+        Weir discharge coefficient (dimensionless, ~0.4).
+    weir_length : torch.Tensor
+        Effective weir length [m].
+    orifice_coeff : torch.Tensor
+        Orifice discharge coefficient (dimensionless, ~0.6).
+    orifice_area : torch.Tensor
+        Orifice cross-sectional area [m^2].
+    discharge_lb : torch.Tensor
+        Lower bound for discharge [m^3/s].
+
+    Returns
+    -------
+    torch.Tensor
+        Total outflow discharge [m^3/s].
+    """
+    # Weir: Q_w = C_w * W_L * (H - WE)^(3/2) when H > WE
+    h_weir = torch.clamp(pool_elevation - weir_elevation, min=0.0)
+    q_weir = weir_coeff * weir_length * torch.pow(h_weir + 1e-8, 1.5)
+    # Zero out weir flow when head is effectively zero
+    q_weir = q_weir * (h_weir > 0.0).float()
+
+    # Orifice: Q_o = C_o * O_a * sqrt(2g * (H - OE)) when H > OE
+    h_orifice = torch.clamp(pool_elevation - orifice_elevation, min=0.0)
+    q_orifice = orifice_coeff * orifice_area * torch.sqrt(2.0 * 9.81 * h_orifice + 1e-8)
+    # Zero out orifice flow when head is effectively zero
+    q_orifice = q_orifice * (h_orifice > 0.0).float()
+
+    return torch.clamp(q_weir + q_orifice, min=discharge_lb)
+
+
+def _compute_equilibrium_pool_elevation(
+    inflow: torch.Tensor,
+    orifice_elevation: torch.Tensor,
+    orifice_coeff: torch.Tensor,
+    orifice_area: torch.Tensor,
+    weir_elevation: torch.Tensor,
+) -> torch.Tensor:
+    """Compute pool elevation where orifice outflow equals inflow.
+
+    Inverts the orifice equation Q = C_o * A_o * sqrt(2g * h) to solve for
+    the equilibrium head:
+
+        h = Q^2 / (2g * (C_o * A_o)^2)
+        pool_elevation = orifice_elevation + h
+
+    Result is capped at weir_elevation so the pool doesn't start above the
+    weir (which would be physically unreasonable for equilibrium).
+
+    Parameters
+    ----------
+    inflow : torch.Tensor
+        Inflow discharge at reservoir reaches [m^3/s].
+    orifice_elevation : torch.Tensor
+        Orifice center elevation [m].
+    orifice_coeff : torch.Tensor
+        Orifice discharge coefficient (dimensionless, ~0.6).
+    orifice_area : torch.Tensor
+        Orifice cross-sectional area [m^2].
+    weir_elevation : torch.Tensor
+        Weir crest elevation [m] (used as upper cap).
+
+    Returns
+    -------
+    torch.Tensor
+        Equilibrium pool elevation [m].
+    """
+    g = 9.81
+    denom = 2.0 * g * (orifice_coeff * orifice_area) ** 2
+    h_eq = inflow**2 / (denom + 1e-8)
+    pool_eq = orifice_elevation + h_eq
+    return torch.minimum(pool_eq, weir_elevation)
+
+
 class MuskingumCunge:
     """Core Muskingum-Cunge routing implementation.
 
@@ -290,6 +384,19 @@ class MuskingumCunge:
         # Time-varying parameters (from LSTM, daily resolution)
         self._d_gw_t: torch.Tensor | None = None  # d_gw (from LSTM when use_leakance=True)
 
+        # Level pool reservoir routing state
+        self.use_reservoir: bool = cfg.params.use_reservoir
+        self._pool_elevation_t: torch.Tensor | None = None
+        self.reservoir_mask: torch.Tensor | None = None
+        self.lake_area_m2: torch.Tensor | None = None
+        self.weir_elevation: torch.Tensor | None = None
+        self.orifice_elevation: torch.Tensor | None = None
+        self.weir_coeff: torch.Tensor | None = None
+        self.weir_length: torch.Tensor | None = None
+        self.orifice_coeff: torch.Tensor | None = None
+        self.orifice_area: torch.Tensor | None = None
+        self.initial_pool_elevation: torch.Tensor | None = None
+
         # Leakance diagnostic accumulators (populated during forward())
         self._zeta_sum: torch.Tensor | None = None
         self._q_prime_sum: torch.Tensor = torch.empty(0)
@@ -317,8 +424,9 @@ class MuskingumCunge:
     def clear_batch_state(self) -> None:
         """Release batch-specific tensor references to free GPU memory.
 
-        Preserves ``_discharge_t`` (needed for ``carry_state=True`` inference)
-        and ``n`` / ``q_spatial`` (used for post-batch logging).
+        Preserves ``_discharge_t`` and ``_pool_elevation_t`` (needed for
+        ``carry_state=True`` inference) and ``n`` / ``q_spatial``
+        (used for post-batch logging).
         """
         self.routing_dataclass = None
         self.q_prime = None
@@ -330,6 +438,16 @@ class MuskingumCunge:
         self._zeta_sum = None
         self._q_prime_sum = torch.empty(0)
         self._last_zeta = torch.empty(0)
+        # Clear reservoir param refs but NOT _pool_elevation_t (preserved for carry_state)
+        self.reservoir_mask = None
+        self.lake_area_m2 = None
+        self.weir_elevation = None
+        self.orifice_elevation = None
+        self.weir_coeff = None
+        self.weir_length = None
+        self.orifice_coeff = None
+        self.orifice_area = None
+        self.initial_pool_elevation = None
 
     def setup_inputs(
         self,
@@ -350,6 +468,8 @@ class MuskingumCunge:
         self._set_network_context(routing_dataclass, streamflow)
         self._denormalize_spatial_parameters(spatial_parameters)
         self._init_discharge_state(carry_state)
+        if self.use_reservoir:
+            self._init_pool_elevation_state(carry_state)
         self._precompute_scatter_indices()
 
     def _set_network_context(self, routing_dataclass: Any, streamflow: torch.Tensor) -> None:
@@ -376,6 +496,20 @@ class MuskingumCunge:
 
         if routing_dataclass.flow_scale is not None:
             self.q_prime = self.q_prime * routing_dataclass.flow_scale.unsqueeze(0).to(self.device)
+
+        # Reservoir parameters (when use_reservoir=True)
+        if self.use_reservoir and routing_dataclass.reservoir_mask is not None:
+            self.reservoir_mask = routing_dataclass.reservoir_mask.to(self.device)
+            self.lake_area_m2 = routing_dataclass.lake_area_m2.to(self.device).to(torch.float32)
+            self.weir_elevation = routing_dataclass.weir_elevation.to(self.device).to(torch.float32)
+            self.orifice_elevation = routing_dataclass.orifice_elevation.to(self.device).to(torch.float32)
+            self.weir_coeff = routing_dataclass.weir_coeff.to(self.device).to(torch.float32)
+            self.weir_length = routing_dataclass.weir_length.to(self.device).to(torch.float32)
+            self.orifice_coeff = routing_dataclass.orifice_coeff.to(self.device).to(torch.float32)
+            self.orifice_area = routing_dataclass.orifice_area.to(self.device).to(torch.float32)
+            self.initial_pool_elevation = routing_dataclass.initial_pool_elevation.to(self.device).to(
+                torch.float32
+            )
 
     def _denormalize_spatial_parameters(self, spatial_parameters: dict[str, torch.Tensor]) -> None:
         """Denormalize NN [0,1] outputs to physical parameter bounds with log-space handling."""
@@ -447,7 +581,7 @@ class MuskingumCunge:
         Parameters
         ----------
         lstm_params : dict[str, torch.Tensor]
-            Dict with d_gw, shape (T_daily, N) in [0,1].
+            Dict with parameter tensors, shape (T_daily, N) in [0,1].
             Stored as daily tensors; mapped to hourly timesteps in forward().
         """
         log_space = self.cfg.params.log_space_parameters
@@ -468,6 +602,36 @@ class MuskingumCunge:
             self.discharge_lb,
             self.device,
         )
+
+    def _init_pool_elevation_state(self, carry_state: bool) -> None:
+        """Initialize pool elevation from equilibrium orifice inversion, or carry.
+
+        Uses ``_discharge_t`` (hotstart Q) at reservoir reaches to compute the
+        equilibrium pool elevation where orifice outflow matches inflow.  This
+        avoids the HydroLAKES ``initial_pool_elevation`` which is inconsistent
+        with flow conditions and causes forward-Euler blowup.
+        """
+        if carry_state and self._pool_elevation_t is not None:
+            return  # preserve pool elevation from previous batch (inference)
+        assert self._discharge_t is not None
+        assert self.reservoir_mask is not None
+        assert self.orifice_elevation is not None
+        assert self.orifice_coeff is not None
+        assert self.orifice_area is not None
+        assert self.weir_elevation is not None
+
+        # Start with zeros for all reaches (non-reservoir rows are unused)
+        self._pool_elevation_t = torch.zeros(len(self._discharge_t), device=self.device)
+
+        if self.reservoir_mask.any():
+            res_mask = self.reservoir_mask
+            self._pool_elevation_t[res_mask] = _compute_equilibrium_pool_elevation(
+                inflow=self._discharge_t[res_mask],
+                orifice_elevation=self.orifice_elevation[res_mask],
+                orifice_coeff=self.orifice_coeff[res_mask],
+                orifice_area=self.orifice_area[res_mask],
+                weir_elevation=self.weir_elevation[res_mask],
+            )
 
     def _precompute_scatter_indices(self) -> None:
         """Precompute scatter_add indices for ragged output (gages mode)."""
@@ -704,9 +868,41 @@ class MuskingumCunge:
         else:
             b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)
 
+        # --- Reservoir RHS override ---
+        # Set b[res] = level-pool outflow so the sparse solve produces correct
+        # reservoir outflow directly (and downstream rows see it via forward sub).
+        has_reservoir = (
+            self.use_reservoir
+            and self.reservoir_mask is not None
+            and self._pool_elevation_t is not None
+            and self.reservoir_mask.any()
+        )
+        if has_reservoir:
+            assert self.reservoir_mask is not None and self._pool_elevation_t is not None
+            assert self.weir_elevation is not None and self.orifice_elevation is not None
+            assert self.weir_coeff is not None and self.weir_length is not None
+            assert self.orifice_coeff is not None and self.orifice_area is not None
+            assert self.lake_area_m2 is not None
+            res_mask = self.reservoir_mask
+            outflow_res = _level_pool_outflow(
+                pool_elevation=self._pool_elevation_t[res_mask],
+                weir_elevation=self.weir_elevation[res_mask],
+                orifice_elevation=self.orifice_elevation[res_mask],
+                weir_coeff=self.weir_coeff[res_mask],
+                weir_length=self.weir_length[res_mask],
+                orifice_coeff=self.orifice_coeff[res_mask],
+                orifice_area=self.orifice_area[res_mask],
+                discharge_lb=self.discharge_lb,
+            )
+            b = b.clone()
+            b[res_mask] = outflow_res
+
         # Setup sparse matrix for solving
         c_1_ = c_1 * -1
         c_1_[0] = 1.0
+        # Zero out reservoir rows → identity (q_t1[res] = b[res] = outflow)
+        if has_reservoir:
+            c_1_[res_mask] = 0.0
         A_values = mapper.map(c_1_)
 
         # Solve the linear system
@@ -722,6 +918,28 @@ class MuskingumCunge:
 
         # Clamp solution to physical bounds
         q_t1 = torch.clamp(solution, min=self.discharge_lb)
+
+        # --- Pool elevation update (forward Euler with stability clamp) ---
+        if has_reservoir:
+            assert self.lake_area_m2 is not None
+            assert self._pool_elevation_t is not None
+            # Inflow = routed upstream flow + local lateral inflow
+            inflow_res = torch.matmul(self.network, q_t1)[res_mask] + q_prime_clamp[res_mask]
+            dh = 3600.0 * (inflow_res - outflow_res) / (self.lake_area_m2[res_mask] + 1e-8)
+            new_pool = self._pool_elevation_t[res_mask] + dh
+            # Clamp pool elevation to prevent forward Euler instability.
+            # Small reservoirs violate the explicit Euler stability criterion
+            # (dt * dQ/dH / A > 2), causing pool oscillation → inf → NaN.
+            # Bounds: lake bottom (orifice_elevation) to 1 full depth above weir.
+            assert self.orifice_elevation is not None and self.weir_elevation is not None
+            pool_min = self.orifice_elevation[res_mask]
+            pool_max = self.weir_elevation[res_mask] + (
+                self.weir_elevation[res_mask] - self.orifice_elevation[res_mask]
+            )
+            new_pool = torch.maximum(new_pool, pool_min)
+            new_pool = torch.minimum(new_pool, pool_max)
+            self._pool_elevation_t = self._pool_elevation_t.clone()
+            self._pool_elevation_t[res_mask] = new_pool
 
         return q_t1
 

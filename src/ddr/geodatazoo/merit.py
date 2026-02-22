@@ -6,6 +6,7 @@ from typing import Any
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import rustworkx as rx
 import torch
 import xarray as xr
@@ -82,6 +83,12 @@ class Merit(BaseGeoDataset):
             device=self.cfg.device,
             dtype=torch.float32,
         ).unsqueeze(1)
+
+        # Load reservoir parameters (when use_reservoir=True)
+        self.reservoir_df: pd.DataFrame | None = None
+        if cfg.params.use_reservoir and cfg.data_sources.reservoir_params:
+            self.reservoir_df = pd.read_csv(cfg.data_sources.reservoir_params, index_col="COMID")
+            log.info(f"Loaded reservoir parameters for {len(self.reservoir_df)} COMIDs")
 
         # Load adjacency data
         self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
@@ -255,6 +262,7 @@ class Merit(BaseGeoDataset):
             flowpath_tensors,
             sand_pct,
             clay_pct,
+            reservoir_tensors,
         ) = self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
 
         hydrofabric_observations = create_hydrofabric_observations(
@@ -282,6 +290,7 @@ class Merit(BaseGeoDataset):
             attribute_names=self.attributes_list,
             sand_pct=sand_pct,
             clay_pct=clay_pct,
+            **(reservoir_tensors if reservoir_tensors is not None else {}),
         )
 
     def _read_raw_attribute(self, name: str, catchment_ids: np.ndarray) -> torch.Tensor:
@@ -304,6 +313,59 @@ class Merit(BaseGeoDataset):
             self.attribute_ds[name].isel(COMID=indices).compute().values.astype(np.float32)
         )
 
+    def _build_reservoir_tensors(self, catchment_ids: np.ndarray) -> dict[str, torch.Tensor]:
+        """Build reservoir tensors for the given COMIDs.
+
+        Parameters
+        ----------
+        catchment_ids : np.ndarray
+            Array of COMID values in the compressed batch.
+
+        Returns
+        -------
+        dict[str, torch.Tensor]
+            Dict with reservoir_mask and 8 parameter tensors.
+        """
+        n = len(catchment_ids)
+        reservoir_mask = torch.zeros(n, dtype=torch.bool)
+        lake_area_m2 = torch.zeros(n, dtype=torch.float32)
+        weir_elevation = torch.zeros(n, dtype=torch.float32)
+        orifice_elevation = torch.zeros(n, dtype=torch.float32)
+        weir_coeff = torch.zeros(n, dtype=torch.float32)
+        weir_length = torch.zeros(n, dtype=torch.float32)
+        orifice_coeff = torch.zeros(n, dtype=torch.float32)
+        orifice_area = torch.zeros(n, dtype=torch.float32)
+        initial_pool_elevation = torch.zeros(n, dtype=torch.float32)
+
+        if self.reservoir_df is not None:
+            for i, comid in enumerate(catchment_ids):
+                comid_int = int(comid)
+                if comid_int in self.reservoir_df.index:
+                    row = self.reservoir_df.loc[comid_int]
+                    reservoir_mask[i] = True
+                    lake_area_m2[i] = float(row["lake_area_m2"])
+                    weir_elevation[i] = float(row["weir_elevation"])
+                    orifice_elevation[i] = float(row["orifice_elevation"])
+                    weir_coeff[i] = float(row["weir_coeff"])
+                    weir_length[i] = float(row["weir_length"])
+                    orifice_coeff[i] = float(row["orifice_coeff"])
+                    orifice_area[i] = float(row["orifice_area"])
+                    initial_pool_elevation[i] = float(row["initial_pool_elevation"])
+
+        n_res = reservoir_mask.sum().item()
+        log.info(f"Reservoir reaches: {n_res}/{n} ({100 * n_res / n:.1f}%)")
+        return {
+            "reservoir_mask": reservoir_mask,
+            "lake_area_m2": lake_area_m2,
+            "weir_elevation": weir_elevation,
+            "orifice_elevation": orifice_elevation,
+            "weir_coeff": weir_coeff,
+            "weir_length": weir_length,
+            "orifice_coeff": orifice_coeff,
+            "orifice_area": orifice_area,
+            "initial_pool_elevation": initial_pool_elevation,
+        }
+
     def _build_common_tensors(
         self,
         csr_matrix: sparse.csr_matrix,
@@ -316,6 +378,7 @@ class Merit(BaseGeoDataset):
         dict[str, torch.Tensor],
         torch.Tensor | None,
         torch.Tensor | None,
+        dict[str, torch.Tensor] | None,
     ]:
         """Build tensors common to all collate methods."""
         adjacency_matrix = torch.sparse_csr_tensor(
@@ -365,6 +428,11 @@ class Merit(BaseGeoDataset):
             sand_pct = self._read_raw_attribute(self.cfg.params.ptf_sand_var, catchment_ids)
             clay_pct = self._read_raw_attribute(self.cfg.params.ptf_clay_var, catchment_ids)
 
+        # Build reservoir tensors when enabled
+        reservoir_tensors: dict[str, torch.Tensor] | None = None
+        if self.cfg.params.use_reservoir:
+            reservoir_tensors = self._build_reservoir_tensors(catchment_ids)
+
         return (
             adjacency_matrix,
             spatial_attributes,
@@ -372,6 +440,7 @@ class Merit(BaseGeoDataset):
             flowpath_tensors,
             sand_pct,
             clay_pct,
+            reservoir_tensors,
         )
 
     def _build_routing_data_target_catchments(self) -> RoutingDataclass:
@@ -439,6 +508,7 @@ class Merit(BaseGeoDataset):
             flowpath_tensors,
             sand_pct,
             clay_pct,
+            reservoir_tensors,
         ) = self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
 
         log.info(f"Created target catchments adjacency matrix of shape: {adjacency_matrix.shape}")
@@ -459,6 +529,7 @@ class Merit(BaseGeoDataset):
             attribute_names=self.attributes_list,
             sand_pct=sand_pct,
             clay_pct=clay_pct,
+            **(reservoir_tensors if reservoir_tensors is not None else {}),
         )
 
     def _build_routing_data_all_catchments(self) -> RoutingDataclass:
@@ -485,6 +556,7 @@ class Merit(BaseGeoDataset):
             flowpath_tensors,
             sand_pct,
             clay_pct,
+            reservoir_tensors,
         ) = self._build_common_tensors(csr_matrix, self.merit_ids, flowpath_attr)
 
         log.info(f"Created all segments adjacency matrix of shape: {adjacency_matrix.shape}")
@@ -505,6 +577,7 @@ class Merit(BaseGeoDataset):
             attribute_names=self.attributes_list,
             sand_pct=sand_pct,
             clay_pct=clay_pct,
+            **(reservoir_tensors if reservoir_tensors is not None else {}),
         )
 
     def _build_routing_data_gages(self) -> RoutingDataclass:
@@ -566,6 +639,7 @@ class Merit(BaseGeoDataset):
             flowpath_tensors,
             sand_pct,
             clay_pct,
+            reservoir_tensors,
         ) = self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
 
         hydrofabric_observations = create_hydrofabric_observations(
@@ -593,4 +667,5 @@ class Merit(BaseGeoDataset):
             attribute_names=self.attributes_list,
             sand_pct=sand_pct,
             clay_pct=clay_pct,
+            **(reservoir_tensors if reservoir_tensors is not None else {}),
         )

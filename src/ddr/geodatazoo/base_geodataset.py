@@ -92,6 +92,7 @@ class BaseGeoDataset(Dataset, ABC):
         dict[str, torch.Tensor],
         torch.Tensor | None,
         torch.Tensor | None,
+        dict[str, torch.Tensor] | None,
     ]:
         """Build tensors common to all collate methods."""
         raise NotImplementedError

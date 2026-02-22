@@ -90,7 +90,7 @@ Forward Euler timestep with mass balance, computed **after** the sparse solve:
 ```
 Q_in = (N @ Q_{t+1})[res] + q_prime[res]    # routed upstream + local lateral
 dH = dt * (Q_in - Q_out) / (A_s + eps)
-H_new = H + dH
+H_new = clamp(H + dH, min=OE, max=WE + D)
 ```
 
 Where:
@@ -100,14 +100,38 @@ Where:
 - `Q_out` = total outflow [m^3/s] (from `_level_pool_outflow()`)
 - `A_s` = lake surface area [m^2]
 - `eps` = 1e-8 (prevents division by zero for tiny lakes)
+- `OE` = orifice elevation (lake bottom, lower clamp)
+- `WE` = weir crest elevation (upper clamp base)
+- `D` = `WE - OE` = 0.75 * depth (clamp headroom = one full depth above weir)
+
+### Stability Clamp
+
+The explicit forward Euler update is conditionally stable. The stability criterion is:
+
+```
+dt * dQ_out/dH / A_s < 2
+```
+
+For small reservoirs (small `A_s`) or large heads (large `dQ_out/dH`), this criterion is violated — the pool overshoots on correction, oscillates, and blows up to infinity, producing NaN through `inf - inf` in subsequent timesteps.
+
+The pool elevation is therefore clamped after each update to the physically reasonable range `[OE, WE + D]`:
+
+- **Lower bound** (`OE`): Pool cannot drain below the lake bottom.
+- **Upper bound** (`WE + D`): Pool cannot rise more than one full depth above the weir crest. This is physically generous (no natural reservoir rises this much) but prevents the Euler instability from producing overflow values.
+
+The clamp uses `torch.maximum` / `torch.minimum`, which have subgradient 0 at the boundary and 1 elsewhere. When pool is within bounds, gradients flow normally. When pool hits a bound, the gradient is killed — this is acceptable because the system is in an unphysical regime and there is no meaningful learning signal from further elevation changes.
+
+This is verified by `test_no_nan_small_reservoir_large_inflow` which runs 500 timesteps with a tiny reservoir (1000 m^2) and large inflow (500 m^3/s), confirming no NaN/inf in either the forward or backward pass.
 
 ### Mass Conservation
 
-The formulation is exactly mass-conservative:
+The formulation is exactly mass-conservative when pool is within clamp bounds:
 
 ```
 A_s * (H_new - H_old) = dt * (Q_in - Q_out)
 ```
+
+When the clamp activates, mass is not strictly conserved — the excess (or deficit) is implicitly absorbed. This trade-off prevents numerical blowup while preserving mass conservation during normal operation.
 
 This is verified by `test_step_mass_balance` in the test suite.
 
@@ -184,10 +208,10 @@ Reservoir outflow is encoded directly into the sparse linear system so that a **
    → Q_{t+1}[res] = b[res] = outflow           [identity row → direct assignment]
    → Q_{t+1}[downstream] uses correct outflow   [forward substitution propagates]
 
-4. Update pool state (forward Euler):
+4. Update pool state (forward Euler with stability clamp):
    Q_in = (N @ Q_{t+1})[res] + q_prime[res]
    dH = dt * (Q_in - Q_out) / A_s
-   H_{t+1} = H_t + dH
+   H_{t+1} = clamp(H_t + dH, min=OE, max=WE + D)
 ```
 
 **Why this works:**
@@ -229,13 +253,14 @@ All operations use standard PyTorch ops — no custom autograd functions needed:
 - `torch.clamp(H - WE, min=0)` — subgradient at boundary
 - `torch.pow(head, 1.5)` — smooth for positive head
 - `torch.sqrt(head + eps)` — eps prevents zero-gradient at H = OE
+- `torch.maximum` / `torch.minimum` — pool elevation clamp (subgradient at boundary)
 - Forward Euler is a simple linear combination
 
 Gradients flow from the loss through:
 ```
 loss -> Q[downstream] -> sparse solve -> b[res] = outflow -> pool_elevation_t -> previous timestep
 loss -> Q[downstream] -> sparse solve -> A_values -> MC coefficients -> Manning's n -> KAN
-pool_elev_{t+1} = pool_elev_t + dt*(inflow - outflow)/area   [temporal chain through pool state]
+pool_elev_{t+1} = clamp(pool_elev_t + dt*(inflow - outflow)/area)   [temporal chain through pool state]
 ```
 
 ## Data Source
@@ -269,7 +294,7 @@ Validation: `use_reservoir: true` requires `reservoir_params` to be set; otherwi
 - **Output**: `src/ddr/routing/torch_mc.py` -- `dmc.forward()` returns `pool_elevation` in output dict
 - **Config**: `src/ddr/validation/configs.py` -- `params.use_reservoir`, `data_sources.reservoir_params`
 - **Preprocessing**: `references/build_reservoir_params.py` -- builds CSV from HydroLAKES shapefiles
-- **Tests**: `tests/routing/test_reservoir.py` -- 14 tests covering outflow physics, mass balance, gradients, sparse-solve integration, equilibrium initialization, peak attenuation
+- **Tests**: `tests/routing/test_reservoir.py` -- 15 tests covering outflow physics, mass balance, gradients, sparse-solve integration, equilibrium initialization, peak attenuation, NaN stability
 
 ## Changes from Retention Module
 

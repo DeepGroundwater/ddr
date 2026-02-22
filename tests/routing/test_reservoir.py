@@ -1,7 +1,7 @@
 """Tests for level pool reservoir routing physics.
 
-Tests the standalone _level_pool_outflow() and _level_pool_step() functions,
-plus integration with the MuskingumCunge routing engine.
+Tests the standalone _level_pool_outflow() and _compute_equilibrium_pool_elevation()
+functions, plus the single-solve RHS override integration with MuskingumCunge routing.
 """
 
 from pathlib import Path
@@ -9,7 +9,10 @@ from pathlib import Path
 import pytest
 import torch
 
-from ddr.routing.mmc import _level_pool_outflow, _level_pool_step
+from ddr.routing.mmc import (
+    _compute_equilibrium_pool_elevation,
+    _level_pool_outflow,
+)
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                     #
@@ -98,8 +101,13 @@ def test_outflow_gradient_flows(reservoir_params: dict[str, torch.Tensor]) -> No
 
 
 # --------------------------------------------------------------------------- #
-# Level pool step tests                                                        #
+# Forward Euler pool update tests (outflow + dH inline)                        #
 # --------------------------------------------------------------------------- #
+
+
+def _outflow_params(reservoir_params: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Extract outflow-only params (exclude lake_area_m2 and initial_pool_elevation)."""
+    return {k: v for k, v in reservoir_params.items() if k not in ("lake_area_m2", "initial_pool_elevation")}
 
 
 def test_step_mass_balance(reservoir_params: dict[str, torch.Tensor]) -> None:
@@ -109,13 +117,11 @@ def test_step_mass_balance(reservoir_params: dict[str, torch.Tensor]) -> None:
     pool_elev = torch.tensor([95.0])
     lake_area = reservoir_params["lake_area_m2"]
 
-    outflow, new_elev = _level_pool_step(
-        inflow=inflow,
-        pool_elevation=pool_elev,
-        dt=dt,
-        discharge_lb=DISCHARGE_LB,
-        **{k: v for k, v in reservoir_params.items() if k != "initial_pool_elevation"},
+    outflow = _level_pool_outflow(
+        pool_elevation=pool_elev, discharge_lb=DISCHARGE_LB, **_outflow_params(reservoir_params)
     )
+    dh = dt * (inflow - outflow) / (lake_area + 1e-8)
+    new_elev = pool_elev + dh
 
     # Mass balance: A_s * dH = dt * (I - O)
     lhs = lake_area * (new_elev - pool_elev)
@@ -126,16 +132,14 @@ def test_step_mass_balance(reservoir_params: dict[str, torch.Tensor]) -> None:
 def test_step_pool_rises_when_inflow_exceeds_outflow(reservoir_params: dict[str, torch.Tensor]) -> None:
     """Pool should rise when inflow exceeds outflow."""
     pool_elev = torch.tensor([95.0])
-    # Use very large inflow to guarantee it exceeds outflow
     inflow = torch.tensor([1000.0])
+    lake_area = reservoir_params["lake_area_m2"]
 
-    _, new_elev = _level_pool_step(
-        inflow=inflow,
-        pool_elevation=pool_elev,
-        dt=3600.0,
-        discharge_lb=DISCHARGE_LB,
-        **{k: v for k, v in reservoir_params.items() if k != "initial_pool_elevation"},
+    outflow = _level_pool_outflow(
+        pool_elevation=pool_elev, discharge_lb=DISCHARGE_LB, **_outflow_params(reservoir_params)
     )
+    dh = 3600.0 * (inflow - outflow) / (lake_area + 1e-8)
+    new_elev = pool_elev + dh
     assert new_elev.item() > pool_elev.item()
 
 
@@ -143,14 +147,13 @@ def test_step_pool_drops_when_outflow_exceeds_inflow(reservoir_params: dict[str,
     """Pool should drop when outflow exceeds inflow."""
     pool_elev = torch.tensor([99.0])  # high pool -> large outflow
     inflow = torch.tensor([0.001])  # tiny inflow
+    lake_area = reservoir_params["lake_area_m2"]
 
-    _, new_elev = _level_pool_step(
-        inflow=inflow,
-        pool_elevation=pool_elev,
-        dt=3600.0,
-        discharge_lb=DISCHARGE_LB,
-        **{k: v for k, v in reservoir_params.items() if k != "initial_pool_elevation"},
+    outflow = _level_pool_outflow(
+        pool_elevation=pool_elev, discharge_lb=DISCHARGE_LB, **_outflow_params(reservoir_params)
     )
+    dh = 3600.0 * (inflow - outflow) / (lake_area + 1e-8)
+    new_elev = pool_elev + dh
     assert new_elev.item() < pool_elev.item()
 
 
@@ -160,36 +163,23 @@ def test_step_pool_drops_when_outflow_exceeds_inflow(reservoir_params: dict[str,
 
 
 def test_reservoir_mask_selectivity() -> None:
-    """Non-reservoir reaches should be unaffected by level pool step."""
+    """Non-reservoir reaches should be unaffected by level pool outflow override."""
     inflow = torch.tensor([10.0, 20.0, 30.0, 40.0, 50.0])
     reservoir_mask = torch.tensor([False, True, False, True, False])
 
-    # Only reservoir reaches get level pool routing
-    res_inflow = inflow[reservoir_mask]
     pool_elev = torch.tensor([95.0, 95.0])
-    lake_area = torch.tensor([1e6, 1e6])
-    weir_elev = torch.tensor([97.5, 97.5])
-    orifice_elev = torch.tensor([90.0, 90.0])
-    weir_coeff = torch.tensor([0.4, 0.4])
-    weir_length = torch.tensor([10.0, 10.0])
-    orifice_coeff = torch.tensor([0.6, 0.6])
-    orifice_area = torch.tensor([5.0, 5.0])
-
-    outflow_res, new_elev = _level_pool_step(
-        inflow=res_inflow,
+    outflow_res = _level_pool_outflow(
         pool_elevation=pool_elev,
-        lake_area_m2=lake_area,
-        weir_elevation=weir_elev,
-        orifice_elevation=orifice_elev,
-        weir_coeff=weir_coeff,
-        weir_length=weir_length,
-        orifice_coeff=orifice_coeff,
-        orifice_area=orifice_area,
-        dt=3600.0,
+        weir_elevation=torch.tensor([97.5, 97.5]),
+        orifice_elevation=torch.tensor([90.0, 90.0]),
+        weir_coeff=torch.tensor([0.4, 0.4]),
+        weir_length=torch.tensor([10.0, 10.0]),
+        orifice_coeff=torch.tensor([0.6, 0.6]),
+        orifice_area=torch.tensor([5.0, 5.0]),
         discharge_lb=DISCHARGE_LB,
     )
 
-    # Apply to full vector using clone + masked assignment
+    # Apply to full vector using clone + masked assignment (same as route_timestep)
     q_t1 = inflow.clone()
     q_t1[reservoir_mask] = outflow_res
 
@@ -214,27 +204,23 @@ def test_reservoir_attenuates_peak() -> None:
         ]
     )
 
-    pool_elev = torch.tensor([95.0])
-    params = {
-        "lake_area_m2": torch.tensor([1e6]),
+    h = torch.tensor([95.0])
+    lake_area = torch.tensor([1e6])
+    outflow_kw = {
         "weir_elevation": torch.tensor([97.5]),
         "orifice_elevation": torch.tensor([90.0]),
         "weir_coeff": torch.tensor([0.4]),
         "weir_length": torch.tensor([10.0]),
         "orifice_coeff": torch.tensor([0.6]),
         "orifice_area": torch.tensor([5.0]),
+        "discharge_lb": DISCHARGE_LB,
     }
 
     outflows = []
-    h = pool_elev.clone()
     for t in range(timesteps):
-        outflow, h = _level_pool_step(
-            inflow=inflow_series[t : t + 1],
-            pool_elevation=h,
-            dt=3600.0,
-            discharge_lb=DISCHARGE_LB,
-            **params,
-        )
+        outflow = _level_pool_outflow(pool_elevation=h, **outflow_kw)
+        dh = 3600.0 * (inflow_series[t : t + 1] - outflow) / (lake_area + 1e-8)
+        h = h + dh
         outflows.append(outflow.item())
 
     peak_inflow = inflow_series.max().item()
@@ -244,34 +230,30 @@ def test_reservoir_attenuates_peak() -> None:
 
 
 def test_pool_elevation_carry_state() -> None:
-    """Pool elevation should be preserved with carry_state=True, reset with False."""
-    # Simulate two steps to get a modified pool elevation
+    """Pool elevation should change after a forward Euler step with large inflow."""
     pool_elev_init = torch.tensor([95.0])
-    params = {
-        "lake_area_m2": torch.tensor([1e6]),
-        "weir_elevation": torch.tensor([97.5]),
-        "orifice_elevation": torch.tensor([90.0]),
-        "weir_coeff": torch.tensor([0.4]),
-        "weir_length": torch.tensor([10.0]),
-        "orifice_coeff": torch.tensor([0.6]),
-        "orifice_area": torch.tensor([5.0]),
-    }
+    lake_area = torch.tensor([1e6])
+    inflow = torch.tensor([500.0])
 
-    _, modified_elev = _level_pool_step(
-        inflow=torch.tensor([500.0]),
+    outflow = _level_pool_outflow(
         pool_elevation=pool_elev_init,
-        dt=3600.0,
+        weir_elevation=torch.tensor([97.5]),
+        orifice_elevation=torch.tensor([90.0]),
+        weir_coeff=torch.tensor([0.4]),
+        weir_length=torch.tensor([10.0]),
+        orifice_coeff=torch.tensor([0.6]),
+        orifice_area=torch.tensor([5.0]),
         discharge_lb=DISCHARGE_LB,
-        **params,
     )
+    dh = 3600.0 * (inflow - outflow) / (lake_area + 1e-8)
+    modified_elev = pool_elev_init + dh
 
     # Modified elevation should differ from initial
     assert not torch.allclose(modified_elev, pool_elev_init, atol=1e-6)
 
-    # "carry_state=True" semantics: keep modified_elev
-    # "carry_state=False" semantics: reset to initial
-    # This tests the physics functions — integration with MuskingumCunge
-    # carry_state is tested via the _init_pool_elevation_state method.
+    # Pool should rise (inflow=500 >> outflow at h=5m above orifice)
+    # carry_state semantics (preserve vs reset) are tested via
+    # MuskingumCunge._init_pool_elevation_state, not here.
     assert modified_elev.item() > pool_elev_init.item()
 
 
@@ -307,3 +289,186 @@ def test_config_validation_reservoir() -> None:
         # Patch check_path to avoid filesystem checks
         with patch("ddr.validation.configs.check_path", side_effect=lambda v: Path(v)):
             Config(**base_cfg)
+
+
+# --------------------------------------------------------------------------- #
+# Single-solve reservoir integration tests                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_single_solve_reservoir_outflow() -> None:
+    """Verify RHS override: sparse solve produces outflow at reservoir row.
+
+    3-reach linear network: 0 -> 1(reservoir) -> 2.
+    When c_1_[1] = 0, the matrix A has identity at row 1, so the forward
+    substitution yields q_t1[1] = b[1] = outflow.  Downstream reach 2 then
+    uses this correct outflow (not MC-solved value) in the same solve.
+    """
+    from ddr.routing.utils import PatternMapper, triangular_sparse_solve
+
+    # 3-reach linear: 0 -> 1 -> 2 (topologically ordered)
+    network = torch.zeros(3, 3)
+    network[1, 0] = 1.0  # reach 1 receives from reach 0
+    network[2, 1] = 1.0  # reach 2 receives from reach 1
+
+    # Build pattern mapper via fill_op (I + diag(c_1_) @ N)
+    def fill_op(data_vector: torch.Tensor) -> torch.Tensor:
+        n = network.shape[0]
+        eye = torch.eye(n)
+        vec_diag = torch.diag(data_vector)
+        return (eye + vec_diag @ network).to_sparse_csr()
+
+    mapper = PatternMapper(fill_op, 3)
+
+    # MC coefficients (arbitrary but physically plausible)
+    c_1 = torch.tensor([0.3, 0.25, 0.35])
+    c_2 = torch.tensor([0.4, 0.45, 0.3])
+    c_3 = torch.tensor([0.3, 0.3, 0.35])
+    c_4 = torch.tensor([0.6, 0.6, 0.6])
+
+    discharge_t = torch.tensor([10.0, 20.0, 30.0])
+    q_prime = torch.tensor([5.0, 3.0, 4.0])
+
+    # Upstream inflow: N @ Q_t
+    i_t = network @ discharge_t  # [0, 10, 20]
+    b = c_2 * i_t + c_3 * discharge_t + c_4 * q_prime
+
+    # Reservoir at reach 1: compute outflow from pool state
+    pool_elev = torch.tensor([95.0])
+    res_outflow = _level_pool_outflow(
+        pool_elevation=pool_elev,
+        weir_elevation=torch.tensor([97.5]),
+        orifice_elevation=torch.tensor([90.0]),
+        weir_coeff=torch.tensor([0.4]),
+        weir_length=torch.tensor([10.0]),
+        orifice_coeff=torch.tensor([0.6]),
+        orifice_area=torch.tensor([5.0]),
+        discharge_lb=DISCHARGE_LB,
+    )
+
+    # Override b[1] with reservoir outflow
+    b_override = b.clone()
+    b_override[1] = res_outflow.item()
+
+    # Zero c_1_[1] -> identity row at reservoir
+    c_1_ = c_1 * -1
+    c_1_[0] = 1.0
+    c_1_[1] = 0.0  # reservoir row -> identity
+    A_values = mapper.map(c_1_)
+
+    solution = triangular_sparse_solve(
+        A_values,
+        mapper.crow_indices,
+        mapper.col_indices,
+        b_override,
+        True,
+        False,
+        "cpu",
+    )
+    q_t1 = torch.clamp(solution, min=DISCHARGE_LB)
+
+    # q_t1[1] should equal the level-pool outflow (identity row)
+    assert torch.allclose(q_t1[1], res_outflow.squeeze(), atol=1e-4), (
+        f"q_t1[1]={q_t1[1].item():.4f} != outflow={res_outflow.item():.4f}"
+    )
+
+    # Downstream reach 2 should use the reservoir outflow, not MC-solved value.
+    # For reach 2: A[2,2]*q_t1[2] + A[2,1]*q_t1[1] = b[2]
+    # => q_t1[2] = b[2] - c_1_[2]*q_t1[1]  (forward sub with unit diagonal)
+    # c_1_[2] = -c_1[2] = -0.35, so A[2,1] = c_1_[2]*N[2,1] = -0.35*1 = -0.35
+    expected_q2 = b_override[2] - (c_1_[2] * 1.0 * q_t1[1])  # forward sub
+    assert torch.allclose(q_t1[2], torch.clamp(expected_q2, min=DISCHARGE_LB), atol=1e-4), (
+        f"q_t1[2]={q_t1[2].item():.4f} != expected={expected_q2.item():.4f}"
+    )
+
+
+def test_equilibrium_pool_initialization() -> None:
+    """Equilibrium pool elevation: orifice outflow should match inflow.
+
+    Max orifice outflow at weir (h=7.5m): 0.6*5*sqrt(2*9.81*7.5) ≈ 36.4 m³/s.
+    So inflows below ~36 m³/s produce sub-weir equilibria; above → capped.
+    """
+    inflow = torch.tensor([10.0, 30.0, 200.0])
+    orifice_elev = torch.tensor([90.0, 90.0, 90.0])
+    orifice_coeff = torch.tensor([0.6, 0.6, 0.6])
+    orifice_area = torch.tensor([5.0, 5.0, 5.0])
+    weir_elev = torch.tensor([97.5, 97.5, 97.5])
+
+    pool_eq = _compute_equilibrium_pool_elevation(
+        inflow=inflow,
+        orifice_elevation=orifice_elev,
+        orifice_coeff=orifice_coeff,
+        orifice_area=orifice_area,
+        weir_elevation=weir_elev,
+    )
+
+    # Verify: outflow at equilibrium pool ≈ inflow (for sub-weir cases)
+    outflow = _level_pool_outflow(
+        pool_elevation=pool_eq,
+        weir_elevation=weir_elev,
+        orifice_elevation=orifice_elev,
+        weir_coeff=torch.tensor([0.4, 0.4, 0.4]),
+        weir_length=torch.tensor([10.0, 10.0, 10.0]),
+        orifice_coeff=orifice_coeff,
+        orifice_area=orifice_area,
+        discharge_lb=DISCHARGE_LB,
+    )
+
+    # First two have equilibrium below weir -> orifice outflow ≈ inflow
+    assert torch.allclose(outflow[0], inflow[0], rtol=0.02), (
+        f"outflow[0]={outflow[0].item():.2f} != inflow[0]={inflow[0].item():.2f}"
+    )
+    assert torch.allclose(outflow[1], inflow[1], rtol=0.02), (
+        f"outflow[1]={outflow[1].item():.2f} != inflow[1]={inflow[1].item():.2f}"
+    )
+
+    # Third case: inflow=200 exceeds orifice capacity at weir → capped at weir
+    assert pool_eq[2] == weir_elev[2], "Pool should be capped at weir elevation"
+
+    # All equilibrium elevations should be >= orifice elevation
+    assert (pool_eq >= orifice_elev).all()
+
+
+def test_pool_elevation_update_gradient() -> None:
+    """Pool elevation forward Euler update should propagate gradients."""
+    pool_elev = torch.tensor([95.0], requires_grad=True)
+    orifice_elev = torch.tensor([90.0])
+    weir_elev = torch.tensor([97.5])
+    lake_area = torch.tensor([1e6])
+
+    # Compute outflow from current pool state
+    outflow = _level_pool_outflow(
+        pool_elevation=pool_elev,
+        weir_elevation=weir_elev,
+        orifice_elevation=orifice_elev,
+        weir_coeff=torch.tensor([0.4]),
+        weir_length=torch.tensor([10.0]),
+        orifice_coeff=torch.tensor([0.6]),
+        orifice_area=torch.tensor([5.0]),
+        discharge_lb=DISCHARGE_LB,
+    )
+
+    # Forward Euler pool update (same as route_timestep)
+    inflow = torch.tensor([50.0])
+    dh = 3600.0 * (inflow - outflow) / (lake_area + 1e-8)
+    new_pool_elev = pool_elev + dh
+
+    # Compute outflow at new pool elevation
+    outflow_t1 = _level_pool_outflow(
+        pool_elevation=new_pool_elev,
+        weir_elevation=weir_elev,
+        orifice_elevation=orifice_elev,
+        weir_coeff=torch.tensor([0.4]),
+        weir_length=torch.tensor([10.0]),
+        orifice_coeff=torch.tensor([0.6]),
+        orifice_area=torch.tensor([5.0]),
+        discharge_lb=DISCHARGE_LB,
+    )
+
+    # Gradient should flow: outflow_t1 -> new_pool_elev -> pool_elev
+    outflow_t1.sum().backward()
+    assert pool_elev.grad is not None, "Gradient did not flow through pool update"
+    assert pool_elev.grad.item() != 0.0, "Gradient is zero"
+
+    # Pool should have risen (inflow > outflow at h=5m above orifice)
+    assert new_pool_elev.item() > pool_elev.item(), "Pool should rise when inflow > outflow"

@@ -1,6 +1,6 @@
 # Level Pool Reservoir Routing
 
-DDR models reservoir storage and release via a **level pool** formulation that replaces Muskingum-Cunge routing on reaches intersecting HydroLAKES waterbodies. Reservoir reaches are treated as lumped storage nodes with weir + orifice outflow, while all other reaches continue to use standard MC routing.
+DDR models reservoir storage and release via a **level pool** formulation integrated directly into the Muskingum-Cunge sparse solve. Reservoir reaches are treated as lumped storage nodes with weir + orifice outflow, while all other reaches continue to use standard MC routing. The key innovation is a **single-solve RHS override** that eliminates within-timestep lag and prevents numerical blowup.
 
 ## Motivation
 
@@ -38,7 +38,6 @@ A reservoir reach stores water at pool elevation $H$ and releases through two ou
 - Elevations are absolute (from HydroLAKES Elevation field)
 - Weir crest sits at 75% of full pool: `WE = elevation - 0.25 * depth`
 - Orifice center sits at lake bottom: `OE = elevation - depth`
-- Initial pool elevation at half-full: `H_init = elevation - 0.5 * depth`
 
 ## Outflow Equations
 
@@ -86,9 +85,10 @@ The lower bound (`discharge_lb`) ensures non-negative, physically bounded outflo
 
 ## Pool Elevation Update
 
-Forward Euler timestep with mass balance:
+Forward Euler timestep with mass balance, computed **after** the sparse solve:
 
 ```
+Q_in = (N @ Q_{t+1})[res] + q_prime[res]    # routed upstream + local lateral
 dH = dt * (Q_in - Q_out) / (A_s + eps)
 H_new = H + dH
 ```
@@ -96,8 +96,8 @@ H_new = H + dH
 Where:
 
 - `dt` = 3600 s (1 hour, same as MC routing timestep)
-- `Q_in` = inflow to reservoir [m^3/s] (MC-routed discharge arriving at this reach)
-- `Q_out` = total outflow [m^3/s]
+- `Q_in` = inflow to reservoir [m^3/s] (from solved upstream discharge + lateral inflow)
+- `Q_out` = total outflow [m^3/s] (from `_level_pool_outflow()`)
 - `A_s` = lake surface area [m^2]
 - `eps` = 1e-8 (prevents division by zero for tiny lakes)
 
@@ -153,7 +153,7 @@ Multiple lakes can intersect a single COMID. Aggregation rules:
 | `weir_length` | `max(1.0, shore_len * 0.01)` | 1% of shoreline length |
 | `orifice_coeff` | 0.6 (fixed) | Standard orifice default |
 | `orifice_area` | `dis_avg / (C_o * sqrt(2g * 0.5 * depth) + 1e-8)` | Back-calculated from average Q |
-| `initial_pool_elevation` | `elevation - 0.5 * depth` | Half-full initial condition |
+| `initial_pool_elevation` | `elevation - 0.5 * depth` | Half-full (CSV only, not used at runtime) |
 
 ### Orifice Area Back-Calculation
 
@@ -164,23 +164,53 @@ Q_avg = C_o * O_a * sqrt(2g * h_mid)
 O_a   = Q_avg / (C_o * sqrt(2g * h_mid) + eps)
 ```
 
-Where `h_mid = 0.5 * depth` (head at the midpoint, consistent with the half-full initial condition).
+Where `h_mid = 0.5 * depth` (head at the midpoint).
 
-## Integration with MC Routing
+## Integration with MC Routing (Single-Solve RHS Override)
 
-Reservoir routing is applied **after** the MC solve at each timestep:
+Reservoir outflow is encoded directly into the sparse linear system so that a **single solve** produces correct reservoir outflow and propagates it to downstream reaches within the same timestep:
 
 ```
-1. MC solve: (I - C1*N) @ Q_{t+1} = C2*(N@Q_t) + C3*Q_t + C4*q_prime  [all reaches]
-2. Reservoir override:
-   - For reservoir reaches (mask=True):
-     Q_out, H_new = level_pool_step(Q_{t+1}[mask], H_t[mask], params...)
-     Q_{t+1}[mask] = Q_out       # Replace MC discharge with reservoir outflow
-     H_t[mask] = H_new           # Update pool elevation state
-   - For non-reservoir reaches: unchanged
+1. Compute b vector (RHS):
+   b = C2*(N@Q_t) + C3*Q_t + C4*q_prime      [standard MC for all reaches]
+   b[res_mask] = _level_pool_outflow(H_t)      [override reservoir rows]
+
+2. Compute A matrix (LHS):
+   c_1_ = -C1                                  [standard MC for all reaches]
+   c_1_[res_mask] = 0                           [identity rows for reservoirs]
+   A = I + diag(c_1_) @ N
+
+3. Solve: A @ Q_{t+1} = b
+   → Q_{t+1}[res] = b[res] = outflow           [identity row → direct assignment]
+   → Q_{t+1}[downstream] uses correct outflow   [forward substitution propagates]
+
+4. Update pool state (forward Euler):
+   Q_in = (N @ Q_{t+1})[res] + q_prime[res]
+   dH = dt * (Q_in - Q_out) / A_s
+   H_{t+1} = H_t + dH
 ```
 
-Key implementation detail: `Q_{t+1}.clone()` and `H_t.clone()` are called before indexed assignment to preserve the autograd graph for backpropagation.
+**Why this works:**
+- Setting `c_1_[res] = 0` makes the matrix row an identity: `A[res,:] = [0,...,1,...,0]`
+- The solve produces `Q_{t+1}[res] = b[res] = outflow` directly
+- Forward substitution processes rows top-down; downstream MC rows naturally use the correct reservoir outflow
+- Cost: exactly 1 sparse solve per timestep (same as before), plus 1 `matmul` for inflow computation
+
+**Why the old post-solve approach failed:**
+- MC solve treated reservoirs as prismatic channels → physically meaningless discharge
+- MC-solved discharge as "inflow" to level pool → inflow >> reservoir capacity → forward Euler blowup (dH = 34 m/hr) → pool elevation explosion → NaN
+- Downstream reaches in the same timestep already used the wrong MC value during forward substitution (within-timestep lag)
+
+## Pool Initialization (Equilibrium Orifice Inversion)
+
+Pool elevation is initialized at **equilibrium** where orifice outflow matches the hotstart discharge, rather than using the HydroLAKES `initial_pool_elevation` (which was inconsistent with flow conditions and caused forward Euler blowup):
+
+```
+h_eq = Q_hotstart^2 / (2g * (C_o * A_o)^2)
+H_init = min(OE + h_eq, WE)                   # capped at weir elevation
+```
+
+The hotstart discharge at reservoir rows is correct for this inversion because `compute_hotstart_discharge()` solves `(I-N) @ Q = q_prime[0]` — the same topological accumulation that the `c_1_[res]=0` override produces.
 
 ## State Management
 
@@ -188,8 +218,8 @@ Pool elevation (`_pool_elevation_t`) follows the same carry-state semantics as d
 
 | Context | `carry_state` | Behavior |
 |---------|--------------|----------|
-| Training | `False` | Reset to `initial_pool_elevation` every batch (random time windows) |
-| Inference, batch 0 | `False` | Reset to `initial_pool_elevation` (cold start) |
+| Training | `False` | Reset to equilibrium pool elevation every batch (random time windows) |
+| Inference, batch 0 | `False` | Reset to equilibrium pool elevation (cold start) |
 | Inference, batch i > 0 | `True` | Preserve pool elevation from previous batch |
 
 ## Differentiability
@@ -203,8 +233,9 @@ All operations use standard PyTorch ops — no custom autograd functions needed:
 
 Gradients flow from the loss through:
 ```
-loss -> daily_runoff -> hourly Q -> Q[res_mask] = Q_out -> _level_pool_step
-     -> outflow -> weir/orifice equations -> pool_elevation
+loss -> Q[downstream] -> sparse solve -> b[res] = outflow -> pool_elevation_t -> previous timestep
+loss -> Q[downstream] -> sparse solve -> A_values -> MC coefficients -> Manning's n -> KAN
+pool_elev_{t+1} = pool_elev_t + dt*(inflow - outflow)/area   [temporal chain through pool state]
 ```
 
 ## Data Source
@@ -230,14 +261,15 @@ Validation: `use_reservoir: true` requires `reservoir_params` to be set; otherwi
 
 ## Implementation
 
-- **Physics functions**: `src/ddr/routing/mmc.py` -- `_level_pool_outflow()`, `_level_pool_step()`
-- **Routing integration**: `src/ddr/routing/mmc.py` -- `MuskingumCunge.forward()` (reservoir block after MC solve)
+- **Outflow physics**: `src/ddr/routing/mmc.py` -- `_level_pool_outflow()`
+- **Equilibrium init**: `src/ddr/routing/mmc.py` -- `_compute_equilibrium_pool_elevation()`
+- **Routing integration**: `src/ddr/routing/mmc.py` -- `MuskingumCunge.route_timestep()` (RHS override + coefficient zeroing + pool update)
 - **State init**: `src/ddr/routing/mmc.py` -- `MuskingumCunge._init_pool_elevation_state()`
 - **Data loading**: `src/ddr/geodatazoo/merit.py` -- `Merit._build_reservoir_tensors()`
 - **Output**: `src/ddr/routing/torch_mc.py` -- `dmc.forward()` returns `pool_elevation` in output dict
 - **Config**: `src/ddr/validation/configs.py` -- `params.use_reservoir`, `data_sources.reservoir_params`
 - **Preprocessing**: `references/build_reservoir_params.py` -- builds CSV from HydroLAKES shapefiles
-- **Tests**: `tests/routing/test_reservoir.py` -- 11 tests covering physics, gradients, mass balance, integration
+- **Tests**: `tests/routing/test_reservoir.py` -- 14 tests covering outflow physics, mass balance, gradients, sparse-solve integration, equilibrium initialization, peak attenuation
 
 ## Changes from Retention Module
 
@@ -251,3 +283,5 @@ The level pool reservoir module replaces the previous linear retention module:
 | State | `_storage_t` (linear storage) | `_pool_elevation_t` (pool elevation) |
 | Data requirement | None | HydroLAKES CSV |
 | Physical basis | Ad hoc | Standard reservoir hydraulics |
+| Integration | Post-solve override | Single-solve RHS override |
+| Initialization | Fixed from CSV | Equilibrium orifice inversion |

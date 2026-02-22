@@ -160,9 +160,18 @@ def train(
                         f"base={l_base.item():.4f}, timing={l_timing.item():.4f}"
                     )
 
+                if cfg.params.use_leakance and "zeta_sum" in dmc_output:
+                    zeta = dmc_output["zeta_sum"].detach().cpu()
+                    qp = dmc_output["q_prime_sum"].detach().cpu()
+                    zeta_frac = zeta.sum() / (qp.sum() + 1e-8)
+                    n_losing = int((zeta > 0).sum())
+                    log.info(f"Leakance: zeta/q_prime={zeta_frac.item():.4f}, losing={n_losing}/{len(zeta)}")
+
                 log.info("Running backpropagation")
 
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(lstm_nn.parameters(), max_norm=1.0)
                 kan_optimizer.step()
                 lstm_optimizer.step()
 

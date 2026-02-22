@@ -31,9 +31,13 @@ OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "merit_reservoir
 # Physical constants
 G = 9.81  # gravitational acceleration [m/s^2]
 C_W_DEFAULT = 0.4  # broad-crested weir discharge coefficient
-C_O_DEFAULT = 0.6  # orifice discharge coefficient
+C_O_DEFAULT = 0.1  # orifice discharge coefficient (NWM/RFC-DA conservative default)
 SHORE_FRAC = 0.01  # fraction of shoreline used as weir length
 MIN_WEIR_LENGTH = 1.0  # minimum weir length [m]
+
+# RFC-DA elevation fractions (nhf-builds convention)
+CREST_FRAC = 0.90  # weir crest at 90% of pool height from base
+INVERT_FRAC = 0.15  # orifice invert at 15% of pool height from base
 
 
 def load_all_shapefiles() -> gpd.GeoDataFrame:
@@ -98,6 +102,11 @@ def aggregate_per_comid(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
 def derive_reservoir_params(agg: pd.DataFrame) -> pd.DataFrame:
     """Derive level pool reservoir parameters from aggregated lake data.
 
+    Uses RFC-DA elevation conventions (nhf-builds / Lynker hydrofabric):
+    - Orifice invert at 15% of pool height from base (dead storage below)
+    - Weir crest at 90% of pool height from base
+    - C_o = 0.1 (NWM conservative default)
+
     Parameters
     ----------
     agg : pd.DataFrame
@@ -111,15 +120,17 @@ def derive_reservoir_params(agg: pd.DataFrame) -> pd.DataFrame:
     depth = agg["depth_avg_m"].clip(lower=0.1)
     elev = agg["elevation_m"]
     dis_avg = agg["dis_avg_m3s"].clip(lower=1e-6)
+    base = elev - depth  # lake bottom
 
-    weir_elevation = elev - 0.25 * depth  # weir crest at 75% of full pool
-    orifice_elevation = elev - depth  # bottom of lake
+    # RFC-DA elevation conventions
+    weir_elevation = base + CREST_FRAC * depth  # 90% of pool height
+    orifice_elevation = base + INVERT_FRAC * depth  # 15% of pool height (dead storage below)
 
     weir_length = (agg["shore_len_m"] * SHORE_FRAC).clip(lower=MIN_WEIR_LENGTH)
 
-    # Back-calculate orifice area from average discharge
-    # Q_avg = C_o * O_a * sqrt(2g * h_mid) where h_mid = 0.5 * depth
-    h_mid = 0.5 * depth
+    # Back-calculate orifice area from average discharge at half-depth equilibrium
+    # Head above orifice at half-depth pool: (0.5 - INVERT_FRAC) * depth = 0.35 * depth
+    h_mid = (0.5 - INVERT_FRAC) * depth
     orifice_area = dis_avg / (C_O_DEFAULT * np.sqrt(2 * G * h_mid) + 1e-8)
 
     # Initial pool elevation at half-full
@@ -149,6 +160,14 @@ def main() -> None:
     log.info("Aggregating per COMID...")
     agg = aggregate_per_comid(gdf)
     log.info(f"Unique COMIDs with lakes: {len(agg)}")
+
+    # Filter out physically invalid entries (HydroLAKES Elevation=0 artifacts)
+    valid_mask = agg["elevation_m"] > 0
+    n_invalid = (~valid_mask).sum()
+    if n_invalid > 0:
+        log.warning(f"Filtered {n_invalid} COMIDs with non-positive elevation")
+        agg = agg[valid_mask]
+        log.info(f"Remaining COMIDs: {len(agg)}")
 
     log.info("Deriving level pool parameters...")
     params = derive_reservoir_params(agg)

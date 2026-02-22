@@ -32,7 +32,7 @@ experiment:
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.1.dev10+g9c489863f-merit-training/2026-02-20_20-12-44/saved_models/_ddr-v0.5.1.dev10+g9c489863f-merit-training_epoch_7_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.1.dev10+g9c489863f-merit-training/2026-02-21_19-00-12/saved_models/_ddr-v0.5.1.dev10+g9c489863f-merit-training_epoch_7_mb_43.pt
 
 kan:
   hidden_size: 21

@@ -472,3 +472,52 @@ def test_pool_elevation_update_gradient() -> None:
 
     # Pool should have risen (inflow > outflow at h=5m above orifice)
     assert new_pool_elev.item() > pool_elev.item(), "Pool should rise when inflow > outflow"
+
+
+# --------------------------------------------------------------------------- #
+# NaN safety / stability tests                                                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_no_nan_small_reservoir_large_inflow() -> None:
+    """Forward Euler must not produce NaN even for tiny reservoirs with huge inflow.
+
+    Small lake_area_m2 violates the explicit Euler stability criterion
+    (dt * dQ/dH / A > 2).  Without a pool elevation clamp, pool oscillates
+    and blows up to inf, then inf - inf = NaN.  The clamp in route_timestep
+    prevents this.  This test simulates the same loop standalone.
+    """
+    # Tiny reservoir: 1000 m² area, 1m weir length (worst-case stability)
+    orifice_elev = torch.tensor([90.0])
+    weir_elev = torch.tensor([97.5])
+    pool = torch.tensor([95.0], requires_grad=True)
+    lake_area = torch.tensor([1_000.0])  # very small
+    outflow_kw = {
+        "weir_elevation": weir_elev,
+        "orifice_elevation": orifice_elev,
+        "weir_coeff": torch.tensor([0.4]),
+        "weir_length": torch.tensor([1.0]),  # minimum
+        "orifice_coeff": torch.tensor([0.6]),
+        "orifice_area": torch.tensor([5.0]),
+        "discharge_lb": DISCHARGE_LB,
+    }
+    pool_min = orifice_elev
+    pool_max = weir_elev + (weir_elev - orifice_elev)
+
+    # Run 500 hourly timesteps with large inflow (forward Euler + clamp)
+    h = pool
+    for _ in range(500):
+        outflow = _level_pool_outflow(pool_elevation=h, **outflow_kw)
+        dh = 3600.0 * (torch.tensor([500.0]) - outflow) / (lake_area + 1e-8)
+        h = h + dh
+        h = torch.maximum(h, pool_min)
+        h = torch.minimum(h, pool_max)
+
+    # No NaN in forward pass
+    assert not torch.isnan(h).any(), f"Pool elevation is NaN: {h}"
+    assert not torch.isinf(h).any(), f"Pool elevation is inf: {h}"
+
+    # No NaN in backward pass
+    h.sum().backward()
+    assert pool.grad is not None, "No gradient"
+    assert not torch.isnan(pool.grad).any(), f"Gradient is NaN: {pool.grad}"

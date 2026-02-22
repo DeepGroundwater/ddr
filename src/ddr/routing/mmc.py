@@ -919,15 +919,27 @@ class MuskingumCunge:
         # Clamp solution to physical bounds
         q_t1 = torch.clamp(solution, min=self.discharge_lb)
 
-        # --- Pool elevation update (forward Euler) ---
+        # --- Pool elevation update (forward Euler with stability clamp) ---
         if has_reservoir:
             assert self.lake_area_m2 is not None
             assert self._pool_elevation_t is not None
             # Inflow = routed upstream flow + local lateral inflow
             inflow_res = torch.matmul(self.network, q_t1)[res_mask] + q_prime_clamp[res_mask]
             dh = 3600.0 * (inflow_res - outflow_res) / (self.lake_area_m2[res_mask] + 1e-8)
+            new_pool = self._pool_elevation_t[res_mask] + dh
+            # Clamp pool elevation to prevent forward Euler instability.
+            # Small reservoirs violate the explicit Euler stability criterion
+            # (dt * dQ/dH / A > 2), causing pool oscillation → inf → NaN.
+            # Bounds: lake bottom (orifice_elevation) to 1 full depth above weir.
+            assert self.orifice_elevation is not None and self.weir_elevation is not None
+            pool_min = self.orifice_elevation[res_mask]
+            pool_max = self.weir_elevation[res_mask] + (
+                self.weir_elevation[res_mask] - self.orifice_elevation[res_mask]
+            )
+            new_pool = torch.maximum(new_pool, pool_min)
+            new_pool = torch.minimum(new_pool, pool_max)
             self._pool_elevation_t = self._pool_elevation_t.clone()
-            self._pool_elevation_t[res_mask] = self._pool_elevation_t[res_mask] + dh
+            self._pool_elevation_t[res_mask] = new_pool
 
         return q_t1
 

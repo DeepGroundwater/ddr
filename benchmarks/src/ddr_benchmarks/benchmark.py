@@ -126,6 +126,7 @@ def run_ddr(
         "streamflow": streamflow_predictions,
     }
     if lstm_nn is not None and forcings_reader_nn is not None:
+        assert cfg.cuda_lstm is not None
         forcing_data = forcings_reader_nn(
             routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
         )
@@ -742,6 +743,7 @@ def benchmark(
             }
 
             if lstm_nn is not None and forcings_reader_nn is not None:
+                assert cfg.cuda_lstm is not None
                 lstm_batch_size = 1_000
                 # Load forcings to CPU to avoid GPU OOM on full network
                 forcing_data = forcings_reader_nn(

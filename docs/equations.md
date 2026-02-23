@@ -10,11 +10,11 @@ DDR models each reach as a trapezoidal channel with learned geometry. Given top 
 
 ```
          <---- w_t ---->
-         _______________
-        /      d       \
-       /  z:1   |  z:1  \
-      /---------|--------\
-      <--- w_b --->
+       ___________________
+       \        d        /
+        \   z:1 |  z:1  /
+         \------|------/
+          <--- w_b --->
 ```
 
 Bottom width:

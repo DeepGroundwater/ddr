@@ -117,6 +117,7 @@ def _run_training_loop(
             forcing_data = forcings_nn(
                 routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
             )
+            assert cfg.cuda_lstm is not None
             lstm_attrs = select_columns(normalized_attrs, list(cfg.cuda_lstm.input_var_names), attr_names)
             lstm_params = lstm_nn(forcings=forcing_data, attributes=lstm_attrs)
 

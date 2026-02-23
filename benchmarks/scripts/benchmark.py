@@ -48,17 +48,20 @@ def main(cfg: DictConfig) -> None:
             gate_parameters=config.kan.gate_parameters,
             off_parameters=config.kan.off_parameters,
         )
-        lstm_nn = CudaLSTM(
-            input_var_names=config.cuda_lstm.input_var_names,
-            forcing_var_names=config.cuda_lstm.forcing_var_names,
-            learnable_parameters=config.cuda_lstm.learnable_parameters,
-            hidden_size=config.cuda_lstm.hidden_size,
-            num_layers=config.cuda_lstm.num_layers,
-            dropout=config.cuda_lstm.dropout,
-            seed=config.seed,
-            device=config.device,
-        )
-        forcings_reader_nn = forcings_reader(config)
+        lstm_nn: CudaLSTM | None = None
+        forcings_reader_nn: forcings_reader | None = None
+        if config.cuda_lstm is not None:
+            lstm_nn = CudaLSTM(
+                input_var_names=config.cuda_lstm.input_var_names,
+                forcing_var_names=config.cuda_lstm.forcing_var_names,
+                learnable_parameters=config.cuda_lstm.learnable_parameters,
+                hidden_size=config.cuda_lstm.hidden_size,
+                num_layers=config.cuda_lstm.num_layers,
+                dropout=config.cuda_lstm.dropout,
+                seed=config.seed,
+                device=config.device,
+            )
+            forcings_reader_nn = forcings_reader(config)
         routing_model = dmc(cfg=config, device=config.device)
         flow = streamflow(config)
 

@@ -337,13 +337,20 @@ class Merit(BaseGeoDataset):
         orifice_area = torch.zeros(n, dtype=torch.float32)
         initial_pool_elevation = torch.zeros(n, dtype=torch.float32)
 
+        min_area_m2 = self.cfg.params.min_reservoir_area_km2 * 1e6
+        n_skipped = 0
+
         if self.reservoir_df is not None:
             for i, comid in enumerate(catchment_ids):
                 comid_int = int(comid)
                 if comid_int in self.reservoir_df.index:
                     row = self.reservoir_df.loc[comid_int]
+                    area = float(row["lake_area_m2"])
+                    if area < min_area_m2:
+                        n_skipped += 1
+                        continue
                     reservoir_mask[i] = True
-                    lake_area_m2[i] = float(row["lake_area_m2"])
+                    lake_area_m2[i] = area
                     weir_elevation[i] = float(row["weir_elevation"])
                     orifice_elevation[i] = float(row["orifice_elevation"])
                     weir_coeff[i] = float(row["weir_coeff"])
@@ -353,7 +360,10 @@ class Merit(BaseGeoDataset):
                     initial_pool_elevation[i] = float(row["initial_pool_elevation"])
 
         n_res = reservoir_mask.sum().item()
-        log.info(f"Reservoir reaches: {n_res}/{n} ({100 * n_res / n:.1f}%)")
+        log.info(
+            f"Reservoir reaches: {n_res}/{n} ({100 * n_res / n:.1f}%) "
+            f"[{n_skipped} filtered below {self.cfg.params.min_reservoir_area_km2} km²]"
+        )
         return {
             "reservoir_mask": reservoir_mask,
             "lake_area_m2": lake_area_m2,

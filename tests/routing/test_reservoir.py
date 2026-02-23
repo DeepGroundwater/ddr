@@ -479,6 +479,93 @@ def test_pool_elevation_update_gradient() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_size_filtering_excludes_small_reservoirs() -> None:
+    """Reservoirs below min_reservoir_area_km2 should be excluded from the mask."""
+    from unittest.mock import MagicMock
+
+    import numpy as np
+    import pandas as pd
+
+    # Create a mock Merit instance with just the fields _build_reservoir_tensors needs
+    mock_self = MagicMock()
+    mock_self.cfg.params.min_reservoir_area_km2 = 10.0  # 10 km² threshold
+
+    # Reservoir CSV: 3 COMIDs, one small (5 km² = 5e6 m²), two large (15/20 km²)
+    mock_self.reservoir_df = pd.DataFrame(
+        {
+            "lake_area_m2": [5e6, 15e6, 20e6],  # 5, 15, 20 km²
+            "weir_elevation": [97.5, 97.5, 97.5],
+            "orifice_elevation": [90.0, 90.0, 90.0],
+            "weir_coeff": [0.4, 0.4, 0.4],
+            "weir_length": [10.0, 10.0, 10.0],
+            "orifice_coeff": [0.1, 0.2, 0.3],
+            "orifice_area": [5.0, 10.0, 15.0],
+            "initial_pool_elevation": [95.0, 95.0, 95.0],
+        },
+        index=pd.Index([100, 200, 300], name="COMID"),
+    )
+
+    # Batch with all 3 COMIDs + one non-reservoir COMID
+    catchment_ids = np.array([100, 200, 300, 400])
+
+    # Import and call the actual method, binding mock_self as self
+    from ddr.geodatazoo.merit import Merit
+
+    result = Merit._build_reservoir_tensors(mock_self, catchment_ids)
+
+    # COMID 100 (5 km²) should be excluded, 200 (15 km²) and 300 (20 km²) included
+    assert result["reservoir_mask"][0].item() is False, "COMID 100 (5 km²) should be filtered"
+    assert result["reservoir_mask"][1].item() is True, "COMID 200 (15 km²) should be retained"
+    assert result["reservoir_mask"][2].item() is True, "COMID 300 (20 km²) should be retained"
+    assert result["reservoir_mask"][3].item() is False, "COMID 400 (not in CSV) should be False"
+
+    # Verify per-dam attributes flow through for retained reservoirs
+    assert result["orifice_coeff"][1].item() == pytest.approx(0.2)
+    assert result["orifice_coeff"][2].item() == pytest.approx(0.3)
+
+
+def test_size_filtering_zero_threshold_keeps_all() -> None:
+    """With min_reservoir_area_km2=0, all reservoirs should be retained."""
+    from unittest.mock import MagicMock
+
+    import numpy as np
+    import pandas as pd
+
+    mock_self = MagicMock()
+    mock_self.cfg.params.min_reservoir_area_km2 = 0.0
+
+    mock_self.reservoir_df = pd.DataFrame(
+        {
+            "lake_area_m2": [1e4, 5e6],  # 0.01 km² and 5 km²
+            "weir_elevation": [97.5, 97.5],
+            "orifice_elevation": [90.0, 90.0],
+            "weir_coeff": [0.4, 0.4],
+            "weir_length": [10.0, 10.0],
+            "orifice_coeff": [0.1, 0.1],
+            "orifice_area": [5.0, 5.0],
+            "initial_pool_elevation": [95.0, 95.0],
+        },
+        index=pd.Index([100, 200], name="COMID"),
+    )
+
+    catchment_ids = np.array([100, 200])
+
+    from ddr.geodatazoo.merit import Merit
+
+    result = Merit._build_reservoir_tensors(mock_self, catchment_ids)
+
+    assert result["reservoir_mask"][0].item() is True
+    assert result["reservoir_mask"][1].item() is True
+
+
+def test_config_min_reservoir_area_default() -> None:
+    """Verify min_reservoir_area_km2 default is 10.0."""
+    from ddr.validation.configs import Params
+
+    p = Params()
+    assert p.min_reservoir_area_km2 == 10.0
+
+
 def test_no_nan_small_reservoir_large_inflow() -> None:
     """Forward Euler must not produce NaN even for tiny reservoirs with huge inflow.
 

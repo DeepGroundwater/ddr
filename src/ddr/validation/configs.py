@@ -174,6 +174,10 @@ class Params(BaseModel):
         default=False,
         description="Enable level pool reservoir routing for reaches intersecting HydroLAKES waterbodies.",
     )
+    min_reservoir_area_km2: float = Field(
+        default=10.0,
+        description="Minimum lake area (km²) for level pool routing. Smaller reservoirs use MC.",
+    )
     ptf_sand_var: str = Field(
         default="SoilGrids1km_sand",
         description="Sand % variable name in the attribute dataset for Cosby PTF",

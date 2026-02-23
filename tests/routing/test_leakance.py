@@ -40,6 +40,7 @@ class TestComputeZeta:
             "d_gw": torch.ones(n) * 0.5,
             "top_width": torch.ones(n) * 10.0,
             "side_slope": torch.ones(n) * 2.0,
+            "depth_lb": torch.tensor(0.001),
         }
 
     def test_zeta_shape_matches_inputs(self, zeta_inputs: dict[str, torch.Tensor]) -> None:
@@ -450,6 +451,7 @@ class TestLeakanceConfigValidation:
         assert "K_D_delta" in cfg.kan.learnable_parameters
         assert "n" in cfg.kan.learnable_parameters
         assert "leakance_gate" in cfg.kan.learnable_parameters
+        assert cfg.cuda_lstm is not None
         assert "d_gw" in cfg.cuda_lstm.learnable_parameters
 
     def test_use_leakance_false_is_default(self) -> None:
@@ -465,6 +467,7 @@ class TestLeakanceConfigValidation:
         assert cfg.params.use_leakance is True
         assert "K_D_delta" in cfg.kan.learnable_parameters
         assert "n" in cfg.kan.learnable_parameters
+        assert cfg.cuda_lstm is not None
         assert "d_gw" in cfg.cuda_lstm.learnable_parameters
 
     def test_use_leakance_without_gate_in_kan_raises(self) -> None:

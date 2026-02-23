@@ -86,6 +86,7 @@ def set_forcing_statistics(cfg: Config, ds: xr.Dataset) -> pd.DataFrame:
         return pd.DataFrame(loaded)
 
     log.info(f"Computing forcing statistics for {forcing_store_name}")
+    assert cfg.cuda_lstm is not None, "cuda_lstm config required for forcing statistics"
     json_: dict[str, dict[str, float]] = {}
     for var in cfg.cuda_lstm.forcing_var_names:
         data = ds[var].values  # (divide_id, time)

@@ -508,6 +508,7 @@ class ForcingsReader(torch.nn.Module):
         super().__init__()
         self.cfg = cfg
         assert cfg.data_sources.forcings is not None, "data_sources.forcings must be set"
+        assert cfg.cuda_lstm is not None, "cuda_lstm config required for ForcingsReader"
         self.ds = read_ic(cfg.data_sources.forcings, region=cfg.s3_region)
         self.forcing_var_names = list(cfg.cuda_lstm.forcing_var_names)
         # Index Lookup Dictionary

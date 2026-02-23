@@ -144,6 +144,7 @@ def integration_models(
         gate_parameters=cfg.kan.gate_parameters,
         off_parameters=cfg.kan.off_parameters,
     )
+    assert cfg.cuda_lstm is not None, "cuda_lstm config required for integration tests"
     lstm_nn = CudaLSTM(
         input_var_names=cfg.cuda_lstm.input_var_names,
         forcing_var_names=cfg.cuda_lstm.forcing_var_names,

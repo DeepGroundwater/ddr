@@ -1,8 +1,13 @@
-"""Build reservoir parameters CSV from RFC-DA Hydraulics v2.
+"""Build reservoir parameters CSV from HydroLAKES RFC-DA.
 
-Spatially joins RFC-DA dam points to MERIT catchment polygons (cat_pfaf_7) via
+Reads the HydroLAKES RFC-DA CSV (with Pour_long/Pour_lat coordinates), constructs
+point geometries, and spatially joins to MERIT catchment polygons (cat_pfaf_7) via
 point-in-polygon in EPSG:5070 to obtain the MERIT COMID for each dam.  Outputs
-level pool routing parameters directly from per-dam RFC-DA attributes.
+level pool routing parameters indexed by MERIT COMID.
+
+The input CSV is produced by the DeepGroundwater/references ``lakes`` package,
+which derives RFC-DA hydraulic parameters (WeirE, OrificeE, WeirC, WeirL, OrificeC,
+OrificeA) from HydroLAKES + GRanD attributes following NOAA-OWP NHF conventions.
 
 Usage
 -----
@@ -19,14 +24,13 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely.geometry import Point
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Input / output paths
-RFC_DA_GPKG = Path(
-    "/projects/mhpi/tbindas/hydrofabric-builds/data/reservoirs/output/rfc-da-hydraulics-v2.gpkg"
-)
+RESERVOIR_CSV = Path("/projects/mhpi/tbindas/ddr/data/hydrolakes_rfc_da.csv")
 MERIT_CATCHMENT_SHP = Path(
     "/projects/mhpi/data/MERIT/raw/continent/cat_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp"
 )
@@ -41,22 +45,25 @@ PROJECTED_CRS = "EPSG:5070"
 
 
 def build_reservoir_params() -> pd.DataFrame:
-    """Build reservoir parameters from RFC-DA Hydraulics v2.
+    """Build reservoir parameters from HydroLAKES RFC-DA CSV.
 
-    1. Load RFC-DA GeoPackage (8,571 dams with per-dam hydraulic attributes).
-    2. Load MERIT catchment polygons (cat_pfaf_7).
-    3. Reproject both to EPSG:5070 and spatial-join (point-in-polygon).
-    4. Map RFC-DA columns to output CSV schema.
+    1. Load HydroLAKES RFC-DA CSV (6,797 reservoirs with RFC-DA attributes).
+    2. Construct point geometries from Pour_long/Pour_lat.
+    3. Load MERIT catchment polygons (cat_pfaf_7).
+    4. Reproject both to EPSG:5070 and spatial-join (point-in-polygon).
+    5. Map columns to output CSV schema.
 
     Returns
     -------
     pd.DataFrame
         Reservoir parameters indexed by MERIT COMID.
     """
-    # Load data sources
-    log.info(f"Loading RFC-DA Hydraulics v2 from {RFC_DA_GPKG}...")
-    rfc = gpd.read_file(RFC_DA_GPKG)
-    log.info(f"RFC-DA records: {len(rfc)}")
+    # Load reservoir CSV and construct point geometries
+    log.info(f"Loading HydroLAKES RFC-DA from {RESERVOIR_CSV}...")
+    df = pd.read_csv(RESERVOIR_CSV)
+    geometry = [Point(lon, lat) for lon, lat in zip(df["Pour_long"], df["Pour_lat"], strict=False)]
+    reservoirs = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:4326")
+    log.info(f"Reservoir records: {len(reservoirs)}")
 
     log.info(f"Loading MERIT catchment polygons from {MERIT_CATCHMENT_SHP}...")
     catchments = gpd.read_file(MERIT_CATCHMENT_SHP)
@@ -65,23 +72,23 @@ def build_reservoir_params() -> pd.DataFrame:
     log.info(f"MERIT catchments: {len(catchments)}")
 
     # Reproject both to EPSG:5070 for accurate spatial join
-    rfc_proj = rfc.to_crs(PROJECTED_CRS)
+    res_proj = reservoirs.to_crs(PROJECTED_CRS)
     cat_proj = catchments[["COMID", "geometry"]].to_crs(PROJECTED_CRS)
 
-    # Point-in-polygon: RFC-DA dam points → MERIT catchment polygons
-    log.info("Spatial join (EPSG:5070): RFC-DA dam points within MERIT catchments...")
-    joined = gpd.sjoin(rfc_proj, cat_proj, how="inner", predicate="within")
+    # Point-in-polygon: reservoir dam points → MERIT catchment polygons
+    log.info("Spatial join (EPSG:5070): reservoir points within MERIT catchments...")
+    joined = gpd.sjoin(res_proj, cat_proj, how="inner", predicate="within")
 
     # Resolve MERIT COMID column name (sjoin appends _right on collision)
     if "COMID_right" in joined.columns:
         joined = joined.rename(columns={"COMID_right": "merit_comid"})
-    elif "COMID" in joined.columns and "comid" in joined.columns:
+    elif "COMID" in joined.columns:
         joined = joined.rename(columns={"COMID": "merit_comid"})
     else:
-        raise ValueError(f"Cannot find MERIT COMID column in joined result: {list(joined.columns)}")
+        raise ValueError(f"Cannot find MERIT COMID column: {list(joined.columns)}")
 
     joined["merit_comid"] = joined["merit_comid"].astype(int)
-    log.info(f"Matched: {len(joined)} RFC-DA dams → {joined['merit_comid'].nunique()} unique MERIT COMIDs")
+    log.info(f"Matched: {len(joined)} dams → {joined['merit_comid'].nunique()} unique MERIT COMIDs")
 
     # Filter: drop rows with non-positive max pool elevation (bad data)
     valid_mask = joined["LkMxE"] > 0
@@ -90,22 +97,34 @@ def build_reservoir_params() -> pd.DataFrame:
         log.warning(f"Filtered {n_invalid} dams with non-positive LkMxE")
         joined = joined[valid_mask]
 
+    # Filter: drop rows with missing lake area (NaN LkArea → NaN in forward Euler)
+    nan_area = joined["LkArea"].isna()
+    if nan_area.any():
+        log.warning(f"Filtered {nan_area.sum()} dams with NaN LkArea")
+        joined = joined[~nan_area]
+
+    # Filter: drop rows with inverted elevations (WeirE < OrificeE → pool clamp inversion)
+    inverted = joined["WeirE"] < joined["OrificeE"]
+    if inverted.any():
+        log.warning(f"Filtered {inverted.sum()} dams with inverted elevations (WeirE < OrificeE)")
+        joined = joined[~inverted]
+
     # Deduplicate: keep largest lake area per MERIT catchment
     joined = joined.sort_values("LkArea", ascending=False).drop_duplicates(subset="merit_comid", keep="first")
     joined = joined.set_index("merit_comid")
     joined.index.name = "COMID"
 
-    # Map RFC-DA columns → output CSV schema
+    # Map columns → output CSV schema (LkArea is already in m²)
     params = pd.DataFrame(
         {
             "lake_area_m2": joined["LkArea"].values,
             "weir_elevation": joined["WeirE"].values,
-            "orifice_elevation": joined["OrficeE"].values,
+            "orifice_elevation": joined["OrificeE"].values,
             "weir_coeff": joined["WeirC"].values,
             "weir_length": np.clip(joined["WeirL"].values, MIN_WEIR_LENGTH, None),
-            "orifice_coeff": joined["OrficeC"].values,
-            "orifice_area": np.clip(joined["OrficeA"].values, 0, MAX_ORIFICE_AREA),
-            "initial_pool_elevation": (joined["OrficeE"].values + joined["WeirE"].values) / 2,
+            "orifice_coeff": joined["OrificeC"].values,
+            "orifice_area": np.clip(joined["OrificeA"].values, 0, MAX_ORIFICE_AREA),
+            "initial_pool_elevation": (joined["OrificeE"].values + joined["WeirE"].values) / 2,
         },
         index=joined.index,
     )

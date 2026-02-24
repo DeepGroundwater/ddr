@@ -566,6 +566,96 @@ def test_config_min_reservoir_area_default() -> None:
     assert p.min_reservoir_area_km2 == 10.0
 
 
+def test_nan_lake_area_excluded_by_filter() -> None:
+    """NaN lake_area_m2 must be excluded by the size filter (NaN-safe comparison)."""
+    from unittest.mock import MagicMock
+
+    import numpy as np
+    import pandas as pd
+
+    mock_self = MagicMock()
+    mock_self.cfg.params.min_reservoir_area_km2 = 10.0
+
+    mock_self.reservoir_df = pd.DataFrame(
+        {
+            "lake_area_m2": [float("nan"), 15e6],
+            "weir_elevation": [97.5, 97.5],
+            "orifice_elevation": [90.0, 90.0],
+            "weir_coeff": [0.4, 0.4],
+            "weir_length": [10.0, 10.0],
+            "orifice_coeff": [0.1, 0.2],
+            "orifice_area": [5.0, 5.0],
+            "initial_pool_elevation": [95.0, 95.0],
+        },
+        index=pd.Index([100, 200], name="COMID"),
+    )
+
+    catchment_ids = np.array([100, 200])
+
+    from ddr.geodatazoo.merit import Merit
+
+    result = Merit._build_reservoir_tensors(mock_self, catchment_ids)
+
+    assert result["reservoir_mask"][0].item() is False, "NaN lake area should be excluded"
+    assert result["reservoir_mask"][1].item() is True, "Valid 15 km² should be retained"
+    assert result["lake_area_m2"][0].item() == 0.0, "Excluded reservoir should have zero area"
+
+
+def test_reservoir_at_index_zero_no_nan() -> None:
+    """Reservoir at topological index 0 must NOT zero out the sparse diagonal.
+
+    The PatternMapper maps ALL diagonal entries to datvec[0].  When building
+    c_1_, if ``c_1_[res_mask] = 0.0`` runs AFTER ``c_1_[0] = 1.0`` and a
+    reservoir sits at index 0, the diagonal becomes 0 for every row → the
+    sparse solve divides by zero → NaN.  The fix is to zero reservoir rows
+    first, then set c_1_[0] = 1.0.
+
+    This test uses a 4-reach linear network where reach 0 is a reservoir.
+    """
+    from ddr.routing.utils import PatternMapper, triangular_sparse_solve
+
+    # 4-reach linear: 0(reservoir) -> 1 -> 2 -> 3
+    network = torch.zeros(4, 4)
+    network[1, 0] = 1.0
+    network[2, 1] = 1.0
+    network[3, 2] = 1.0
+
+    def fill_op(data_vector: torch.Tensor) -> torch.Tensor:
+        n = network.shape[0]
+        eye = torch.eye(n)
+        vec_diag = torch.diag(data_vector)
+        return (eye + vec_diag @ network).to_sparse_csr()
+
+    mapper = PatternMapper(fill_op, 4)
+
+    # MC coefficients
+    c_1 = torch.tensor([0.3, 0.25, 0.35, 0.20])
+
+    # Build b (RHS) — arbitrary positive values
+    b = torch.tensor([50.0, 15.0, 12.0, 8.0])
+
+    # Reservoir at index 0: override b[0] with outflow
+    res_outflow = 42.0
+    b_override = b.clone()
+    b_override[0] = res_outflow
+
+    # Build c_1_ with CORRECT order (zero reservoir rows first, then set [0]=1)
+    c_1_ = c_1 * -1
+    res_mask = torch.tensor([True, False, False, False])
+    c_1_[res_mask] = 0.0
+    c_1_[0] = 1.0  # Must come LAST
+
+    A_values = mapper.map(c_1_)
+    solution = triangular_sparse_solve(
+        A_values, mapper.crow_indices, mapper.col_indices, b_override, True, False, "cpu"
+    )
+
+    assert not torch.isnan(solution).any(), f"NaN in solution: {solution}"
+    assert not torch.isinf(solution).any(), f"Inf in solution: {solution}"
+    # Reservoir row should produce identity: q[0] = b[0] = outflow
+    assert torch.allclose(solution[0], torch.tensor(res_outflow), atol=1e-4)
+
+
 def test_no_nan_small_reservoir_large_inflow() -> None:
     """Forward Euler must not produce NaN even for tiny reservoirs with huge inflow.
 

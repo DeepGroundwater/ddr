@@ -906,10 +906,14 @@ class MuskingumCunge:
 
         # Setup sparse matrix for solving
         c_1_ = c_1 * -1
-        c_1_[0] = 1.0
         # Zero out reservoir rows → identity (q_t1[res] = b[res] = outflow)
+        # MUST come before c_1_[0] = 1.0 because the PatternMapper maps ALL
+        # diagonal entries to datvec[0].  If a reservoir sits at index 0 and we
+        # zero it after setting 1.0, the entire matrix diagonal becomes 0 →
+        # division-by-zero in forward substitution → NaN.
         if has_reservoir:
             c_1_[res_mask] = 0.0
+        c_1_[0] = 1.0
         A_values = mapper.map(c_1_)
 
         # Solve the linear system
@@ -932,7 +936,14 @@ class MuskingumCunge:
             assert self._pool_elevation_t is not None
             # Inflow = routed upstream flow + local lateral inflow
             inflow_res = torch.matmul(self.network, q_t1)[res_mask] + q_prime_clamp[res_mask]
-            dh = 3600.0 * (inflow_res - outflow_res) / (self.lake_area_m2[res_mask] + 1e-8)
+            # Guard: replace NaN/non-positive lake areas with large value (disables pool update)
+            area_res = self.lake_area_m2[res_mask]
+            safe_area = torch.where(
+                torch.isnan(area_res) | (area_res <= 0),
+                torch.tensor(1e12, device=self.device, dtype=area_res.dtype),
+                area_res,
+            )
+            dh = 3600.0 * (inflow_res - outflow_res) / (safe_area + 1e-8)
             new_pool = self._pool_elevation_t[res_mask] + dh
             # Clamp pool elevation to prevent forward Euler instability.
             # Small reservoirs violate the explicit Euler stability criterion

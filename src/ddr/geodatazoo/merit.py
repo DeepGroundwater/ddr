@@ -346,7 +346,8 @@ class Merit(BaseGeoDataset):
                 if comid_int in self.reservoir_df.index:
                     row = self.reservoir_df.loc[comid_int]
                     area = float(row["lake_area_m2"])
-                    if area < min_area_m2:
+                    # NaN-safe: float('nan') < X is False, so use negated >=
+                    if not (area >= min_area_m2):
                         n_skipped += 1
                         continue
                     reservoir_mask[i] = True

@@ -581,6 +581,14 @@ class MuskingumCunge:
         else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
+        # Learnable Muskingum X (overrides hardcoded 0.3 from routing_dataclass.x)
+        if "x_storage" in spatial_parameters:
+            self.x_storage = denormalize(
+                value=spatial_parameters["x_storage"],
+                bounds=self.parameter_bounds["x_storage"],
+                log_space="x_storage" in log_space_params,
+            )
+
     def setup_lstm_params(self, lstm_params: dict[str, torch.Tensor]) -> None:
         """Denormalize and store time-varying parameters from LSTM.
 

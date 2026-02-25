@@ -25,15 +25,14 @@ data_sources:
 params:
   save_path: ./
   use_reservoir: true
-  min_reservoir_area_km2: 10.0
+  min_reservoir_area_km2: 0.0
 
 experiment:
   batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-22_20-28-38/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_10_mb_43.pt
-
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-23_21-11-21/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_10_mb_43.pt
 kan:
   hidden_size: 21
   input_var_names:

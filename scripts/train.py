@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
@@ -15,6 +16,12 @@ from ddr._version import __version__
 from ddr.routing.utils import select_columns
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
+from ddr.validation.losses import (
+    _overall_loss,
+    _regime_loss,
+    _timing_loss,
+    hydrograph_loss,
+)
 
 log = logging.getLogger(__name__)
 
@@ -75,15 +82,15 @@ def train(
         drop_last=True,
     )
 
+    # Cosine annealing with warm restarts (period doubles each restart)
+    kan_scheduler = CosineAnnealingWarmRestarts(kan_optimizer, T_0=len(dataloader), T_mult=2, eta_min=1e-5)
+    lstm_scheduler: CosineAnnealingWarmRestarts | None = None
+    if lstm_optimizer is not None:
+        lstm_scheduler = CosineAnnealingWarmRestarts(
+            lstm_optimizer, T_0=len(dataloader), T_mult=2, eta_min=1e-5
+        )
+
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
-        if epoch in cfg.experiment.learning_rate:
-            lr = cfg.experiment.learning_rate[epoch]
-            log.info(f"Setting learning rate: {lr}")
-            for param_group in kan_optimizer.param_groups:
-                param_group["lr"] = lr
-            if lstm_optimizer is not None:
-                for param_group in lstm_optimizer.param_groups:
-                    param_group["lr"] = lr
         for i, routing_dataclass in enumerate(dataloader, start=0):
             if i < start_mini_batch:
                 log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")
@@ -143,8 +150,17 @@ def train(
 
                 pred = filtered_predictions[:, cfg.experiment.warmup :]
                 target = filtered_observations[:, cfg.experiment.warmup :]
-                per_gage_mse = ((pred - target) ** 2).mean(dim=1)  # [N]
-                loss = per_gage_mse.mean()
+                loss = hydrograph_loss(
+                    pred=pred,
+                    target=target,
+                    overall_weight=cfg.experiment.loss.overall_weight,
+                    peak_weight=cfg.experiment.loss.peak_weight,
+                    baseflow_weight=cfg.experiment.loss.baseflow_weight,
+                    timing_weight=cfg.experiment.loss.timing_weight,
+                    peak_percentile=cfg.experiment.loss.peak_percentile,
+                    baseflow_percentile=cfg.experiment.loss.baseflow_percentile,
+                    eps=cfg.experiment.loss.eps,
+                )
 
                 if cfg.params.use_leakance and "zeta_sum" in dmc_output:
                     zeta = dmc_output["zeta_sum"].detach().cpu()
@@ -183,12 +199,14 @@ def train(
                 loss.backward()
 
                 # --- NaN gradient guard ---
-                kan_grad_norm = torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=float("inf"))
+                kan_grad_norm = torch.nn.utils.clip_grad_norm_(
+                    nn.parameters(), max_norm=cfg.experiment.grad_clip_norm
+                )
                 has_nan_grad = torch.isnan(kan_grad_norm)
                 grad_msg = f"Grad norms: KAN={kan_grad_norm.item():.4g}"
                 if lstm_nn is not None:
                     lstm_grad_norm = torch.nn.utils.clip_grad_norm_(
-                        lstm_nn.parameters(), max_norm=float("inf")
+                        lstm_nn.parameters(), max_norm=cfg.experiment.grad_clip_norm
                     )
                     has_nan_grad = has_nan_grad or torch.isnan(lstm_grad_norm)
                     grad_msg += f", LSTM={lstm_grad_norm.item():.4g}"
@@ -204,8 +222,11 @@ def train(
                         lstm_optimizer.zero_grad()
                 else:
                     kan_optimizer.step()
+                    kan_scheduler.step()
                     if lstm_optimizer is not None:
                         lstm_optimizer.step()
+                    if lstm_scheduler is not None:
+                        lstm_scheduler.step()
 
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()
@@ -217,7 +238,21 @@ def train(
                 rmse = metrics.rmse
                 kge = metrics.kge
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
-                log.info(f"Loss: {loss.item()}")
+                with torch.no_grad():
+                    loss_cfg = cfg.experiment.loss
+                    comp_overall = _overall_loss(pred, target, eps=loss_cfg.eps)
+                    comp_peak = _regime_loss(
+                        pred, target, target, loss_cfg.peak_percentile, high=True, eps=loss_cfg.eps
+                    )
+                    comp_baseflow = _regime_loss(
+                        pred, target, target, loss_cfg.baseflow_percentile, high=False, eps=loss_cfg.eps
+                    )
+                    comp_timing = _timing_loss(pred, target, eps=loss_cfg.eps)
+                log.info(
+                    f"Loss: {loss.item():.4f} "
+                    f"(overall={comp_overall.item():.4f}, peak={comp_peak.item():.4f}, "
+                    f"baseflow={comp_baseflow.item():.4f}, timing={comp_timing.item():.4f})"
+                )
 
                 n_vals = routing_model.n.detach().cpu()
                 log.info(
@@ -225,6 +260,14 @@ def train(
                     f"mean={n_vals.mean().item():.4f}, "
                     f"min={n_vals.min().item():.4f}, max={n_vals.max().item():.4f}"
                 )
+
+                if routing_model.routing_engine.x_storage is not None:
+                    x_vals = routing_model.routing_engine.x_storage.detach().cpu()
+                    log.info(
+                        f"Muskingum X: median={x_vals.median().item():.4f}, "
+                        f"mean={x_vals.mean().item():.4f}, "
+                        f"min={x_vals.min().item():.4f}, max={x_vals.max().item():.4f}"
+                    )
 
                 if routing_model.routing_engine.use_reservoir:
                     pool_elev = routing_model.routing_engine._pool_elevation_t

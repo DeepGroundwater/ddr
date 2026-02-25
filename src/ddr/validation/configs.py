@@ -89,6 +89,7 @@ _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
     "K_D_delta": [-3.0, 1.0],  # Log-space delta from Cosby PTF prior (-)
     "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
     "leakance_gate": [0.0, 1.0],  # Binary STE gate for leakance (-)
+    "x_storage": [0.0, 0.5],  # Muskingum storage weighting (0=pure storage, 0.5=pure lag)
 }
 
 
@@ -274,6 +275,10 @@ class ExperimentConfig(BaseModel):
     warmup: int = Field(
         default=3,
         description="Number of days excluded from loss calculation as routing starts from dry conditions",
+    )
+    grad_clip_norm: float = Field(
+        default=1.0,
+        description="Maximum gradient norm for clipping. Controls training stability.",
     )
     max_area_diff_sqkm: float | None = Field(
         default=50,

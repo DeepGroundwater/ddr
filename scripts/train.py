@@ -16,12 +16,6 @@ from ddr._version import __version__
 from ddr.routing.utils import select_columns
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
-from ddr.validation.losses import (
-    _overall_loss,
-    _regime_loss,
-    _timing_loss,
-    hydrograph_loss,
-)
 
 log = logging.getLogger(__name__)
 
@@ -150,17 +144,7 @@ def train(
 
                 pred = filtered_predictions[:, cfg.experiment.warmup :]
                 target = filtered_observations[:, cfg.experiment.warmup :]
-                loss = hydrograph_loss(
-                    pred=pred,
-                    target=target,
-                    overall_weight=cfg.experiment.loss.overall_weight,
-                    peak_weight=cfg.experiment.loss.peak_weight,
-                    baseflow_weight=cfg.experiment.loss.baseflow_weight,
-                    timing_weight=cfg.experiment.loss.timing_weight,
-                    peak_percentile=cfg.experiment.loss.peak_percentile,
-                    baseflow_percentile=cfg.experiment.loss.baseflow_percentile,
-                    eps=cfg.experiment.loss.eps,
-                )
+                loss = torch.nn.functional.mse_loss(pred, target)
 
                 if cfg.params.use_leakance and "zeta_sum" in dmc_output:
                     zeta = dmc_output["zeta_sum"].detach().cpu()
@@ -238,21 +222,7 @@ def train(
                 rmse = metrics.rmse
                 kge = metrics.kge
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
-                with torch.no_grad():
-                    loss_cfg = cfg.experiment.loss
-                    comp_overall = _overall_loss(pred, target, eps=loss_cfg.eps)
-                    comp_peak = _regime_loss(
-                        pred, target, target, loss_cfg.peak_percentile, high=True, eps=loss_cfg.eps
-                    )
-                    comp_baseflow = _regime_loss(
-                        pred, target, target, loss_cfg.baseflow_percentile, high=False, eps=loss_cfg.eps
-                    )
-                    comp_timing = _timing_loss(pred, target, eps=loss_cfg.eps)
-                log.info(
-                    f"Loss: {loss.item():.4f} "
-                    f"(overall={comp_overall.item():.4f}, peak={comp_peak.item():.4f}, "
-                    f"baseflow={comp_baseflow.item():.4f}, timing={comp_timing.item():.4f})"
-                )
+                log.info(f"Loss: {loss.item():.4f}")
 
                 n_vals = routing_model.n.detach().cpu()
                 log.info(

@@ -80,9 +80,9 @@ def load_checkpoint(
         state_dict[key] = state_dict[key].to(device)
     nn.load_state_dict(state_dict)
 
-    if lstm_nn is not None and "leakance_nn_state_dict" in state:
+    if lstm_nn is not None and "lstm_nn_state_dict" in state:
         log.info("Loading lstm_nn from checkpoint")
-        lstm_state = state["leakance_nn_state_dict"]
+        lstm_state = state["lstm_nn_state_dict"]
         for key in lstm_state.keys():
             lstm_state[key] = lstm_state[key].to(device)
         lstm_nn.load_state_dict(lstm_state)

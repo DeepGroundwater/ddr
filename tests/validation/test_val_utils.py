@@ -74,7 +74,7 @@ class TestSaveState:
         state = torch.load(files[0], weights_only=False)
         assert "kan_optimizer_state_dict" in state
         assert "lstm_optimizer_state_dict" in state
-        assert "leakance_nn_state_dict" in state
+        assert "lstm_nn_state_dict" in state
 
 
 class TestLogMetrics:

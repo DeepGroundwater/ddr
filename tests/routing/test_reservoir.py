@@ -270,7 +270,6 @@ def test_config_validation_reservoir() -> None:
         "data_sources": {
             "geospatial_fabric_gpkg": "/tmp/test.gpkg",
             "conus_adjacency": "/tmp/test.zarr",
-            "forcings": "/tmp/forcings",
         },
         "params": {
             "use_reservoir": True,
@@ -278,10 +277,6 @@ def test_config_validation_reservoir() -> None:
         "kan": {
             "input_var_names": ["aridity"],
             "learnable_parameters": ["q_spatial"],
-        },
-        "cuda_lstm": {
-            "input_var_names": ["aridity"],
-            "learnable_parameters": ["n"],
         },
     }
 

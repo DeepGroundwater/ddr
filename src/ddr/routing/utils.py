@@ -210,27 +210,6 @@ def denormalize(value: torch.Tensor, bounds: list[float], log_space: bool = Fals
         return (value * (bounds[1] - bounds[0])) + bounds[0]
 
 
-def straight_through_binary(x: torch.Tensor, threshold: float = 0.5) -> torch.Tensor:
-    """Binary step with straight-through estimator for gradient.
-
-    Forward pass produces hard 0/1 values. Backward pass passes gradients
-    through as if the threshold were not there (straight-through estimator).
-
-    Parameters
-    ----------
-    x : torch.Tensor
-        Input tensor (typically sigmoid outputs in [0, 1]).
-    threshold : float
-        Threshold for binarization. Default 0.5.
-
-    Returns
-    -------
-    torch.Tensor
-        Binary tensor (0.0 or 1.0) with gradient flowing through x.
-    """
-    return (x > threshold).float() - x.detach() + x
-
-
 def _backward_cpu(
     A_values: torch.Tensor,
     crow_indices: torch.Tensor,
@@ -739,3 +718,45 @@ class TriangularSparseSolver(torch.autograd.Function):
 
 
 triangular_sparse_solve = TriangularSparseSolver.apply
+
+
+def aggregate_neighbor_attributes(
+    attributes: torch.Tensor,
+    adjacency: torch.Tensor,
+) -> torch.Tensor:
+    """Compute mean of upstream neighbor attributes for each reach.
+
+    Uses the adjacency matrix N where N[i,j]=1 if reach j flows into reach i.
+    For headwater reaches (no upstream neighbors), returns the reach's own
+    attributes as a self-loop fallback.
+
+    Parameters
+    ----------
+    attributes : torch.Tensor
+        Catchment attributes, shape (N, D).
+    adjacency : torch.Tensor
+        Sparse CSR adjacency matrix, shape (N, N).
+
+    Returns
+    -------
+    torch.Tensor
+        Aggregated neighbor attributes, shape (N, D).
+    """
+    # N @ attrs gives sum of upstream neighbor attributes per reach
+    agg = torch.matmul(adjacency, attributes)  # [N, D]
+
+    # Count upstream neighbors per reach (row sum of adjacency)
+    ones = torch.ones(adjacency.shape[1], 1, dtype=attributes.dtype, device=attributes.device)
+    neighbor_count = torch.matmul(adjacency, ones).squeeze(1)  # [N]
+
+    # Headwater mask: reaches with no upstream neighbors
+    headwater_mask = neighbor_count == 0.0
+
+    # Mean aggregation (clamp to avoid div-by-zero for headwaters)
+    neighbor_count = torch.clamp(neighbor_count, min=1.0)
+    agg = agg / neighbor_count.unsqueeze(1)
+
+    # Self-loop fallback: headwater reaches use their own attributes
+    agg = torch.where(headwater_mask.unsqueeze(1), attributes, agg)
+
+    return agg

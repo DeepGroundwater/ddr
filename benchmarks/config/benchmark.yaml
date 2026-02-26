@@ -9,7 +9,7 @@ defaults:
 mode: testing
 geodataset: merit
 name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
-device: 0
+device: 1
 
 data_sources:
   attributes: /projects/mhpi/tbindas/ddr/data/merit_global_attributes_v2.nc
@@ -24,17 +24,17 @@ data_sources:
 
 params:
   save_path: ./
-  use_reservoir: true
-  min_reservoir_area_km2: 0.0
+  use_reservoir: false
+  min_reservoir_area_km2: 5.0
 
 experiment:
   batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-23_21-11-21/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_10_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-24_20-14-14/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_10_mb_43.pt
 kan:
-  hidden_size: 21
+  hidden_size: 41
   input_var_names:
     - FW
     - aridity
@@ -52,6 +52,7 @@ kan:
     - top_width
     - side_slope
     - n
+    - x_storage
   grid: 50
   k: 2
 

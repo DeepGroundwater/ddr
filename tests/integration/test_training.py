@@ -13,7 +13,7 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, RandomSampler
 
-from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
+from ddr import ddr_functions, dmc, kan, streamflow
 from ddr.geodatazoo.merit import Merit
 from ddr.routing.utils import select_columns
 from ddr.scripts_utils import resolve_learning_rate
@@ -33,10 +33,7 @@ class StepMetrics:
     n_std: float
     n_min: float
     n_max: float
-    gate_mean: float
-    gate_on_frac: float
     kan_grad_norm: float
-    lstm_grad_norm: float
     has_nan: bool
     has_inf: bool
 
@@ -69,10 +66,8 @@ def _run_training_loop(
     cfg: Config,
     dataset: Merit,
     nn: kan,
-    lstm_nn: CudaLSTM,
     routing_model: dmc,
     flow: streamflow,
-    forcings_nn: forcings_reader,
 ) -> TrainingMetrics:
     """Simplified training loop that returns metrics instead of saving checkpoints."""
     metrics = TrainingMetrics()
@@ -82,7 +77,6 @@ def _run_training_loop(
 
     lr = resolve_learning_rate(cfg.experiment.learning_rate, 1)
     kan_optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
-    lstm_optimizer = torch.optim.Adam(params=lstm_nn.parameters(), lr=lr)
 
     sampler = RandomSampler(data_source=dataset, generator=data_generator)
     dataloader = DataLoader(
@@ -99,13 +93,10 @@ def _run_training_loop(
             lr = cfg.experiment.learning_rate[epoch]
             for param_group in kan_optimizer.param_groups:
                 param_group["lr"] = lr
-            for param_group in lstm_optimizer.param_groups:
-                param_group["lr"] = lr
 
         for i, routing_dataclass in enumerate(dataloader, start=0):
             routing_model.set_progress_info(epoch=epoch, mini_batch=i)
             kan_optimizer.zero_grad()
-            lstm_optimizer.zero_grad()
 
             streamflow_predictions = flow(
                 routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
@@ -114,18 +105,11 @@ def _run_training_loop(
             normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
             kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
             spatial_params = nn(inputs=kan_attrs)
-            forcing_data = forcings_nn(
-                routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-            )
-            assert cfg.cuda_lstm is not None
-            lstm_attrs = select_columns(normalized_attrs, list(cfg.cuda_lstm.input_var_names), attr_names)
-            lstm_params = lstm_nn(forcings=forcing_data, attributes=lstm_attrs)
 
             dmc_output = routing_model(
                 routing_dataclass=routing_dataclass,
                 spatial_parameters=spatial_params,
                 streamflow=streamflow_predictions,
-                lstm_params=lstm_params,
             )
 
             num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
@@ -161,12 +145,9 @@ def _run_training_loop(
 
             loss.backward()
             kan_optimizer.step()
-            lstm_optimizer.step()
 
             # Capture metrics
             n_vals = routing_model.n.detach().cpu()
-            gate_raw = spatial_params.get("leakance_gate", torch.tensor([0.5]))
-            gate_raw = gate_raw.detach().cpu()
 
             step = StepMetrics(
                 epoch=epoch,
@@ -176,10 +157,7 @@ def _run_training_loop(
                 n_std=n_vals.std().item(),
                 n_min=n_vals.min().item(),
                 n_max=n_vals.max().item(),
-                gate_mean=gate_raw.mean().item(),
-                gate_on_frac=(gate_raw > 0.5).float().mean().item(),
                 kan_grad_norm=_compute_grad_norm(nn),
-                lstm_grad_norm=_compute_grad_norm(lstm_nn),
                 has_nan=torch.isnan(loss).item(),
                 has_inf=torch.isinf(loss).item(),
             )
@@ -188,7 +166,6 @@ def _run_training_loop(
             # Clean up batch state
             del streamflow_predictions, spatial_params, dmc_output, daily_runoff
             del loss, filtered_predictions, filtered_observations
-            del forcing_data, lstm_params
             routing_model.clear_batch_state()
 
     return metrics
@@ -202,10 +179,10 @@ class TestTrainingIntegration:
         self,
         integration_config: Config,
         integration_dataset: Merit,
-        integration_models: tuple[kan, CudaLSTM, dmc, streamflow, forcings_reader],
+        integration_models: tuple[kan, dmc, streamflow],
     ) -> tuple[TrainingMetrics, dict[str, torch.Tensor], kan]:
         """Run training once, return (metrics, initial_kan_params, trained_kan)."""
-        nn, lstm_nn, routing_model, flow, forcings_nn = integration_models
+        nn, routing_model, flow = integration_models
 
         # Snapshot KAN weights before training
         initial_kan_params = {name: param.detach().clone() for name, param in nn.named_parameters()}
@@ -214,10 +191,8 @@ class TestTrainingIntegration:
             cfg=integration_config,
             dataset=integration_dataset,
             nn=nn,
-            lstm_nn=lstm_nn,
             routing_model=routing_model,
             flow=flow,
-            forcings_nn=forcings_nn,
         )
         return result, initial_kan_params, nn
 
@@ -254,13 +229,10 @@ class TestTrainingIntegration:
         assert last_step.n_max <= 0.25, f"Manning's n above upper bound: {last_step.n_max:.4f}"
 
     def test_gradients_nonzero(self, training_result: tuple[TrainingMetrics, dict, kan]) -> None:
-        """Both KAN and LSTM receive non-trivial gradients."""
+        """KAN receives non-trivial gradients."""
         metrics, _, _ = training_result
-        # Check any step has nonzero gradients
         max_kan_grad = max(s.kan_grad_norm for s in metrics.steps)
-        max_lstm_grad = max(s.lstm_grad_norm for s in metrics.steps)
         assert max_kan_grad > 1e-8, f"KAN gradient norm too small: {max_kan_grad:.2e}"
-        assert max_lstm_grad > 1e-8, f"LSTM gradient norm too small: {max_lstm_grad:.2e}"
 
     def test_kan_parameters_change(self, training_result: tuple[TrainingMetrics, dict, kan]) -> None:
         """KAN weights differ from their initial values after training."""

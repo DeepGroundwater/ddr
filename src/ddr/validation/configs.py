@@ -71,10 +71,6 @@ class DataSources(BaseModel):
     target_catchments: list[str] | None = Field(
         default=None, description="Optional list of specific catchment IDs to route to (overrides gages)"
     )
-    forcings: str | None = Field(
-        default=None,
-        description="Path to icechunk store with meteorological forcings (P, PET, Temp)",
-    )
     reservoir_params: str | None = Field(
         default=None,
         description="Path to preprocessed HydroLAKES reservoir parameters CSV (from build_reservoir_params.py)",
@@ -86,9 +82,6 @@ _DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
     "q_spatial": [0.0, 1.0],  # Channel shape: 0=rectangular, 1=triangular (-)
     "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
     "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
-    "K_D_delta": [-3.0, 1.0],  # Log-space delta from Cosby PTF prior (-)
-    "d_gw": [0.01, 300.0],  # Depth to water table from ground surface (m)
-    "leakance_gate": [0.0, 1.0],  # Binary STE gate for leakance (-)
     "x_storage": [0.0, 0.5],  # Muskingum storage weighting (0=pure storage, 0.5=pure lag)
 }
 
@@ -156,7 +149,6 @@ class Params(BaseModel):
         default_factory=lambda: [
             "top_width",
             "side_slope",
-            "d_gw",
         ],
         description="Parameters to denormalize in log-space for right-skewed distributions",
     )
@@ -166,11 +158,6 @@ class Params(BaseModel):
         },
         description="Default parameter values for physical processes when not learned",
     )
-    use_leakance: bool = Field(
-        default=False,
-        description="Enable groundwater-surface water exchange (leakance) in routing. "
-        "When True, K_D_delta and d_gw must be in params.parameter_ranges.",
-    )
     use_reservoir: bool = Field(
         default=False,
         description="Enable level pool reservoir routing for reaches intersecting HydroLAKES waterbodies.",
@@ -179,44 +166,12 @@ class Params(BaseModel):
         default=10.0,
         description="Minimum lake area (km²) for level pool routing. Smaller reservoirs use MC.",
     )
-    ptf_sand_var: str = Field(
-        default="SoilGrids1km_sand",
-        description="Sand % variable name in the attribute dataset for Cosby PTF",
-    )
-    ptf_clay_var: str = Field(
-        default="SoilGrids1km_clay",
-        description="Clay % variable name in the attribute dataset for Cosby PTF",
-    )
     tau: int = Field(
         default=3,
         description="Routing time step adjustment parameter to handle double routing and timezone differences",
     )
     save_path: Path = Field(
         default=Path("./"), description="Directory path where model outputs and checkpoints will be saved"
-    )
-
-
-class CudaLstm(BaseModel):
-    """LSTM configuration for time-varying parameter prediction."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    hidden_size: int = Field(default=64, description="LSTM hidden dimension")
-    num_layers: int = Field(default=1, description="Number of LSTM layers")
-    dropout: float = Field(
-        default=0.5,
-        description="Dropout rate (applied between LSTM layers if num_layers > 1)",
-    )
-    forcing_var_names: list[str] = Field(
-        default_factory=lambda: ["P", "PET", "Temp"],
-        description="Forcing variable names used as LSTM dynamic inputs",
-    )
-    input_var_names: list[str] = Field(
-        description="Static attribute names used as LSTM inputs alongside forcings"
-    )
-    learnable_parameters: list[str] = Field(
-        default_factory=lambda: ["d_gw"],
-        description="Names of time-varying parameters the LSTM will learn to predict",
     )
 
 
@@ -245,6 +200,11 @@ class Kan(BaseModel):
         default_factory=list,
         description="Parameters with bias initialized to -2.0 (sigmoid ≈ 0.12, default OFF). "
         "Unlike gate_parameters, these remain continuous (no binary STE).",
+    )
+    use_graph_context: bool = Field(
+        default=False,
+        description="Prepend neighbor-aggregated attributes to KAN input via 1-hop message passing. "
+        "Doubles the effective input dimension (original D + aggregated D from upstream neighbors).",
     )
 
 
@@ -324,11 +284,6 @@ class Config(BaseModel):
     mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
-    cuda_lstm: CudaLstm | None = Field(
-        default=None,
-        description="CudaLSTM config for time-varying parameter prediction (d_gw). "
-        "None disables the LSTM — only KAN spatial parameters are used.",
-    )
     np_seed: int = Field(default=42, description="Random seed for NumPy operations to ensure reproducibility")
     seed: int = Field(default=42, description="Random seed for PyTorch operations to ensure reproducibility")
     device: int | str = Field(
@@ -367,47 +322,12 @@ class Config(BaseModel):
 
         kan_params = set(self.kan.learnable_parameters)
 
-        if self.cuda_lstm is not None:
-            # LSTM and KAN learnable_parameters must not overlap
-            lstm_params = set(self.cuda_lstm.learnable_parameters)
-            overlap = lstm_params & kan_params
-            if overlap:
-                raise ValueError(
-                    f"LSTM and KAN learnable_parameters must not overlap. Found in both: {overlap}"
-                )
-
-            # All LSTM + KAN params must exist in parameter_ranges
-            all_learned = lstm_params | kan_params
-            missing = [p for p in all_learned if p not in self.params.parameter_ranges]
-            if missing:
-                raise ValueError(
-                    f"Parameters {missing} are in learnable_parameters but missing from parameter_ranges"
-                )
-
-            # Forcings store required for LSTM dynamic inputs
-            if self.data_sources.forcings is None:
-                raise ValueError(
-                    "data_sources.forcings must be set "
-                    "(path to icechunk store with meteorological forcings for the LSTM)"
-                )
-        else:
-            # KAN-only: all KAN params must exist in parameter_ranges
-            missing = [p for p in kan_params if p not in self.params.parameter_ranges]
-            if missing:
-                raise ValueError(
-                    f"Parameters {missing} are in learnable_parameters but missing from parameter_ranges"
-                )
-
-        # When use_leakance=True, K_D_delta, d_gw, and leakance_gate must be in parameter_ranges
-        if self.params.use_leakance:
-            required_leakance_params = ["K_D_delta", "d_gw", "leakance_gate"]
-            missing_ranges = [p for p in required_leakance_params if p not in self.params.parameter_ranges]
-            if missing_ranges:
-                raise ValueError(f"use_leakance=True requires {missing_ranges} in params.parameter_ranges")
-
-            # leakance_gate must be in KAN learnable_parameters when leakance is enabled
-            if "leakance_gate" not in self.kan.learnable_parameters:
-                raise ValueError("use_leakance=True requires 'leakance_gate' in kan.learnable_parameters")
+        # KAN params must exist in parameter_ranges
+        missing = [p for p in kan_params if p not in self.params.parameter_ranges]
+        if missing:
+            raise ValueError(
+                f"Parameters {missing} are in learnable_parameters but missing from parameter_ranges"
+            )
 
         # When use_reservoir=True, reservoir_params path must be provided
         if self.params.use_reservoir:

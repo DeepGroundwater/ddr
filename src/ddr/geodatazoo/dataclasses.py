@@ -208,8 +208,6 @@ class RoutingDataclass:
     gage_catchment: list[str] | None = field(default=None)
     flow_scale: torch.Tensor | None = field(default=None)
     attribute_names: list[str] | None = field(default=None)
-    sand_pct: torch.Tensor | None = field(default=None)
-    clay_pct: torch.Tensor | None = field(default=None)
     # Reservoir (level pool) parameters — populated when use_reservoir=True
     reservoir_mask: torch.Tensor | None = field(default=None)  # [N] bool
     lake_area_m2: torch.Tensor | None = field(default=None)  # [N] float

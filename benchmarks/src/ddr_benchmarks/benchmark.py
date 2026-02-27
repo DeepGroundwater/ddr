@@ -23,11 +23,11 @@ from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
 # Reuse ALL DDR imports
-from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
+from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
 from ddr.io.readers import read_zarr
-from ddr.routing.utils import select_columns
+from ddr.routing.utils import aggregate_neighbor_attributes, select_columns
 from ddr.scripts_utils import load_checkpoint
 from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, plot_gauge_map, utils
 from ddr.validation.enums import GeoDataset
@@ -95,8 +95,6 @@ def run_ddr(
     routing_model: dmc,
     nn: kan,
     routing_dataclass: RoutingDataclass,
-    lstm_nn: CudaLSTM | None = None,
-    forcings_reader_nn: forcings_reader | None = None,
 ) -> NDArray[np.floating[Any]]:
     """Run DDR model - extracted from scripts/test.py.
 
@@ -106,8 +104,6 @@ def run_ddr(
         routing_model: DMC routing model
         nn: KAN neural network for spatial parameters
         routing_dataclass: RoutingDataclass with all routing data
-        lstm_nn: Optional leakance LSTM model
-        forcings_reader_nn: Optional forcings reader for leakance LSTM inputs
 
     Returns
     -------
@@ -118,6 +114,11 @@ def run_ddr(
     normalized_attrs = routing_dataclass.normalized_spatial_attributes
     assert normalized_attrs is not None and attr_names is not None
     kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
+    if cfg.kan.use_graph_context:
+        assert routing_dataclass.adjacency_matrix is not None
+        adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
+        neighbor_attrs = aggregate_neighbor_attributes(kan_attrs.to(cfg.device), adjacency)
+        kan_attrs = torch.cat([kan_attrs.to(cfg.device), neighbor_attrs], dim=1)
     spatial_params: torch.Tensor = nn(inputs=kan_attrs)
     spatial_params = spatial_params.to(cfg.device)
     dmc_kwargs: dict[str, Any] = {
@@ -125,17 +126,6 @@ def run_ddr(
         "spatial_parameters": spatial_params,
         "streamflow": streamflow_predictions,
     }
-    if lstm_nn is not None and forcings_reader_nn is not None:
-        assert cfg.cuda_lstm is not None
-        forcing_data = forcings_reader_nn(
-            routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-        )
-        lstm_attrs = select_columns(normalized_attrs, list(cfg.cuda_lstm.input_var_names), attr_names)
-        lstm_params = lstm_nn(
-            forcings=forcing_data,
-            attributes=lstm_attrs.to(cfg.device),
-        )
-        dmc_kwargs["lstm_params"] = lstm_params
     dmc_output = routing_model(**dmc_kwargs)
     return dmc_output["runoff"].cpu().numpy()
 
@@ -666,8 +656,6 @@ def benchmark(
     nn: kan,
     diffroute_cfg: DiffRouteConfig,
     summed_q_prime_path: str | None = None,
-    lstm_nn: CudaLSTM | None = None,
-    forcings_reader_nn: forcings_reader | None = None,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -678,8 +666,6 @@ def benchmark(
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
         summed_q_prime_path: Optional path to summed Q' zarr store
-        lstm_nn: Optional leakance LSTM model
-        forcings_reader_nn: Optional forcings reader for leakance LSTM inputs
     """
     assert cfg.geodataset == GeoDataset.MERIT, (
         f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
@@ -693,14 +679,11 @@ def benchmark(
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), lstm_nn=lstm_nn)
+        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
     else:
         log.warning("Creating new spatial model for evaluation.")
 
     nn = nn.eval()
-    if lstm_nn is not None:
-        lstm_nn.cache_states = True
-        lstm_nn = lstm_nn.eval()
 
     sampler = SequentialSampler(data_source=dataset)
     dataloader = DataLoader(
@@ -734,6 +717,10 @@ def benchmark(
             attr_names = routing_dataclass.attribute_names
             bench_normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
             kan_attrs = select_columns(bench_normalized_attrs, list(cfg.kan.input_var_names), attr_names)
+            if cfg.kan.use_graph_context:
+                adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
+                neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
+                kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
             spatial_params = nn(inputs=kan_attrs)
             dmc_kwargs: dict[str, Any] = {
                 "routing_dataclass": routing_dataclass,
@@ -741,72 +728,6 @@ def benchmark(
                 "streamflow": streamflow_predictions,
                 "carry_state": i > 0,
             }
-
-            if lstm_nn is not None and forcings_reader_nn is not None:
-                assert cfg.cuda_lstm is not None
-                lstm_batch_size = 1_000
-                # Load forcings to CPU to avoid GPU OOM on full network
-                forcing_data = forcings_reader_nn(
-                    routing_dataclass=routing_dataclass, device="cpu", dtype=torch.float32
-                )
-                all_attrs = select_columns(
-                    routing_dataclass.normalized_spatial_attributes,
-                    list(cfg.cuda_lstm.input_var_names),
-                    attr_names,
-                )
-                n_reaches = all_attrs.shape[0]
-
-                # Save full hidden states from previous dataloader batch (None on first)
-                full_hn = lstm_nn.hn
-                full_cn = lstm_nn.cn
-                new_full_hn: torch.Tensor | None = None
-                new_full_cn: torch.Tensor | None = None
-                batch_outputs: dict[str, list[torch.Tensor]] = {
-                    key: [] for key in lstm_nn.learnable_parameters
-                }
-
-                for s in range(0, n_reaches, lstm_batch_size):
-                    e = min(s + lstm_batch_size, n_reaches)
-                    bf = forcing_data[:, s:e, :].to(cfg.device)
-                    ba = all_attrs[s:e, :].to(cfg.device)
-
-                    # Slice cached hidden states for this reach batch
-                    if full_hn is not None:
-                        assert full_cn is not None
-                        lstm_nn.hn = full_hn[:, s:e, :].contiguous()
-                        lstm_nn.cn = full_cn[:, s:e, :].contiguous()
-                    else:
-                        lstm_nn.hn = None
-                        lstm_nn.cn = None
-
-                    bout = lstm_nn(forcings=bf, attributes=ba)
-
-                    # Accumulate hidden states for next dataloader batch
-                    if lstm_nn.cache_states and lstm_nn.hn is not None:
-                        if new_full_hn is None:
-                            nl, _, hs = lstm_nn.hn.shape
-                            new_full_hn = torch.zeros(nl, n_reaches, hs, device="cpu")
-                            new_full_cn = torch.zeros(nl, n_reaches, hs, device="cpu")
-                        assert lstm_nn.cn is not None
-                        assert new_full_hn is not None and new_full_cn is not None
-                        new_full_hn[:, s:e, :] = lstm_nn.hn.cpu()
-                        new_full_cn[:, s:e, :] = lstm_nn.cn.cpu()
-
-                    for key in lstm_nn.learnable_parameters:
-                        batch_outputs[key].append(bout[key])
-
-                    del bf, ba, bout
-                    torch.cuda.empty_cache()
-
-                # Restore full hidden states for next dataloader batch
-                if lstm_nn.cache_states:
-                    lstm_nn.hn = new_full_hn
-                    lstm_nn.cn = new_full_cn
-
-                del forcing_data
-                lstm_params = {k: torch.cat(v, dim=1) for k, v in batch_outputs.items()}
-                del batch_outputs
-                dmc_kwargs["lstm_params"] = lstm_params
 
             dmc_output = routing_model(**dmc_kwargs)
             ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()

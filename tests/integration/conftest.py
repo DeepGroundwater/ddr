@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from omegaconf import DictConfig, OmegaConf
 
-from ddr import CudaLSTM, dmc, forcings_reader, kan, streamflow
+from ddr import dmc, kan, streamflow
 from ddr.geodatazoo.merit import Merit
 from ddr.validation.configs import Config, validate_config
 
@@ -37,7 +37,6 @@ def _build_integration_config(tmp_path: Path) -> DictConfig:
             "streamflow": "/projects/mhpi/tbindas/ddr/data/merit_dhbv2_UH_retrospective",
             "observations": "/projects/mhpi/data/icechunk/usgs_daily_observations",
             "gages": str(_GAGE_CSV),
-            "forcings": "/projects/mhpi/data/icechunk/merit_forcing_conus",
         },
         "experiment": {
             "batch_size": 10,
@@ -58,7 +57,6 @@ def _build_integration_config(tmp_path: Path) -> DictConfig:
         },
         "params": {
             "save_path": str(tmp_path),
-            "use_leakance": True,
         },
         "kan": {
             "hidden_size": 21,
@@ -79,32 +77,10 @@ def _build_integration_config(tmp_path: Path) -> DictConfig:
                 "q_spatial",
                 "top_width",
                 "side_slope",
-                "K_D_delta",
                 "n",
-                "leakance_gate",
             ],
-            "gate_parameters": ["leakance_gate"],
             "grid": 50,
             "k": 2,
-        },
-        "cuda_lstm": {
-            "hidden_size": 128,
-            "num_layers": 1,
-            "dropout": 0.4,
-            "forcing_var_names": ["P", "PET", "Temp"],
-            "learnable_parameters": ["d_gw"],
-            "input_var_names": [
-                "SoilGrids1km_clay",
-                "aridity",
-                "glaciers",
-                "meanelevation",
-                "snowfall_fraction",
-                "NDVI",
-                "log10_uparea",
-                "SoilGrids1km_sand",
-                "permeability",
-                "Porosity",
-            ],
         },
     }
     return OmegaConf.create(cfg_dict)
@@ -129,8 +105,8 @@ def integration_dataset(integration_config: Config) -> Merit:
 @pytest.fixture(scope="session")
 def integration_models(
     integration_config: Config,
-) -> tuple[kan, CudaLSTM, dmc, streamflow, forcings_reader]:
-    """All models needed for training: (kan, lstm, routing_model, flow_reader, forcings_reader)."""
+) -> tuple[kan, dmc, streamflow]:
+    """All models needed for training: (kan, routing_model, flow_reader)."""
     cfg = integration_config
     nn = kan(
         input_var_names=cfg.kan.input_var_names,
@@ -144,18 +120,6 @@ def integration_models(
         gate_parameters=cfg.kan.gate_parameters,
         off_parameters=cfg.kan.off_parameters,
     )
-    assert cfg.cuda_lstm is not None, "cuda_lstm config required for integration tests"
-    lstm_nn = CudaLSTM(
-        input_var_names=cfg.cuda_lstm.input_var_names,
-        forcing_var_names=cfg.cuda_lstm.forcing_var_names,
-        learnable_parameters=cfg.cuda_lstm.learnable_parameters,
-        hidden_size=cfg.cuda_lstm.hidden_size,
-        num_layers=cfg.cuda_lstm.num_layers,
-        dropout=cfg.cuda_lstm.dropout,
-        seed=cfg.seed,
-        device=cfg.device,
-    )
     routing_model = dmc(cfg=cfg, device=cfg.device)
     flow = streamflow(cfg)
-    forcings = forcings_reader(cfg)
-    return nn, lstm_nn, routing_model, flow, forcings
+    return nn, routing_model, flow

@@ -23,6 +23,7 @@ class kan(torch.nn.Module):
         device: int | str = "cpu",
         gate_parameters: list[str] | None = None,
         off_parameters: list[str] | None = None,
+        use_graph_context: bool = False,
     ):
         super().__init__()
         self.input_size = len(input_var_names)
@@ -30,7 +31,10 @@ class kan(torch.nn.Module):
         self.learnable_parameters = learnable_parameters
         self.output_size = len(self.learnable_parameters)
 
-        self.input = torch.nn.Linear(self.input_size, self.hidden_size, device=device)
+        # When graph context is enabled, the input is augmented with neighbor-aggregated
+        # attributes (original D + aggregated D), doubling the effective input dimension.
+        effective_input_size = self.input_size * 2 if use_graph_context else self.input_size
+        self.input = torch.nn.Linear(effective_input_size, self.hidden_size, device=device)
         self.layers = torch.nn.ModuleList()
         for _ in range(num_hidden_layers):
             self.layers.append(
@@ -50,9 +54,9 @@ class kan(torch.nn.Module):
         torch.nn.init.zeros_(self.output.bias)
 
         # Initialize gate parameter biases to +1.0 so sigmoid(1) ≈ 0.73 → gate starts ON.
-        # Model must experience leakance to learn where it helps/hurts. Starting OFF gives
-        # no gradient signal to turn ON (chicken-and-egg). Starting ON lets the model turn
-        # OFF reaches where leakance hurts (strong error signal from bad leakance).
+        # Starting ON provides an immediate error signal that allows the model to learn
+        # where the gated process hurts and turn it off selectively (strong gradient signal).
+        # Starting OFF gives no gradient signal to turn ON (chicken-and-egg problem).
         if gate_parameters:
             with torch.no_grad():
                 for param_name in gate_parameters:

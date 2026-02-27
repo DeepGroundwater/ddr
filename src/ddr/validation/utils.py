@@ -86,7 +86,7 @@ def save_state(
     if lstm_optimizer is not None:
         state["lstm_optimizer_state_dict"] = _cpu_optimizer_state(lstm_optimizer)
     if lstm_nn is not None:
-        state["leakance_nn_state_dict"] = {key: value.cpu() for key, value in lstm_nn.state_dict().items()}
+        state["lstm_nn_state_dict"] = {key: value.cpu() for key, value in lstm_nn.state_dict().items()}
     if torch.cuda.is_available():
         state["cuda_rng_state"] = torch.cuda.get_rng_state()
     if mini_batch == -1:

@@ -14,9 +14,9 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, SequentialSampler
 
-from ddr import CudaLSTM, dmc, forcings_reader, kan, streamflow
+from ddr import dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.routing.utils import select_columns
+from ddr.routing.utils import aggregate_neighbor_attributes, select_columns
 from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
 from ddr.validation import Config, Metrics, utils, validate_config
 
@@ -28,21 +28,16 @@ def test(
     flow: streamflow,
     routing_model: dmc,
     nn: kan,
-    lstm_nn: CudaLSTM | None = None,
-    forcings_reader_nn: forcings_reader | None = None,
 ) -> None:
     """Do model evaluation and get performance metrics."""
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), lstm_nn=lstm_nn)
+        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
     else:
         log.warning("Creating new spatial model for evaluation.")
 
     nn = nn.eval()
-    if lstm_nn is not None:
-        lstm_nn.cache_states = True
-        lstm_nn = lstm_nn.eval()
     sampler = SequentialSampler(
         data_source=dataset,
     )
@@ -77,79 +72,17 @@ def test(
             attr_names = routing_dataclass.attribute_names
             normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
             kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
+            if cfg.kan.use_graph_context:
+                adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
+                neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
+                kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
             spatial_params = nn(inputs=kan_attrs)
-
-            lstm_params: dict[str, torch.Tensor] | None = None
-            if lstm_nn is not None and forcings_reader_nn is not None and cfg.cuda_lstm is not None:
-                lstm_batch_size = 1_000
-                # Load forcings to CPU to avoid GPU OOM on full network
-                forcing_data = forcings_reader_nn(
-                    routing_dataclass=routing_dataclass, device="cpu", dtype=torch.float32
-                )
-                all_attrs = select_columns(
-                    routing_dataclass.normalized_spatial_attributes,
-                    list(cfg.cuda_lstm.input_var_names),
-                    attr_names,
-                )
-                n_reaches = all_attrs.shape[0]
-
-                # Save full hidden states from previous dataloader batch (None on first)
-                full_hn = lstm_nn.hn
-                full_cn = lstm_nn.cn
-                new_full_hn: torch.Tensor | None = None
-                new_full_cn: torch.Tensor | None = None
-                batch_outputs: dict[str, list[torch.Tensor]] = {
-                    key: [] for key in lstm_nn.learnable_parameters
-                }
-
-                for s in range(0, n_reaches, lstm_batch_size):
-                    e = min(s + lstm_batch_size, n_reaches)
-                    bf = forcing_data[:, s:e, :].to(cfg.device)
-                    ba = all_attrs[s:e, :].to(cfg.device)
-
-                    # Slice cached hidden states for this reach batch
-                    if full_hn is not None:
-                        assert full_cn is not None
-                        lstm_nn.hn = full_hn[:, s:e, :].contiguous()
-                        lstm_nn.cn = full_cn[:, s:e, :].contiguous()
-                    else:
-                        lstm_nn.hn = None
-                        lstm_nn.cn = None
-
-                    bout = lstm_nn(forcings=bf, attributes=ba)
-
-                    # Accumulate hidden states for next dataloader batch
-                    if lstm_nn.cache_states and lstm_nn.hn is not None:
-                        if new_full_hn is None:
-                            nl, _, hs = lstm_nn.hn.shape
-                            new_full_hn = torch.zeros(nl, n_reaches, hs, device="cpu")
-                            new_full_cn = torch.zeros(nl, n_reaches, hs, device="cpu")
-                        assert lstm_nn.cn is not None
-                        assert new_full_hn is not None and new_full_cn is not None
-                        new_full_hn[:, s:e, :] = lstm_nn.hn.cpu()
-                        new_full_cn[:, s:e, :] = lstm_nn.cn.cpu()
-
-                    for key in lstm_nn.learnable_parameters:
-                        batch_outputs[key].append(bout[key])
-
-                    del bf, ba, bout
-                    torch.cuda.empty_cache()
-
-                # Restore full hidden states for next dataloader batch
-                if lstm_nn.cache_states:
-                    lstm_nn.hn = new_full_hn
-                    lstm_nn.cn = new_full_cn
-
-                del forcing_data
-                lstm_params = {k: torch.cat(v, dim=1) for k, v in batch_outputs.items()}
-                del batch_outputs
 
             dmc_kwargs = {
                 "routing_dataclass": routing_dataclass,
                 "spatial_parameters": spatial_params,
                 "streamflow": streamflow_predictions,
                 "carry_state": i > 0,
-                "lstm_params": lstm_params,
             }
 
             dmc_output = routing_model(**dmc_kwargs)
@@ -220,21 +153,8 @@ def main(cfg: DictConfig) -> None:
             device=config.device,
             gate_parameters=config.kan.gate_parameters,
             off_parameters=config.kan.off_parameters,
+            use_graph_context=config.kan.use_graph_context,
         )
-        lstm_nn: CudaLSTM | None = None
-        forcings_reader_nn: forcings_reader | None = None
-        if config.cuda_lstm is not None:
-            lstm_nn = CudaLSTM(
-                input_var_names=config.cuda_lstm.input_var_names,
-                forcing_var_names=config.cuda_lstm.forcing_var_names,
-                learnable_parameters=config.cuda_lstm.learnable_parameters,
-                hidden_size=config.cuda_lstm.hidden_size,
-                num_layers=config.cuda_lstm.num_layers,
-                dropout=config.cuda_lstm.dropout,
-                seed=config.seed,
-                device=config.device,
-            )
-            forcings_reader_nn = forcings_reader(config)
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
         test(
@@ -242,8 +162,6 @@ def main(cfg: DictConfig) -> None:
             flow=flow,
             routing_model=routing_model,
             nn=nn,
-            lstm_nn=lstm_nn,
-            forcings_reader_nn=forcings_reader_nn,
         )
 
     except KeyboardInterrupt:

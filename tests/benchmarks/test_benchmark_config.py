@@ -66,7 +66,6 @@ class TestBenchmarkConfig:
                 "observations": "/fake",
                 "conus_adjacency": "/fake",
                 "geospatial_fabric_gpkg": "/fake.gpkg",
-                "forcings": "mock://forcings",
             },
             kan={
                 "input_var_names": ["slope"],
@@ -75,10 +74,6 @@ class TestBenchmarkConfig:
                 "num_hidden_layers": 1,
                 "grid": 5,
                 "k": 3,
-            },
-            cuda_lstm={
-                "input_var_names": ["slope"],
-                "learnable_parameters": ["n"],
             },
         )
 

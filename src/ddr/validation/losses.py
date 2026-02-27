@@ -2,9 +2,9 @@
 
 Replaces the single NNSE loss (Song et al. 2025, Eq. 10) with four complementary
 components that provide stronger gradients to specific physical parameters:
-- Overall (all timesteps, NNSE-style) → stable background signal, mid-range coverage
-- Peak amplitude (top percentile) → Manning's n + leakance
-- Baseflow (bottom percentile) → leakance gate
+- Overall (all timesteps, MSE) → stable background signal, strong un-shrunk gradients
+- Peak amplitude (top percentile) → Manning's n
+- Baseflow (bottom percentile) → low-flow regime
 - Timing (temporal gradients) → Manning's n (wave celerity)
 
 Each component is per-gage normalized by the variance of observations in that
@@ -77,8 +77,7 @@ def _overall_loss(pred: Tensor, target: Tensor, eps: float) -> Tensor:
     """Per-gage MSE across all timesteps.
 
     Raw MSE provides strong, un-shrunk gradients — unlike NNSE which divides
-    by per-gage variance and attenuates gradients ~1000x (observed: leakance
-    gate learns under MSE but freezes under NNSE). Averaging per-gage MSE
+    by per-gage variance and attenuates gradients ~1000x. Averaging per-gage MSE
     across gages ensures each basin contributes equally regardless of magnitude.
 
     Parameters

@@ -54,10 +54,6 @@ class Merit(BaseGeoDataset):
         self.attr_stats = set_statistics(self.cfg, self.attribute_ds)
         self.id_to_index = {comid: idx for idx, comid in enumerate(self.attribute_ds.COMID.values)}
         all_names = list(self.cfg.kan.input_var_names)
-        if self.cfg.cuda_lstm is not None:
-            for name in self.cfg.cuda_lstm.input_var_names:
-                if name not in all_names:
-                    all_names.append(name)
         self.attributes_list = all_names
 
         # Precompute mean/std tensors for normalization
@@ -260,8 +256,6 @@ class Merit(BaseGeoDataset):
             spatial_attributes,
             normalized_spatial_attributes,
             flowpath_tensors,
-            sand_pct,
-            clay_pct,
             reservoir_tensors,
         ) = self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
 
@@ -288,8 +282,6 @@ class Merit(BaseGeoDataset):
             gage_catchment=gage_catchment,
             flow_scale=flow_scale,
             attribute_names=self.attributes_list,
-            sand_pct=sand_pct,
-            clay_pct=clay_pct,
             **(reservoir_tensors if reservoir_tensors is not None else {}),
         )
 
@@ -337,13 +329,21 @@ class Merit(BaseGeoDataset):
         orifice_area = torch.zeros(n, dtype=torch.float32)
         initial_pool_elevation = torch.zeros(n, dtype=torch.float32)
 
+        min_area_m2 = self.cfg.params.min_reservoir_area_km2 * 1e6
+        n_skipped = 0
+
         if self.reservoir_df is not None:
             for i, comid in enumerate(catchment_ids):
                 comid_int = int(comid)
                 if comid_int in self.reservoir_df.index:
                     row = self.reservoir_df.loc[comid_int]
+                    area = float(row["lake_area_m2"])
+                    # NaN-safe: float('nan') < X is False, so use negated >=
+                    if not (area >= min_area_m2):
+                        n_skipped += 1
+                        continue
                     reservoir_mask[i] = True
-                    lake_area_m2[i] = float(row["lake_area_m2"])
+                    lake_area_m2[i] = area
                     weir_elevation[i] = float(row["weir_elevation"])
                     orifice_elevation[i] = float(row["orifice_elevation"])
                     weir_coeff[i] = float(row["weir_coeff"])
@@ -353,7 +353,10 @@ class Merit(BaseGeoDataset):
                     initial_pool_elevation[i] = float(row["initial_pool_elevation"])
 
         n_res = reservoir_mask.sum().item()
-        log.info(f"Reservoir reaches: {n_res}/{n} ({100 * n_res / n:.1f}%)")
+        log.info(
+            f"Reservoir reaches: {n_res}/{n} ({100 * n_res / n:.1f}%) "
+            f"[{n_skipped} filtered below {self.cfg.params.min_reservoir_area_km2} km²]"
+        )
         return {
             "reservoir_mask": reservoir_mask,
             "lake_area_m2": lake_area_m2,
@@ -376,8 +379,6 @@ class Merit(BaseGeoDataset):
         torch.Tensor,
         torch.Tensor,
         dict[str, torch.Tensor],
-        torch.Tensor | None,
-        torch.Tensor | None,
         dict[str, torch.Tensor] | None,
     ]:
         """Build tensors common to all collate methods."""
@@ -421,13 +422,6 @@ class Merit(BaseGeoDataset):
         flowpath_tensors["top_width"] = torch.empty(0)
         flowpath_tensors["side_slope"] = torch.empty(0)
 
-        # Read sand/clay for Cosby PTF when leakance is enabled
-        sand_pct: torch.Tensor | None = None
-        clay_pct: torch.Tensor | None = None
-        if self.cfg.params.use_leakance:
-            sand_pct = self._read_raw_attribute(self.cfg.params.ptf_sand_var, catchment_ids)
-            clay_pct = self._read_raw_attribute(self.cfg.params.ptf_clay_var, catchment_ids)
-
         # Build reservoir tensors when enabled
         reservoir_tensors: dict[str, torch.Tensor] | None = None
         if self.cfg.params.use_reservoir:
@@ -438,8 +432,6 @@ class Merit(BaseGeoDataset):
             spatial_attributes,
             normalized_spatial_attributes,
             flowpath_tensors,
-            sand_pct,
-            clay_pct,
             reservoir_tensors,
         )
 
@@ -506,8 +498,6 @@ class Merit(BaseGeoDataset):
             spatial_attributes,
             normalized_spatial_attributes,
             flowpath_tensors,
-            sand_pct,
-            clay_pct,
             reservoir_tensors,
         ) = self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
 
@@ -527,8 +517,6 @@ class Merit(BaseGeoDataset):
             outflow_idx=outflow_idx,
             gage_catchment=None,
             attribute_names=self.attributes_list,
-            sand_pct=sand_pct,
-            clay_pct=clay_pct,
             **(reservoir_tensors if reservoir_tensors is not None else {}),
         )
 
@@ -554,8 +542,6 @@ class Merit(BaseGeoDataset):
             spatial_attributes,
             normalized_spatial_attributes,
             flowpath_tensors,
-            sand_pct,
-            clay_pct,
             reservoir_tensors,
         ) = self._build_common_tensors(csr_matrix, self.merit_ids, flowpath_attr)
 
@@ -575,8 +561,6 @@ class Merit(BaseGeoDataset):
             outflow_idx=None,
             gage_catchment=None,
             attribute_names=self.attributes_list,
-            sand_pct=sand_pct,
-            clay_pct=clay_pct,
             **(reservoir_tensors if reservoir_tensors is not None else {}),
         )
 
@@ -637,8 +621,6 @@ class Merit(BaseGeoDataset):
             spatial_attributes,
             normalized_spatial_attributes,
             flowpath_tensors,
-            sand_pct,
-            clay_pct,
             reservoir_tensors,
         ) = self._build_common_tensors(compressed_csr, compressed_merit_ids, compressed_flowpath_attr)
 
@@ -665,7 +647,5 @@ class Merit(BaseGeoDataset):
             gage_catchment=gage_catchment,
             flow_scale=flow_scale,
             attribute_names=self.attributes_list,
-            sand_pct=sand_pct,
-            clay_pct=clay_pct,
             **(reservoir_tensors if reservoir_tensors is not None else {}),
         )

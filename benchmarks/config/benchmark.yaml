@@ -9,7 +9,7 @@ defaults:
 mode: testing
 geodataset: merit
 name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
-device: 0
+device: 1
 
 data_sources:
   attributes: /projects/mhpi/tbindas/ddr/data/merit_global_attributes_v2.nc
@@ -20,21 +20,21 @@ data_sources:
   streamflow: /projects/mhpi/tbindas/ddr/data/merit_dhbv2_UH_retrospective
   observations: /projects/mhpi/data/icechunk/usgs_daily_observations
   gages: /projects/mhpi/tbindas/ddr/references/gage_info/gages_3000.csv
+  reservoir_params: /projects/mhpi/tbindas/ddr/data/merit_reservoir_params.csv
 
 params:
   save_path: ./
-  use_leakance: false
   use_reservoir: false
+  min_reservoir_area_km2: 5.0
 
 experiment:
   batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.1.dev10+g9c489863f-merit-training/2026-02-21_19-00-12/saved_models/_ddr-v0.5.1.dev10+g9c489863f-merit-training_epoch_7_mb_43.pt
-
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-24_20-14-14/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_10_mb_43.pt
 kan:
-  hidden_size: 21
+  hidden_size: 41
   input_var_names:
     - FW
     - aridity
@@ -52,6 +52,7 @@ kan:
     - top_width
     - side_slope
     - n
+    - x_storage
   grid: 50
   k: 2
 

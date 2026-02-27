@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 
-from ddr.nn import CudaLSTM, kan
+from ddr.nn import kan
 from ddr.validation.configs import Config, validate_config
 
 
@@ -40,7 +40,6 @@ def create_mock_config() -> Config:
             "conus_adjacency": "mock.zarr",
             "gages_adjacency": "mock.zarr",
             "gages": "mock.csv",
-            "forcings": "mock://forcings/store",
         },
         "params": {
             "parameter_ranges": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9]},
@@ -59,10 +58,6 @@ def create_mock_config() -> Config:
                 "mock",
             ],
             "learnable_parameters": ["q_spatial", "n"],
-        },
-        "cuda_lstm": {
-            "input_var_names": ["mock"],
-            "learnable_parameters": [],
         },
         "s3_region": "us-east-1",
         "device": "cpu",
@@ -122,10 +117,6 @@ class MockRoutingDataclass:
         self.means = self.spatial_attributes.mean(dim=1, keepdim=True)
         self.stds = self.spatial_attributes.std(dim=1, keepdim=True)
         self.normalized_spatial_attributes = self.spatial_attributes.sub(self.means).div(self.stds).T
-
-        # mock soil attributes for Cosby PTF (leakance)
-        self.sand_pct = torch.rand(num_reaches, device=device) * 50 + 25  # 25-75%
-        self.clay_pct = torch.rand(num_reaches, device=device) * 30 + 10  # 10-40%
 
         # mock gauge outflows
         self.outflow_idx = [np.array([-1])]  # Picking two values as there are two gages in obs
@@ -203,172 +194,6 @@ def create_mock_spatial_parameters(num_reaches: int, device: str = "cpu") -> dic
         "n": torch.rand(num_reaches, device=device),  # Normalized Manning's n
     }
     return params
-
-
-def create_mock_config_with_leakance() -> Config:
-    """Create a mock configuration with leakance enabled for testing."""
-    cfg = {
-        "name": "mock_leakance",
-        "mode": "training",
-        "geodataset": "lynker_hydrofabric",
-        "data_sources": {
-            "geospatial_fabric_gpkg": "mock.gpkg",
-            "streamflow": "mock://streamflow/store",
-            "conus_adjacency": "mock.zarr",
-            "gages_adjacency": "mock.zarr",
-            "gages": "mock.csv",
-            "forcings": "mock://forcings/store",
-        },
-        "params": {
-            "parameter_ranges": {
-                "n": [0.01, 0.1],
-                "q_spatial": [0.1, 0.9],
-                "K_D_delta": [-3.0, 1.0],
-                "d_gw": [0.01, 300.0],
-                "leakance_gate": [0.0, 1.0],
-            },
-            "defaults": {"p_spatial": 1.0},
-            "attribute_minimums": {
-                "velocity": 0.1,
-                "depth": 0.01,
-                "discharge": 0.001,
-                "bottom_width": 0.1,
-                "slope": 0.0001,
-            },
-            "tau": 7,
-            "use_leakance": True,
-        },
-        "kan": {
-            "input_var_names": [
-                "mock",
-            ],
-            "learnable_parameters": ["q_spatial", "K_D_delta", "n", "leakance_gate"],
-            "gate_parameters": ["leakance_gate"],
-        },
-        "cuda_lstm": {
-            "input_var_names": ["mock"],
-            "learnable_parameters": ["d_gw"],
-        },
-        "s3_region": "us-east-1",
-        "device": "cpu",
-    }
-    config = validate_config(DictConfig(cfg), save_config=False)
-    return config
-
-
-def create_mock_config_with_cuda_lstm() -> Config:
-    """Create a mock configuration with CudaLSTM enabled for testing."""
-    cfg = {
-        "name": "mock_cuda_lstm",
-        "mode": "training",
-        "geodataset": "lynker_hydrofabric",
-        "data_sources": {
-            "geospatial_fabric_gpkg": "mock.gpkg",
-            "streamflow": "mock://streamflow/store",
-            "conus_adjacency": "mock.zarr",
-            "gages_adjacency": "mock.zarr",
-            "gages": "mock.csv",
-            "forcings": "mock://forcings/store",
-        },
-        "params": {
-            "parameter_ranges": {
-                "n": [0.01, 0.1],
-                "q_spatial": [0.1, 0.9],
-                "K_D_delta": [-3.0, 1.0],
-                "d_gw": [0.01, 300.0],
-                "leakance_gate": [0.0, 1.0],
-            },
-            "defaults": {"p_spatial": 1.0},
-            "attribute_minimums": {
-                "velocity": 0.1,
-                "depth": 0.01,
-                "discharge": 0.001,
-                "bottom_width": 0.1,
-                "slope": 0.0001,
-            },
-            "tau": 7,
-            "use_leakance": True,
-        },
-        "kan": {
-            "input_var_names": [
-                "mock",
-            ],
-            "learnable_parameters": ["q_spatial", "K_D_delta", "n", "leakance_gate"],
-            "gate_parameters": ["leakance_gate"],
-        },
-        "cuda_lstm": {
-            "forcing_var_names": ["P", "PET", "Temp"],
-            "input_var_names": [
-                "mean.impervious",
-                "mean.elevation",
-                "mean.smcmax_soil_layers_stag=1",
-            ],
-            "learnable_parameters": ["d_gw"],
-            "hidden_size": 32,
-            "num_layers": 1,
-            "dropout": 0.0,
-        },
-        "s3_region": "us-east-1",
-        "device": "cpu",
-    }
-    config = validate_config(DictConfig(cfg), save_config=False)
-    return config
-
-
-def create_mock_cuda_lstm(device: str = "cpu") -> CudaLSTM:
-    """Create a mock CudaLSTM instance for testing."""
-    return CudaLSTM(
-        input_var_names=[
-            "mean.impervious",
-            "mean.elevation",
-            "mean.smcmax_soil_layers_stag=1",
-        ],
-        forcing_var_names=["P", "PET", "Temp"],
-        learnable_parameters=["d_gw"],
-        hidden_size=32,
-        num_layers=1,
-        dropout=0.0,
-        seed=42,
-        device=device,
-    )
-
-
-def create_mock_lstm_params(
-    num_timesteps: int, num_reaches: int, device: str = "cpu"
-) -> dict[str, torch.Tensor]:
-    """Create mock LSTM output params (d_gw) for testing.
-
-    Parameters
-    ----------
-    num_timesteps : int
-        Number of hourly timesteps (will be converted to daily: T_daily = num_timesteps // 24)
-    num_reaches : int
-        Number of reaches
-    device : str, optional
-        Device for tensors, by default 'cpu'
-
-    Returns
-    -------
-    dict[str, torch.Tensor]
-        Mock LSTM params (empty dict — d_gw only added when leakance enabled)
-    """
-    return {}
-
-
-def test_straight_through_binary() -> None:
-    """Test STE produces correct forward/backward behavior."""
-    from ddr.routing.utils import straight_through_binary
-
-    # Forward: values below threshold → 0, above → 1
-    x = torch.tensor([0.1, 0.4, 0.5, 0.6, 0.9], requires_grad=True)
-    result = straight_through_binary(x)
-    assert result.tolist() == [0.0, 0.0, 0.0, 1.0, 1.0], f"Expected [0,0,0,1,1], got {result.tolist()}"
-
-    # Backward: gradient flows through as identity (STE)
-    result.sum().backward()
-    assert x.grad is not None
-    expected_grad = torch.ones_like(x)
-    torch.testing.assert_close(x.grad, expected_grad)
 
 
 def assert_tensor_properties(

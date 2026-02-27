@@ -19,7 +19,6 @@ from tests.routing.test_utils import (
     assert_no_nan_or_inf,
     assert_tensor_properties,
     create_mock_config,
-    create_mock_lstm_params,
     create_mock_nn,
     create_mock_routing_dataclass,
     create_mock_spatial_parameters,
@@ -531,9 +530,6 @@ class TestParameterTraining:
         )
         nn = create_mock_nn()
         spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
-        lstm_params = create_mock_lstm_params(
-            num_timesteps=scenario["num_timesteps"], num_reaches=scenario["num_reaches"]
-        )
         optimizer = torch.optim.Adam(params=nn.parameters(), lr=0.01)
 
         model.epoch = 1
@@ -543,7 +539,6 @@ class TestParameterTraining:
             "routing_dataclass": routing_dataclass,
             "streamflow": streamflow,
             "spatial_parameters": spatial_params,
-            "lstm_params": lstm_params,
         }
 
         # Skip deep omegaconf attributes

@@ -6,7 +6,6 @@ implementation.
 """
 
 import logging
-import math
 from typing import Any
 
 import torch
@@ -21,22 +20,6 @@ from ddr.routing.utils import (
 from ddr.validation.configs import Config
 
 log = logging.getLogger(__name__)
-
-# Cosby et al. (1984) pedotransfer function constants
-_COSBY_INTERCEPT = -0.60
-_COSBY_SAND_COEFF = 0.0126
-_COSBY_CLAY_COEFF = -0.0064
-_LOG10_INCHES_HR_TO_M_S = math.log10(7.056e-6)  # inches/hr → m/s ≈ -5.151
-
-
-def _cosby_log10_ks(sand_pct: torch.Tensor, clay_pct: torch.Tensor) -> torch.Tensor:
-    """Cosby et al. (1984) PTF: log10(Ks) in m/s from sand/clay percentages."""
-    return (
-        _COSBY_INTERCEPT
-        + _COSBY_SAND_COEFF * sand_pct
-        + _COSBY_CLAY_COEFF * clay_pct
-        + _LOG10_INCHES_HR_TO_M_S
-    )
 
 
 def compute_hotstart_discharge(
@@ -158,75 +141,6 @@ def _get_trapezoid_velocity(
     c_ = torch.clamp(v, min=velocity_lb, max=torch.tensor(15.0, device=v.device))
     c = c_ * 5 / 3
     return c
-
-
-def _compute_zeta(
-    q_t: torch.Tensor,
-    n: torch.Tensor,
-    q_spatial: torch.Tensor,
-    s0: torch.Tensor,
-    p_spatial: torch.Tensor,
-    length: torch.Tensor,
-    K_D: torch.Tensor,
-    d_gw: torch.Tensor,
-    top_width: torch.Tensor,
-    side_slope: torch.Tensor,
-    depth_lb: torch.Tensor,
-) -> torch.Tensor:
-    """Compute groundwater-surface water exchange (leakance) term.
-
-    Implements the zeta term from Song et al. (2025), Eq. 12-14, using
-    power-law depth/width geometry. The head difference is computed as:
-
-        Δh = depth - h_bed + d_gw
-
-    where h_bed = top_width / (2 * side_slope) is the channel incision
-    depth from trapezoidal geometry.
-
-    Parameters
-    ----------
-    q_t : torch.Tensor
-        Discharge at time t [m³/s]
-    n : torch.Tensor
-        Manning's roughness coefficient
-    q_spatial : torch.Tensor
-        Channel shape parameter (0=rectangular, 1=triangular)
-    s0 : torch.Tensor
-        Channel bed slope
-    p_spatial : torch.Tensor
-        Spatial parameter p
-    length : torch.Tensor
-        Reach length [m]
-    K_D : torch.Tensor
-        Hydraulic exchange rate [1/s]
-    d_gw : torch.Tensor
-        Depth to water table from ground surface [m]
-    top_width : torch.Tensor
-        Channel top width [m]
-    side_slope : torch.Tensor
-        Channel side slope (z horizontal : 1 vertical)
-    depth_lb : torch.Tensor
-        Lower bound for depth (prevents gradient singularity in pow)
-
-    Returns
-    -------
-    torch.Tensor
-        Leakance term zeta. Positive = losing stream, negative = gaining stream.
-    """
-    numerator = q_t * n * (q_spatial + 1)
-    denominator = p_spatial * torch.pow(s0, 0.5)
-    depth = torch.clamp(
-        torch.pow(
-            torch.div(numerator, denominator + 1e-8),
-            torch.div(3.0, 5.0 + 3.0 * q_spatial),
-        ),
-        min=depth_lb,
-    )
-    width = torch.pow(p_spatial * depth, q_spatial)
-    area = width * length
-    h_bed = top_width / (2.0 * side_slope)
-    zeta = area * K_D * (depth - h_bed + d_gw)
-    return zeta
 
 
 def _level_pool_outflow(
@@ -381,15 +295,6 @@ class MuskingumCunge:
         self.epoch = 0
         self.mini_batch = 0
 
-        # Leakance parameters
-        self.use_leakance: bool = cfg.params.use_leakance
-        self.K_D: torch.Tensor | None = None  # Cosby PTF + KAN delta (when use_leakance=True)
-        self.d_gw: torch.Tensor | None = None
-        self.leakance_gate: torch.Tensor | None = None
-
-        # Time-varying parameters (from LSTM, daily resolution)
-        self._d_gw_t: torch.Tensor | None = None  # d_gw (from LSTM when use_leakance=True)
-
         # Level pool reservoir routing state
         self.use_reservoir: bool = cfg.params.use_reservoir
         self._pool_elevation_t: torch.Tensor | None = None
@@ -402,11 +307,6 @@ class MuskingumCunge:
         self.orifice_coeff: torch.Tensor | None = None
         self.orifice_area: torch.Tensor | None = None
         self.initial_pool_elevation: torch.Tensor | None = None
-
-        # Leakance diagnostic accumulators (populated during forward())
-        self._zeta_sum: torch.Tensor | None = None
-        self._q_prime_sum: torch.Tensor = torch.empty(0)
-        self._last_zeta: torch.Tensor = torch.empty(0)
 
         # Scatter indices for ragged output (initialized in setup_inputs)
         self._flat_indices: torch.Tensor | None = None
@@ -437,13 +337,6 @@ class MuskingumCunge:
         self.routing_dataclass = None
         self.q_prime = None
         self.spatial_parameters = None
-        self._d_gw_t = None
-        self.K_D = None
-        self.d_gw = None
-        self.leakance_gate = None
-        self._zeta_sum = None
-        self._q_prime_sum = torch.empty(0)
-        self._last_zeta = torch.empty(0)
         # Clear reservoir param refs but NOT _pool_elevation_t (preserved for carry_state)
         self.reservoir_mask = None
         self.lake_area_m2 = None
@@ -528,33 +421,6 @@ class MuskingumCunge:
             log_space="q_spatial" in log_space_params,
         )
 
-        # K_D via Cosby PTF + KAN delta correction (when use_leakance is enabled)
-        if self.use_leakance and "K_D_delta" in spatial_parameters:
-            delta = denormalize(
-                spatial_parameters["K_D_delta"],
-                self.parameter_bounds["K_D_delta"],
-                log_space=False,
-            )
-            assert self.routing_dataclass is not None
-            assert self.routing_dataclass.sand_pct is not None and self.routing_dataclass.clay_pct is not None
-            sand_pct = self.routing_dataclass.sand_pct.to(self.device).to(torch.float32)
-            clay_pct = self.routing_dataclass.clay_pct.to(self.device).to(torch.float32)
-            log10_ks = _cosby_log10_ks(sand_pct, clay_pct)
-            self.K_D = torch.pow(torch.tensor(10.0, device=self.device), log10_ks + delta)
-
-        # Binary STE gate for leakance (raw sigmoid [0,1] → hard 0/1)
-        if self.use_leakance:
-            if "leakance_gate" in spatial_parameters:
-                from ddr.routing.utils import straight_through_binary
-
-                self.leakance_gate = straight_through_binary(spatial_parameters["leakance_gate"])
-            else:
-                log.warning(
-                    "use_leakance=True but 'leakance_gate' not in spatial_parameters. "
-                    "Leakance will be applied without gating. "
-                    "Add 'leakance_gate' to kan.learnable_parameters to enable spatial gating."
-                )
-
         # Manning's n (from KAN, static spatial)
         if "n" in spatial_parameters:
             self.n = denormalize(
@@ -581,19 +447,12 @@ class MuskingumCunge:
         else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
-    def setup_lstm_params(self, lstm_params: dict[str, torch.Tensor]) -> None:
-        """Denormalize and store time-varying parameters from LSTM.
-
-        Parameters
-        ----------
-        lstm_params : dict[str, torch.Tensor]
-            Dict with parameter tensors, shape (T_daily, N) in [0,1].
-            Stored as daily tensors; mapped to hourly timesteps in forward().
-        """
-        log_space = self.cfg.params.log_space_parameters
-        if "d_gw" in lstm_params:
-            self._d_gw_t = denormalize(
-                lstm_params["d_gw"], self.parameter_bounds["d_gw"], "d_gw" in log_space
+        # Learnable Muskingum X (overrides hardcoded 0.3 from routing_dataclass.x)
+        if "x_storage" in spatial_parameters:
+            self.x_storage = denormalize(
+                value=spatial_parameters["x_storage"],
+                bounds=self.parameter_bounds["x_storage"],
+                log_space="x_storage" in log_space_params,
             )
 
     def _init_discharge_state(self, carry_state: bool) -> None:
@@ -709,11 +568,6 @@ class MuskingumCunge:
             )
             output[:, 0] = torch.clamp(output[:, 0], min=self.discharge_lb)
 
-        # Initialize leakance diagnostic accumulators
-        if self.use_leakance:
-            self._zeta_sum = torch.zeros(num_segments, device=self.device)
-            self._q_prime_sum = torch.zeros(num_segments, device=self.device)
-
         # Route through time series
         for timestep in tqdm(
             range(1, num_timesteps),
@@ -726,21 +580,7 @@ class MuskingumCunge:
                 min=self.cfg.params.attribute_minimums["discharge"],
             )
 
-            # Map hourly timestep to daily index for LSTM time-varying params
-            day_idx = (timestep - 1) // 24
-
-            # Time-varying d_gw from LSTM (when leakance enabled)
-            if self.use_leakance and self._d_gw_t is not None:
-                self.d_gw = self._d_gw_t[min(day_idx, self._d_gw_t.shape[0] - 1)]
-
             q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper)
-
-            # Accumulate leakance diagnostics (detached from autograd graph)
-            if self.use_leakance:
-                assert self._zeta_sum is not None and self._q_prime_sum is not None
-                assert self._last_zeta is not None
-                self._zeta_sum += self._last_zeta
-                self._q_prime_sum += q_prime_clamp.detach().clone()
 
             if output_all:
                 output[:, timestep] = q_t1
@@ -854,26 +694,7 @@ class MuskingumCunge:
         i_t = torch.matmul(self.network, self._discharge_t)
 
         # Calculate right-hand side of equation
-        if self.use_leakance:
-            zeta = _compute_zeta(
-                self._discharge_t,
-                self.n,
-                self.q_spatial,
-                self.slope,
-                self.p_spatial,
-                self.length,
-                self.K_D,
-                self.d_gw,
-                self.top_width,
-                self.side_slope,
-                self.depth_lb,
-            )
-            if self.leakance_gate is not None:
-                zeta = zeta * self.leakance_gate
-            self._last_zeta = zeta.detach().clone()
-            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * (q_prime_clamp - zeta))
-        else:
-            b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)
+        b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)
 
         # --- Reservoir RHS override ---
         # Set b[res] = level-pool outflow so the sparse solve produces correct
@@ -906,10 +727,14 @@ class MuskingumCunge:
 
         # Setup sparse matrix for solving
         c_1_ = c_1 * -1
-        c_1_[0] = 1.0
         # Zero out reservoir rows → identity (q_t1[res] = b[res] = outflow)
+        # MUST come before c_1_[0] = 1.0 because the PatternMapper maps ALL
+        # diagonal entries to datvec[0].  If a reservoir sits at index 0 and we
+        # zero it after setting 1.0, the entire matrix diagonal becomes 0 →
+        # division-by-zero in forward substitution → NaN.
         if has_reservoir:
             c_1_[res_mask] = 0.0
+        c_1_[0] = 1.0
         A_values = mapper.map(c_1_)
 
         # Solve the linear system
@@ -932,7 +757,14 @@ class MuskingumCunge:
             assert self._pool_elevation_t is not None
             # Inflow = routed upstream flow + local lateral inflow
             inflow_res = torch.matmul(self.network, q_t1)[res_mask] + q_prime_clamp[res_mask]
-            dh = 3600.0 * (inflow_res - outflow_res) / (self.lake_area_m2[res_mask] + 1e-8)
+            # Guard: replace NaN/non-positive lake areas with large value (disables pool update)
+            area_res = self.lake_area_m2[res_mask]
+            safe_area = torch.where(
+                torch.isnan(area_res) | (area_res <= 0),
+                torch.tensor(1e12, device=self.device, dtype=area_res.dtype),
+                area_res,
+            )
+            dh = 3600.0 * (inflow_res - outflow_res) / (safe_area + 1e-8)
             new_pool = self._pool_elevation_t[res_mask] + dh
             # Clamp pool elevation to prevent forward Euler instability.
             # Small reservoirs violate the explicit Euler stability criterion

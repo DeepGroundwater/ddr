@@ -412,7 +412,6 @@ def create_ddr_config():
             "geospatial_fabric_gpkg": "mock.gpkg",
             "streamflow": "mock://streamflow",
             "conus_adjacency": "mock.zarr",
-            "forcings": "mock://forcings",
         },
         "params": {
             "parameter_ranges": {
@@ -435,10 +434,6 @@ def create_ddr_config():
         "kan": {
             "input_var_names": ["mock"],
             "learnable_parameters": ["n", "q_spatial", "top_width", "side_slope"],
-        },
-        "cuda_lstm": {
-            "input_var_names": ["mock"],
-            "learnable_parameters": [],
         },
         "s3_region": "us-east-2",
         "device": "cpu",

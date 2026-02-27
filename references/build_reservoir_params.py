@@ -1,8 +1,13 @@
-"""Build reservoir parameters CSV from HydroLAKES-MERIT intersection shapefiles.
+"""Build reservoir parameters CSV from HydroLAKES RFC-DA.
 
-Reads pre-intersected shapefiles from the MERIT-HydroLAKES data, aggregates
-lake parameters per COMID (many-to-many: multiple lakes per COMID), and derives
-level pool routing parameters (weir + orifice outflow model).
+Reads the HydroLAKES RFC-DA CSV (with Pour_long/Pour_lat coordinates), constructs
+point geometries, and spatially joins to MERIT catchment polygons (cat_pfaf_7) via
+point-in-polygon in EPSG:5070 to obtain the MERIT COMID for each dam.  Outputs
+level pool routing parameters indexed by MERIT COMID.
+
+The input CSV is produced by the DeepGroundwater/references ``lakes`` package,
+which derives RFC-DA hydraulic parameters (WeirE, OrificeE, WeirC, WeirL, OrificeC,
+OrificeA) from HydroLAKES + GRanD attributes following NOAA-OWP NHF conventions.
 
 Usage
 -----
@@ -19,169 +24,131 @@ from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from shapely.geometry import Point
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Input / output paths
-SHAPEFILE_DIR = Path("/projects/mhpi/data/hydroLakes/merit_intersected_data")
-SHAPEFILE_IDS = range(71, 79)  # RIV_lake_intersection_71..78
+RESERVOIR_CSV = Path("/projects/mhpi/tbindas/ddr/data/hydrolakes_rfc_da.csv")
+MERIT_CATCHMENT_SHP = Path(
+    "/projects/mhpi/data/MERIT/raw/continent/cat_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp"
+)
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "merit_reservoir_params.csv"
 
-# Physical constants
-G = 9.81  # gravitational acceleration [m/s^2]
-C_W_DEFAULT = 0.4  # broad-crested weir discharge coefficient
-C_O_DEFAULT = 0.1  # orifice discharge coefficient (NWM/RFC-DA conservative default)
-SHORE_FRAC = 0.01  # fraction of shoreline used as weir length
+# Physical caps
 MIN_WEIR_LENGTH = 1.0  # minimum weir length [m]
-MAX_ORIFICE_AREA = 100.0  # physical cap [m^2] — prevents forward Euler instability
+MAX_ORIFICE_AREA = 100.0  # physical cap [m²] — prevents forward Euler instability
 
-# RFC-DA elevation fractions (nhf-builds convention)
-CREST_FRAC = 0.90  # weir crest at 90% of pool height from base
-INVERT_FRAC = 0.15  # orifice invert at 15% of pool height from base
-
-
-def load_all_shapefiles() -> gpd.GeoDataFrame:
-    """Load and concatenate all intersection shapefiles."""
-    frames = []
-    for sid in SHAPEFILE_IDS:
-        path = SHAPEFILE_DIR / f"RIV_lake_intersection_{sid}.shp"
-        if not path.exists():
-            log.warning(f"Shapefile not found: {path}")
-            continue
-        gdf = gpd.read_file(path)
-        log.info(f"Loaded {len(gdf)} records from {path.name}")
-        frames.append(gdf)
-
-    if not frames:
-        raise FileNotFoundError(f"No shapefiles found in {SHAPEFILE_DIR}")
-
-    combined = pd.concat(frames, ignore_index=True)
-    log.info(f"Total records: {len(combined)}")
-    return combined
+# CRS for spatial operations (Albers Equal Area CONUS)
+PROJECTED_CRS = "EPSG:5070"
 
 
-def aggregate_per_comid(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
-    """Aggregate lake parameters per COMID.
+def build_reservoir_params() -> pd.DataFrame:
+    """Build reservoir parameters from HydroLAKES RFC-DA CSV.
 
-    Multiple lakes can intersect a single COMID. We aggregate:
-    - lake_area_m2: sum of Lake_area (km^2 -> m^2)
-    - depth_avg_m: area-weighted mean of Depth_avg
-    - elevation_m: area-weighted mean of Elevation
-    - dis_avg_m3s: sum of Dis_avg
-    - shore_len_m: sum of Shore_len (km -> m)
-    """
-    # Drop rows with missing COMID or Lake_area
-    valid = gdf.dropna(subset=["COMID", "Lake_area"]).copy()
-    valid["COMID"] = valid["COMID"].astype(int)
-
-    # Area weights for weighted averages
-    valid["_weight"] = valid["Lake_area"]  # km^2
-
-    grouped = valid.groupby("COMID")
-
-    result = pd.DataFrame(
-        {
-            "lake_area_m2": grouped["Lake_area"].sum() * 1e6,  # km^2 -> m^2
-            "depth_avg_m": grouped.apply(
-                lambda g: np.average(g["Depth_avg"], weights=g["_weight"]) if g["_weight"].sum() > 0 else 0.0,
-                include_groups=False,
-            ),
-            "elevation_m": grouped.apply(
-                lambda g: np.average(g["Elevation"], weights=g["_weight"]) if g["_weight"].sum() > 0 else 0.0,
-                include_groups=False,
-            ),
-            "dis_avg_m3s": grouped["Dis_avg"].sum(),
-            "shore_len_m": grouped["Shore_len"].sum() * 1000,  # km -> m
-        }
-    )
-
-    result.index.name = "COMID"
-    return result
-
-
-def derive_reservoir_params(agg: pd.DataFrame) -> pd.DataFrame:
-    """Derive level pool reservoir parameters from aggregated lake data.
-
-    Uses RFC-DA elevation conventions (nhf-builds / Lynker hydrofabric):
-    - Orifice invert at 15% of pool height from base (dead storage below)
-    - Weir crest at 90% of pool height from base
-    - C_o = 0.1 (NWM conservative default)
-
-    Parameters
-    ----------
-    agg : pd.DataFrame
-        Aggregated lake parameters indexed by COMID.
+    1. Load HydroLAKES RFC-DA CSV (6,797 reservoirs with RFC-DA attributes).
+    2. Construct point geometries from Pour_long/Pour_lat.
+    3. Load MERIT catchment polygons (cat_pfaf_7).
+    4. Reproject both to EPSG:5070 and spatial-join (point-in-polygon).
+    5. Map columns to output CSV schema.
 
     Returns
     -------
     pd.DataFrame
-        Reservoir parameters indexed by COMID.
+        Reservoir parameters indexed by MERIT COMID.
     """
-    depth = agg["depth_avg_m"].clip(lower=0.1)
-    elev = agg["elevation_m"]
-    dis_avg = agg["dis_avg_m3s"].clip(lower=1e-6)
-    base = elev - depth  # lake bottom
+    # Load reservoir CSV and construct point geometries
+    log.info(f"Loading HydroLAKES RFC-DA from {RESERVOIR_CSV}...")
+    df = pd.read_csv(RESERVOIR_CSV)
+    geometry = [Point(lon, lat) for lon, lat in zip(df["Pour_long"], df["Pour_lat"], strict=False)]
+    reservoirs = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:4326")
+    log.info(f"Reservoir records: {len(reservoirs)}")
 
-    # RFC-DA elevation conventions
-    weir_elevation = base + CREST_FRAC * depth  # 90% of pool height
-    orifice_elevation = base + INVERT_FRAC * depth  # 15% of pool height (dead storage below)
+    log.info(f"Loading MERIT catchment polygons from {MERIT_CATCHMENT_SHP}...")
+    catchments = gpd.read_file(MERIT_CATCHMENT_SHP)
+    if catchments.crs is None:
+        catchments = catchments.set_crs("EPSG:4326")
+    log.info(f"MERIT catchments: {len(catchments)}")
 
-    weir_length = (agg["shore_len_m"] * SHORE_FRAC).clip(lower=MIN_WEIR_LENGTH)
+    # Reproject both to EPSG:5070 for accurate spatial join
+    res_proj = reservoirs.to_crs(PROJECTED_CRS)
+    cat_proj = catchments[["COMID", "geometry"]].to_crs(PROJECTED_CRS)
 
-    # Back-calculate orifice area from average discharge at half-depth equilibrium
-    # Head above orifice at half-depth pool: (0.5 - INVERT_FRAC) * depth = 0.35 * depth
-    h_mid = (0.5 - INVERT_FRAC) * depth
-    orifice_area = dis_avg / (C_O_DEFAULT * np.sqrt(2 * G * h_mid) + 1e-8)
-    orifice_area = orifice_area.clip(upper=MAX_ORIFICE_AREA)
+    # Point-in-polygon: reservoir dam points → MERIT catchment polygons
+    log.info("Spatial join (EPSG:5070): reservoir points within MERIT catchments...")
+    joined = gpd.sjoin(res_proj, cat_proj, how="inner", predicate="within")
 
-    # Initial pool elevation at half-full
-    initial_pool_elevation = elev - 0.5 * depth
+    # Resolve MERIT COMID column name (sjoin appends _right on collision)
+    if "COMID_right" in joined.columns:
+        joined = joined.rename(columns={"COMID_right": "merit_comid"})
+    elif "COMID" in joined.columns:
+        joined = joined.rename(columns={"COMID": "merit_comid"})
+    else:
+        raise ValueError(f"Cannot find MERIT COMID column: {list(joined.columns)}")
 
+    joined["merit_comid"] = joined["merit_comid"].astype(int)
+    log.info(f"Matched: {len(joined)} dams → {joined['merit_comid'].nunique()} unique MERIT COMIDs")
+
+    # Filter: drop rows with non-positive max pool elevation (bad data)
+    valid_mask = joined["LkMxE"] > 0
+    n_invalid = (~valid_mask).sum()
+    if n_invalid > 0:
+        log.warning(f"Filtered {n_invalid} dams with non-positive LkMxE")
+        joined = joined[valid_mask]
+
+    # Filter: drop rows with missing lake area (NaN LkArea → NaN in forward Euler)
+    nan_area = joined["LkArea"].isna()
+    if nan_area.any():
+        log.warning(f"Filtered {nan_area.sum()} dams with NaN LkArea")
+        joined = joined[~nan_area]
+
+    # Filter: drop rows with inverted elevations (WeirE < OrificeE → pool clamp inversion)
+    inverted = joined["WeirE"] < joined["OrificeE"]
+    if inverted.any():
+        log.warning(f"Filtered {inverted.sum()} dams with inverted elevations (WeirE < OrificeE)")
+        joined = joined[~inverted]
+
+    # Deduplicate: keep largest lake area per MERIT catchment
+    joined = joined.sort_values("LkArea", ascending=False).drop_duplicates(subset="merit_comid", keep="first")
+    joined = joined.set_index("merit_comid")
+    joined.index.name = "COMID"
+
+    # Map columns → output CSV schema (LkArea is already in m²)
     params = pd.DataFrame(
         {
-            "lake_area_m2": agg["lake_area_m2"],
-            "weir_elevation": weir_elevation,
-            "orifice_elevation": orifice_elevation,
-            "weir_coeff": C_W_DEFAULT,
-            "weir_length": weir_length,
-            "orifice_coeff": C_O_DEFAULT,
-            "orifice_area": orifice_area,
-            "initial_pool_elevation": initial_pool_elevation,
+            "lake_area_m2": joined["LkArea"].values,
+            "weir_elevation": joined["WeirE"].values,
+            "orifice_elevation": joined["OrificeE"].values,
+            "weir_coeff": joined["WeirC"].values,
+            "weir_length": np.clip(joined["WeirL"].values, MIN_WEIR_LENGTH, None),
+            "orifice_coeff": joined["OrificeC"].values,
+            "orifice_area": np.clip(joined["OrificeA"].values, 0, MAX_ORIFICE_AREA),
+            "initial_pool_elevation": (joined["OrificeE"].values + joined["WeirE"].values) / 2,
         },
-        index=agg.index,
+        index=joined.index,
     )
+
+    log.info(f"Output reservoirs: {len(params)}")
     return params
 
 
 def main() -> None:
     """Build reservoir parameters CSV."""
-    log.info("Loading HydroLAKES-MERIT intersection shapefiles...")
-    gdf = load_all_shapefiles()
-
-    log.info("Aggregating per COMID...")
-    agg = aggregate_per_comid(gdf)
-    log.info(f"Unique COMIDs with lakes: {len(agg)}")
-
-    # Filter out physically invalid entries (HydroLAKES Elevation=0 artifacts)
-    valid_mask = agg["elevation_m"] > 0
-    n_invalid = (~valid_mask).sum()
-    if n_invalid > 0:
-        log.warning(f"Filtered {n_invalid} COMIDs with non-positive elevation")
-        agg = agg[valid_mask]
-        log.info(f"Remaining COMIDs: {len(agg)}")
-
-    log.info("Deriving level pool parameters...")
-    params = derive_reservoir_params(agg)
+    params = build_reservoir_params()
 
     # Sanity checks
     log.info(f"Output shape: {params.shape}")
     log.info(
-        f"Lake area [m^2]: median={params['lake_area_m2'].median():.0f}, "
+        f"Lake area [m²]: median={params['lake_area_m2'].median():.0f}, "
         f"range=[{params['lake_area_m2'].min():.0f}, {params['lake_area_m2'].max():.0f}]"
     )
     log.info(
-        f"Orifice area [m^2]: median={params['orifice_area'].median():.2f}, "
+        f"Orifice coeff: median={params['orifice_coeff'].median():.3f}, "
+        f"non-default={(params['orifice_coeff'] != 0.1).sum()}"
+    )
+    log.info(
+        f"Orifice area [m²]: median={params['orifice_area'].median():.2f}, "
         f"range=[{params['orifice_area'].min():.2f}, {params['orifice_area'].max():.2f}]"
     )
     log.info(

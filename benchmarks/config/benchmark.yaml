@@ -24,7 +24,7 @@ data_sources:
 
 params:
   save_path: ./
-  use_reservoir: false
+  use_reservoir: true
   min_reservoir_area_km2: 5.0
 
 experiment:
@@ -32,7 +32,8 @@ experiment:
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-24_20-14-14/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_10_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-26_10-10-56/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_5_mb_43.pt
+
 kan:
   hidden_size: 41
   input_var_names:
@@ -52,14 +53,14 @@ kan:
     - top_width
     - side_slope
     - n
-    - x_storage
   grid: 50
   k: 2
+  use_graph_context: true
 
 # === DiffRoute-specific configuration ===
 diffroute:
   # Enable/disable DiffRoute comparison
-  enabled: true
+  enabled: false
 
   # Impulse Response Function model
   # Options: muskingum, linear_storage, nash_cascade, pure_lag, hayami

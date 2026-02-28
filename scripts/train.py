@@ -35,7 +35,12 @@ def train(
     start_mini_batch = 0
 
     lr = resolve_learning_rate(cfg.experiment.learning_rate, 1)
-    kan_optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
+    # GNN mode: optimize KAN + MCNodeProcessor + ParamDecoder (all owned as nn.Modules)
+    if cfg.kan.use_node_processor:
+        all_params = list(nn.parameters()) + list(routing_model.parameters())
+    else:
+        all_params = list(nn.parameters())
+    kan_optimizer = torch.optim.Adam(params=all_params, lr=lr)
 
     if cfg.experiment.checkpoint:
         state = load_checkpoint(
@@ -88,13 +93,16 @@ def train(
                     adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
                     neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
                     kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
-                spatial_params = nn(inputs=kan_attrs)
+                kan_out = nn(inputs=kan_attrs)
 
                 dmc_kwargs = {
                     "routing_dataclass": routing_dataclass,
-                    "spatial_parameters": spatial_params,
                     "streamflow": streamflow_predictions,
                 }
+                if cfg.kan.use_node_processor:
+                    dmc_kwargs["node_embeddings"] = kan_out
+                else:
+                    dmc_kwargs["spatial_parameters"] = kan_out
 
                 dmc_output = routing_model(**dmc_kwargs)
 
@@ -122,7 +130,7 @@ def train(
                 if torch.isnan(dmc_output["runoff"]).any():
                     nan_t = torch.isnan(dmc_output["runoff"]).any(dim=0).nonzero(as_tuple=True)[0][0].item()
                     log.error(f"NaN in routing output at timestep {nan_t} — skipping batch")
-                    del streamflow_predictions, spatial_params, dmc_output, daily_runoff
+                    del streamflow_predictions, kan_out, dmc_output, daily_runoff
                     del loss, filtered_predictions, filtered_observations
                     routing_model.clear_batch_state()
                     continue
@@ -130,7 +138,7 @@ def train(
                 # --- Check loss for NaN ---
                 if torch.isnan(loss):
                     log.error("NaN loss — skipping backward + optimizer step")
-                    del streamflow_predictions, spatial_params, dmc_output, daily_runoff
+                    del streamflow_predictions, kan_out, dmc_output, daily_runoff
                     del loss, filtered_predictions, filtered_observations
                     routing_model.clear_batch_state()
                     continue
@@ -140,8 +148,13 @@ def train(
                 loss.backward()
 
                 # --- NaN gradient guard ---
+                clip_params = (
+                    list(nn.parameters()) + list(routing_model.parameters())
+                    if cfg.kan.use_node_processor
+                    else list(nn.parameters())
+                )
                 kan_grad_norm = torch.nn.utils.clip_grad_norm_(
-                    nn.parameters(), max_norm=cfg.experiment.grad_clip_norm
+                    clip_params, max_norm=cfg.experiment.grad_clip_norm
                 )
                 has_nan_grad = torch.isnan(kan_grad_norm)
                 grad_msg = f"Grad norms: KAN={kan_grad_norm.item():.4g}"
@@ -216,7 +229,7 @@ def train(
                 )
 
                 # Free batch-specific GPU tensors to prevent VRAM growth
-                del streamflow_predictions, spatial_params, dmc_output, daily_runoff
+                del streamflow_predictions, kan_out, dmc_output, daily_runoff
                 del loss, filtered_predictions, filtered_observations
                 routing_model.clear_batch_state()
 
@@ -245,6 +258,7 @@ def main(cfg: DictConfig) -> None:
             gate_parameters=config.kan.gate_parameters,
             off_parameters=config.kan.off_parameters,
             use_graph_context=config.kan.use_graph_context,
+            output_embedding=config.kan.use_node_processor,
         )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)

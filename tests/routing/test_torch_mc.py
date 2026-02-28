@@ -207,6 +207,7 @@ class TestdmcForwardPass:
                 streamflow=streamflow,
                 spatial_parameters=spatial_params,
                 carry_state=False,
+                node_embeddings=None,
             )
 
     def test_forward_compatibility_attributes_update(

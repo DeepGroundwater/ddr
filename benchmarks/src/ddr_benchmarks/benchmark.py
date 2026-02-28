@@ -119,13 +119,15 @@ def run_ddr(
         adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
         neighbor_attrs = aggregate_neighbor_attributes(kan_attrs.to(cfg.device), adjacency)
         kan_attrs = torch.cat([kan_attrs.to(cfg.device), neighbor_attrs], dim=1)
-    spatial_params: torch.Tensor = nn(inputs=kan_attrs)
-    spatial_params = spatial_params.to(cfg.device)
+    kan_out = nn(inputs=kan_attrs)
     dmc_kwargs: dict[str, Any] = {
         "routing_dataclass": routing_dataclass,
-        "spatial_parameters": spatial_params,
         "streamflow": streamflow_predictions,
     }
+    if cfg.kan.use_node_processor:
+        dmc_kwargs["node_embeddings"] = kan_out
+    else:
+        dmc_kwargs["spatial_parameters"] = kan_out
     dmc_output = routing_model(**dmc_kwargs)
     return dmc_output["runoff"].cpu().numpy()
 
@@ -721,13 +723,16 @@ def benchmark(
                 adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
                 neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
                 kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
-            spatial_params = nn(inputs=kan_attrs)
+            kan_out = nn(inputs=kan_attrs)
             dmc_kwargs: dict[str, Any] = {
                 "routing_dataclass": routing_dataclass,
-                "spatial_parameters": spatial_params,
                 "streamflow": streamflow_predictions,
                 "carry_state": i > 0,
             }
+            if cfg.kan.use_node_processor:
+                dmc_kwargs["node_embeddings"] = kan_out
+            else:
+                dmc_kwargs["spatial_parameters"] = kan_out
 
             dmc_output = routing_model(**dmc_kwargs)
             ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()

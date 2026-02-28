@@ -206,6 +206,14 @@ class Kan(BaseModel):
         description="Prepend neighbor-aggregated attributes to KAN input via 1-hop message passing. "
         "Doubles the effective input dimension (original D + aggregated D from upstream neighbors).",
     )
+    use_node_processor: bool = Field(
+        default=False,
+        description="Enable GNN-like dynamic node embedding alongside MC physics solve. "
+        "KAN becomes an encoder (output_embedding=True); MCNodeProcessor evolves h^t at each "
+        "routing timestep using all four MC coefficient terms as physics channels; "
+        "ParamDecoder decodes dynamic Manning's n and geometry from h^t. "
+        "Mutually exclusive with use_graph_context.",
+    )
 
 
 class ExperimentConfig(BaseModel):
@@ -348,6 +356,15 @@ class Config(BaseModel):
             raise ValueError(
                 f"off_parameters {invalid_off} not found in kan.learnable_parameters. "
                 f"off_parameters must be a subset of learnable_parameters."
+            )
+
+        # use_node_processor and use_graph_context are mutually exclusive.
+        # MCNodeProcessor supersedes static 1-hop mean aggregation.
+        if self.kan.use_node_processor and self.kan.use_graph_context:
+            raise ValueError(
+                "use_node_processor=True and use_graph_context=True are mutually exclusive. "
+                "MCNodeProcessor already aggregates upstream embeddings dynamically — "
+                "disable use_graph_context when use_node_processor is enabled."
             )
 
         return self

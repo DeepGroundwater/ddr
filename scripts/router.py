@@ -89,14 +89,17 @@ def route_trained_model(
                 adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
                 neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
                 kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
-            spatial_params = nn(inputs=kan_attrs)
+            kan_out = nn(inputs=kan_attrs)
 
             dmc_kwargs = {
                 "routing_dataclass": routing_dataclass,
-                "spatial_parameters": spatial_params,
                 "streamflow": streamflow_predictions,
                 "carry_state": i > 0,
             }
+            if cfg.kan.use_node_processor:
+                dmc_kwargs["node_embeddings"] = kan_out
+            else:
+                dmc_kwargs["spatial_parameters"] = kan_out
 
             dmc_output = routing_model(**dmc_kwargs)
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
@@ -159,6 +162,7 @@ def main(cfg: DictConfig) -> None:
             gate_parameters=config.kan.gate_parameters,
             off_parameters=config.kan.off_parameters,
             use_graph_context=config.kan.use_graph_context,
+            output_embedding=config.kan.use_node_processor,
         )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)

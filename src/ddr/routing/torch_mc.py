@@ -9,6 +9,7 @@ from typing import Any
 
 import torch
 
+from ddr.nn.node_processor import MCNodeProcessor, ParamDecoder
 from ddr.routing.mmc import MuskingumCunge
 from ddr.validation.configs import Config
 
@@ -37,9 +38,31 @@ class dmc(torch.nn.Module):
         super().__init__()
         self.cfg = cfg
         self.device_num: str | torch.device = device if device is not None else "cpu"
+        self.use_node_processor: bool = getattr(cfg.kan, "use_node_processor", False)
 
-        # Initialize the core routing engine
-        self.routing_engine = MuskingumCunge(cfg, self.device_num)
+        # GNN submodules — owned here so autograd flows back through them.
+        # node_processor and param_decoder are registered nn.Modules, which means
+        # their parameters appear in dmc.parameters() and .to(device) moves them.
+        if self.use_node_processor:
+            d_hidden = cfg.kan.hidden_size
+            self.node_processor: MCNodeProcessor | None = MCNodeProcessor(d_hidden=d_hidden).to(
+                self.device_num
+            )
+            self.param_decoder: ParamDecoder | None = ParamDecoder(
+                d_hidden=d_hidden,
+                learnable_parameters=cfg.kan.learnable_parameters,
+                gate_parameters=cfg.kan.gate_parameters or [],
+                off_parameters=cfg.kan.off_parameters or [],
+                device=self.device_num,
+            )
+        else:
+            self.node_processor = None
+            self.param_decoder = None
+
+        # Initialize the core routing engine (holds references, not ownership)
+        self.routing_engine = MuskingumCunge(
+            cfg, self.device_num, node_processor=self.node_processor, param_decoder=self.param_decoder
+        )
 
         # Store configuration parameters as module attributes for compatibility
         self.t = self.routing_engine.t
@@ -82,8 +105,12 @@ class dmc(torch.nn.Module):
         else:
             self.device_num = str(device)
 
-        # Create new routing engine with updated device
-        self.routing_engine = MuskingumCunge(self.cfg, self.device_num)
+        # Create new routing engine with updated device.
+        # super().to(device) already moved self.node_processor and self.param_decoder,
+        # so we just pass the (now on-device) references to the new engine.
+        self.routing_engine = MuskingumCunge(
+            self.cfg, self.device_num, node_processor=self.node_processor, param_decoder=self.param_decoder
+        )
 
         # Update tensor attributes
         self.t = self.routing_engine.t
@@ -169,7 +196,10 @@ class dmc(torch.nn.Module):
         # Extract inputs
         routing_dataclass = kwargs["routing_dataclass"]
         q_prime = kwargs["streamflow"].to(self.device_num)
-        spatial_parameters = kwargs["spatial_parameters"]
+        # Classic mode: spatial_parameters dict from KAN.
+        # GNN mode: node_embeddings tensor from KAN encoder; spatial_parameters=None.
+        spatial_parameters: dict[str, torch.Tensor] | None = kwargs.get("spatial_parameters", None)
+        node_embeddings: torch.Tensor | None = kwargs.get("node_embeddings", None)
 
         # Setup routing engine with all inputs
         carry_state = kwargs.get("carry_state", False)
@@ -178,6 +208,7 @@ class dmc(torch.nn.Module):
             streamflow=q_prime,
             spatial_parameters=spatial_parameters,
             carry_state=carry_state,
+            node_embeddings=node_embeddings,
         )
 
         # Update compatibility attributes

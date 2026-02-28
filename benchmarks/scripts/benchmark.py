@@ -48,6 +48,7 @@ def main(cfg: DictConfig) -> None:
             gate_parameters=config.kan.gate_parameters,
             off_parameters=config.kan.off_parameters,
             use_graph_context=config.kan.use_graph_context,
+            output_embedding=config.kan.use_node_processor,
         )
         routing_model = dmc(cfg=config, device=config.device)
         flow = streamflow(config)

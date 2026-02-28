@@ -53,6 +53,7 @@ kan:
     - top_width
     - side_slope
     - n
+    - x_storage
   grid: 50
   k: 2
   use_graph_context: true

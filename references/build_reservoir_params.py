@@ -40,6 +40,14 @@ OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "merit_reservoir
 MIN_WEIR_LENGTH = 1.0  # minimum weir length [m]
 MAX_ORIFICE_AREA = 100.0  # physical cap [m²] — prevents forward Euler instability
 
+# Orifice discharge coefficient.  The RFC-DA / NWM default (OrificeC = 0.1) is an
+# operational throttling factor calibrated for forecast use, NOT a physical hydraulic
+# coefficient.  Standard Cd for a submerged circular orifice is 0.6 (Henderson 1966;
+# Chaudhry 2008).  Using 0.6 gives physically-correct orifice capacity and allows the
+# reservoir to drain/fill on seasonal time-scales (τ = A_s / (dQ/dH) ≈ hours–days for
+# typical reservoirs, vs weeks–months with Cd=0.1).
+ORIFICE_COEFF = 0.6
+
 # CRS for spatial operations (Albers Equal Area CONUS)
 PROJECTED_CRS = "EPSG:5070"
 
@@ -122,7 +130,7 @@ def build_reservoir_params() -> pd.DataFrame:
             "orifice_elevation": joined["OrificeE"].values,
             "weir_coeff": joined["WeirC"].values,
             "weir_length": np.clip(joined["WeirL"].values, MIN_WEIR_LENGTH, None),
-            "orifice_coeff": joined["OrificeC"].values,
+            "orifice_coeff": np.full(len(joined), ORIFICE_COEFF),
             "orifice_area": np.clip(joined["OrificeA"].values, 0, MAX_ORIFICE_AREA),
             "initial_pool_elevation": (joined["OrificeE"].values + joined["WeirE"].values) / 2,
         },

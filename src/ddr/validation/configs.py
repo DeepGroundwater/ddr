@@ -214,6 +214,12 @@ class Kan(BaseModel):
         "ParamDecoder decodes dynamic Manning's n and geometry from h^t. "
         "Mutually exclusive with use_graph_context.",
     )
+    gnn_update_interval: int = Field(
+        default=1,
+        description="GNN node processor update frequency in routing timesteps. "
+        "1 = every timestep (original), 24 = daily. "
+        "Higher values reduce GPU memory by running fewer GNN forward/backward passes.",
+    )
 
 
 class ExperimentConfig(BaseModel):

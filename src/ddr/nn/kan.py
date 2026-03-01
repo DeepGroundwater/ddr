@@ -57,6 +57,7 @@ class kan(torch.nn.Module):
                     grid=grid,
                     seed=seed,
                     device=device,
+                    save_act=False,
                 )
             )
 

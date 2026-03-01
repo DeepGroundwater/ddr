@@ -106,6 +106,7 @@ def train(
                     dmc_kwargs["spatial_parameters"] = kan_out
 
                 dmc_output = routing_model(**dmc_kwargs)
+                del dmc_kwargs  # Free graph references held by the kwargs dict
 
                 num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
                 daily_runoff = ddr_functions.downsample(
@@ -127,22 +128,19 @@ def train(
                 target = filtered_observations[:, cfg.experiment.warmup :]
                 loss = torch.nn.functional.mse_loss(pred, target)
 
-                # --- Check forward pass output for NaN ---
+                # --- Fail fast on NaN ---
                 if torch.isnan(dmc_output["runoff"]).any():
                     nan_t = torch.isnan(dmc_output["runoff"]).any(dim=0).nonzero(as_tuple=True)[0][0].item()
-                    log.error(f"NaN in routing output at timestep {nan_t} — skipping batch")
-                    del streamflow_predictions, kan_out, dmc_output, daily_runoff
-                    del loss, filtered_predictions, filtered_observations
-                    routing_model.clear_batch_state()
-                    continue
+                    raise RuntimeError(
+                        f"NaN in routing output at timestep {nan_t} "
+                        f"(epoch {epoch}, mini-batch {i}). "
+                        f"Check parameter bounds and numerical stability."
+                    )
 
-                # --- Check loss for NaN ---
                 if torch.isnan(loss):
-                    log.error("NaN loss — skipping backward + optimizer step")
-                    del streamflow_predictions, kan_out, dmc_output, daily_runoff
-                    del loss, filtered_predictions, filtered_observations
-                    routing_model.clear_batch_state()
-                    continue
+                    raise RuntimeError(
+                        f"NaN loss at epoch {epoch}, mini-batch {i}. Loss value: {loss.item()}"
+                    )
 
                 log.info("Running backpropagation")
 
@@ -162,14 +160,12 @@ def train(
                 log.info(grad_msg)
 
                 if has_nan_grad:
-                    log.error(
-                        "NaN in gradients after backward — skipping optimizer step. "
-                        "Weights preserved from previous batch."
+                    raise RuntimeError(
+                        f"NaN gradients at epoch {epoch}, mini-batch {i}. Grad norm: {kan_grad_norm.item()}"
                     )
-                    kan_optimizer.zero_grad()
-                else:
-                    kan_optimizer.step()
-                    kan_scheduler.step()
+
+                kan_optimizer.step()
+                kan_scheduler.step()
 
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()

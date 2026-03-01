@@ -8,11 +8,11 @@ geodataset: lynker_hydrofabric
 name: ddr-v${oc.env:DDR_VERSION,dev}-${geodataset}-${mode}
 np_seed: 1
 seed: 0
-device: 7
+device: 0
 s3_region: us-east-2
 
 data_sources:
-  attributes: /projects/mhpi/data/icechunk/hydrofabric_v2.2_attributes
+  attributes: /home/tbindas/projects/ddr/data/hydrofabric_v2.2_attributes
   geospatial_fabric_gpkg: "DOWNLOAD THE FILE FROM https://www.lynker-spatial.com/data/hydrofabric/v2.2/conus/"
   conus_adjacency: ./../data/hydrofabric_v2.2_conus_adjacency.zarr
   gages_adjacency: ./../data/hydrofabric_v2.2_gages_conus_adjacency.zarr

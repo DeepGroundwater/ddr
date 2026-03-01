@@ -176,6 +176,8 @@ class dmc(torch.nn.Module):
         self.q_spatial = torch.empty(0)
         self.top_width = torch.empty(0)
         self.side_slope = torch.empty(0)
+        self.n = torch.empty(0)
+        self._discharge_t = self.routing_engine._discharge_t  # Sync with detached version
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass for the Muskingum-Cunge routing model.
@@ -316,6 +318,7 @@ class dmc(torch.nn.Module):
         self,
         q_prime_clamp: torch.Tensor,
         mapper: Any,
+        timestep: int = 0,
     ) -> torch.Tensor:
         """Route flow for a single timestep (compatibility method).
 
@@ -325,6 +328,8 @@ class dmc(torch.nn.Module):
             Clamped lateral inflow
         mapper : Any
             Pattern mapper for sparse operations
+        timestep : int, optional
+            Current timestep index (used for GNN update frequency), by default 0
 
         Returns
         -------
@@ -334,6 +339,7 @@ class dmc(torch.nn.Module):
         return self.routing_engine.route_timestep(
             q_prime_clamp=q_prime_clamp,
             mapper=mapper,
+            timestep=timestep,
         )
 
     def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True) -> None:

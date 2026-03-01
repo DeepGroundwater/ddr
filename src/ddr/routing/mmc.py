@@ -316,6 +316,8 @@ class MuskingumCunge:
         # GNN node embedding state (GNN-like MC mode only)
         # Preserved across batches when carry_state=True (same semantics as _discharge_t)
         self.node_embedding: torch.Tensor | None = None
+        _interval = getattr(cfg.kan, "gnn_update_interval", 1)
+        self.gnn_update_interval: int = _interval if isinstance(_interval, int) else 1
 
         # Progress tracking attributes (for tqdm display)
         self.epoch = 0
@@ -371,6 +373,22 @@ class MuskingumCunge:
             self._pool_elevation_t = self._pool_elevation_t.detach()
         if self.node_embedding is not None:
             self.node_embedding = self.node_embedding.detach()
+        # Clear batch-specific routing parameters (may hold grad_fn from ParamDecoder)
+        self.n = None
+        self.q_spatial = None
+        self.top_width = None
+        self.side_slope = None
+        self.network = None
+        self.slope = None
+        self.length = None
+        self.x_storage = None
+        self.output_indices = None
+        self.gage_catchment = None
+        self.observations = None
+        self._flat_indices = None
+        self._group_ids = None
+        self._scatter_input = None
+        self._num_outputs = None
         # Clear reservoir param refs but NOT _pool_elevation_t (preserved for carry_state)
         self.reservoir_mask = None
         self.lake_area_m2 = None
@@ -668,7 +686,7 @@ class MuskingumCunge:
                 min=self.cfg.params.attribute_minimums["discharge"],
             )
 
-            q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper)
+            q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper, timestep=timestep)
 
             if output_all:
                 output[:, timestep] = q_t1
@@ -733,6 +751,7 @@ class MuskingumCunge:
         self,
         q_prime_clamp: torch.Tensor,
         mapper: PatternMapper,
+        timestep: int = 0,
     ) -> torch.Tensor:
         """Route flow for a single timestep.
 
@@ -742,6 +761,8 @@ class MuskingumCunge:
             Clamped lateral inflow
         mapper : PatternMapper
             Pattern mapper for sparse operations
+        timestep : int, optional
+            Current timestep index (used for GNN update frequency), by default 0
 
         Returns
         -------
@@ -843,7 +864,9 @@ class MuskingumCunge:
         # Uses all four MC coefficient terms as physics channels so the processor
         # learns which combination of (implicit upstream, explicit upstream, memory,
         # lateral forcing) most informs how Manning's n should adapt.
-        if self.node_processor is not None and self.node_embedding is not None:
+        # gnn_update_interval controls frequency: 1=every timestep, 24=daily.
+        update_gnn = self.gnn_update_interval <= 1 or timestep % self.gnn_update_interval == 0
+        if self.node_processor is not None and self.node_embedding is not None and update_gnn:
             c1_next = c_1 * torch.matmul(self.network, q_t1)  # C1 · N@Q_{t+1}
             c2_prev = c_2 * i_t  # C2 · N@Q_t  (i_t already computed above)
             c3_self = c_3 * self._discharge_t  # C3 · Q_t

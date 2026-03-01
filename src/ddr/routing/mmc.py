@@ -358,11 +358,19 @@ class MuskingumCunge:
 
         Preserves ``_discharge_t``, ``_pool_elevation_t``, and ``node_embedding``
         (needed for ``carry_state=True`` inference) and ``n`` / ``q_spatial``
-        (used for post-batch logging).
+        (used for post-batch logging).  Detaches preserved tensors to free the
+        computation graph from the previous batch.
         """
         self.routing_dataclass = None
         self.q_prime = None
         self.spatial_parameters = None
+        # Detach carried state to free computation graphs while preserving values
+        if self._discharge_t is not None:
+            self._discharge_t = self._discharge_t.detach()
+        if self._pool_elevation_t is not None:
+            self._pool_elevation_t = self._pool_elevation_t.detach()
+        if self.node_embedding is not None:
+            self.node_embedding = self.node_embedding.detach()
         # Clear reservoir param refs but NOT _pool_elevation_t (preserved for carry_state)
         self.reservoir_mask = None
         self.lake_area_m2 = None
@@ -413,7 +421,15 @@ class MuskingumCunge:
             # GNN-like MC mode: initialise embedding (respects carry_state)
             if not carry_state or self.node_embedding is None:
                 self.node_embedding = node_embeddings.to(self.device)
-            # If carry_state=True and node_embedding already exists: carry it.
+            else:
+                # Validate shape compatibility when carrying state across batches
+                if self.node_embedding.shape[0] != node_embeddings.shape[0]:
+                    log.warning(
+                        f"carry_state=True but node_embedding shape changed "
+                        f"({self.node_embedding.shape[0]} → {node_embeddings.shape[0]}). "
+                        f"Reinitializing from fresh KAN output."
+                    )
+                    self.node_embedding = node_embeddings.to(self.device)
             # Decode initial params from current embedding for the first timestep.
             self._update_params_from_embedding()
         else:
@@ -483,8 +499,11 @@ class MuskingumCunge:
                 log_space="n" in log_space_params,
             )
 
+        # In GNN mode (param_decoder is not None), always use decoded values.
+        # In classic mode, fall back to routing_dataclass if it provides them.
+        use_decoded = self.param_decoder is not None
         routing_dataclass = self.routing_dataclass
-        if routing_dataclass.top_width.numel() == 0:
+        if use_decoded or routing_dataclass.top_width.numel() == 0:
             self.top_width = denormalize(
                 value=spatial_parameters["top_width"],
                 bounds=self.parameter_bounds["top_width"],
@@ -492,7 +511,7 @@ class MuskingumCunge:
             )
         else:
             self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
-        if routing_dataclass.side_slope.numel() == 0:
+        if use_decoded or routing_dataclass.side_slope.numel() == 0:
             self.side_slope = denormalize(
                 value=spatial_parameters["side_slope"],
                 bounds=self.parameter_bounds["side_slope"],
@@ -525,6 +544,7 @@ class MuskingumCunge:
     def _init_discharge_state(self, carry_state: bool) -> None:
         """Cold-start via topological accumulation, or carry from previous batch."""
         if carry_state and self._discharge_t is not None:
+            self._discharge_t = self._discharge_t.detach()
             return
         assert self.q_prime is not None, "q_prime must be set before initializing discharge state"
         mapper, _, _ = self.create_pattern_mapper()
@@ -544,6 +564,7 @@ class MuskingumCunge:
         with flow conditions and causes forward-Euler blowup.
         """
         if carry_state and self._pool_elevation_t is not None:
+            self._pool_elevation_t = self._pool_elevation_t.detach()
             return  # preserve pool elevation from previous batch (inference)
         assert self._discharge_t is not None
         assert self.reservoir_mask is not None

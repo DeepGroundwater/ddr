@@ -171,6 +171,11 @@ class dmc(torch.nn.Module):
     def clear_batch_state(self) -> None:
         """Release batch-specific tensor references to free GPU memory."""
         self.routing_engine.clear_batch_state()
+        # Clear dmc's own copied tensor references so GPU memory can be freed
+        self.network = torch.empty(0)
+        self.q_spatial = torch.empty(0)
+        self.top_width = torch.empty(0)
+        self.side_slope = torch.empty(0)
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass for the Muskingum-Cunge routing model.
@@ -331,21 +336,6 @@ class dmc(torch.nn.Module):
             mapper=mapper,
         )
 
-    def state_dict(self) -> dict[str, Any]:
-        """Return state dictionary for saving/loading.
-
-        Returns
-        -------
-        Dict[str, Any]
-            State dictionary
-        """
-        state: dict[str, Any] = super().state_dict()
-        state["cfg"] = self.cfg
-        state["device_num"] = self.device_num
-        state["epoch"] = self.epoch
-        state["mini_batch"] = self.mini_batch
-        return state
-
     def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True) -> None:
         """Load state dictionary.
 
@@ -356,13 +346,16 @@ class dmc(torch.nn.Module):
         strict : bool, optional
             Whether to strictly enforce key matching, by default True
         """
+        # Copy to avoid mutating the caller's dict
+        state_dict = dict(state_dict)
+
         # Extract custom attributes before calling parent
         cfg = state_dict.pop("cfg", self.cfg)
         device_num = state_dict.pop("device_num", self.device_num)
         epoch = state_dict.pop("epoch", 0)
         mini_batch = state_dict.pop("mini_batch", 0)
 
-        # Load parent state
+        # Load parent state (restores node_processor/param_decoder weights)
         super().load_state_dict(state_dict, strict)
 
         # Restore custom attributes
@@ -371,6 +364,11 @@ class dmc(torch.nn.Module):
         self.epoch = epoch
         self.mini_batch = mini_batch
 
-        # Recreate routing engine
-        self.routing_engine = MuskingumCunge(self.cfg, self.device_num)
+        # Recreate routing engine with GNN submodule references
+        self.routing_engine = MuskingumCunge(
+            self.cfg,
+            self.device_num,
+            node_processor=self.node_processor,
+            param_decoder=self.param_decoder,
+        )
         self.routing_engine.set_progress_info(self.epoch, self.mini_batch)

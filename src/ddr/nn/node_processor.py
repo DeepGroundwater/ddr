@@ -160,19 +160,20 @@ class ParamDecoder(nn.Module):
 
         # Gate parameters: bias +1.0 → sigmoid(1) ≈ 0.73 (starts ON)
         if gate_parameters:
+            overlap = set(gate_parameters) & set(off_parameters or [])
+            if overlap:
+                raise ValueError(f"Parameters {overlap} appear in both gate_parameters and off_parameters")
             with torch.no_grad():
                 for name in gate_parameters:
-                    if name in self.learnable_parameters:
-                        idx = self.learnable_parameters.index(name)
-                        self.linear.bias[idx] = 1.0
+                    idx = self.learnable_parameters.index(name)  # raises ValueError if missing
+                    self.linear.bias[idx] = 1.0
 
         # Off parameters: bias −2.0 → sigmoid(−2) ≈ 0.12 (starts OFF)
         if off_parameters:
             with torch.no_grad():
                 for name in off_parameters:
-                    if name in self.learnable_parameters:
-                        idx = self.learnable_parameters.index(name)
-                        self.linear.bias[idx] = -2.0
+                    idx = self.learnable_parameters.index(name)  # raises ValueError if missing
+                    self.linear.bias[idx] = -2.0
 
     def forward(self, h: torch.Tensor) -> dict[str, torch.Tensor]:
         """Decode parameters from node embedding.

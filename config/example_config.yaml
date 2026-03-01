@@ -28,12 +28,12 @@ experiment:
   batch_size: 64
   start_time: 1981/10/01
   end_time: 1995/09/30
-  epochs: 5
+  epochs: 20
   learning_rate: {
       1: 0.005,
       3: 0.001
   }
-  rho: 365
+  rho: 90
   shuffle: true
   warmup: 3
 

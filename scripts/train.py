@@ -48,6 +48,7 @@ def train(
             cfg.experiment.checkpoint,
             torch.device(cfg.device),
             kan_optimizer=kan_optimizer,
+            routing_model=routing_model if cfg.kan.use_node_processor else None,
         )
         start_epoch = state["epoch"]
         start_mini_batch = (
@@ -226,6 +227,7 @@ def train(
                     kan_optimizer=kan_optimizer,
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
+                    routing_model=routing_model if cfg.kan.use_node_processor else None,
                 )
 
                 # Free batch-specific GPU tensors to prevent VRAM growth

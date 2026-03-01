@@ -33,11 +33,17 @@ def test(
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
+        load_checkpoint(
+            nn,
+            cfg.experiment.checkpoint,
+            torch.device(cfg.device),
+            routing_model=routing_model if cfg.kan.use_node_processor else None,
+        )
     else:
         log.warning("Creating new spatial model for evaluation.")
 
     nn = nn.eval()
+    routing_model.eval()
     sampler = SequentialSampler(
         data_source=dataset,
     )

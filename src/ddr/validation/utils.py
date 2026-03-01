@@ -55,6 +55,7 @@ def save_state(
     saved_model_path: Path,
     lstm_nn: nn.Module | None = None,
     lstm_optimizer: torch.optim.Optimizer | None = None,
+    routing_model: nn.Module | None = None,
 ) -> None:
     """Save model state
 
@@ -74,6 +75,8 @@ def save_state(
         The CudaLSTM model, by default None
     lstm_optimizer : torch.optim.Optimizer | None, optional
         The LSTM optimizer (Adadelta), by default None
+    routing_model : nn.Module | None, optional
+        The routing model (dmc) containing GNN submodules, by default None
     """
     mlp_state_dict = {key: value.cpu() for key, value in mlp.state_dict().items()}
 
@@ -87,6 +90,11 @@ def save_state(
         state["lstm_optimizer_state_dict"] = _cpu_optimizer_state(lstm_optimizer)
     if lstm_nn is not None:
         state["lstm_nn_state_dict"] = {key: value.cpu() for key, value in lstm_nn.state_dict().items()}
+    if routing_model is not None:
+        routing_state = {}
+        for key, value in routing_model.state_dict().items():
+            routing_state[key] = value.cpu() if torch.is_tensor(value) else value
+        state["routing_model_state_dict"] = routing_state
     if torch.cuda.is_available():
         state["cuda_rng_state"] = torch.cuda.get_rng_state()
     if mini_batch == -1:

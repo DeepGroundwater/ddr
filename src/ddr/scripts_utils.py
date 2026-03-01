@@ -49,6 +49,7 @@ def load_checkpoint(
     lstm_nn: torch.nn.Module | None = None,
     kan_optimizer: torch.optim.Optimizer | None = None,
     lstm_optimizer: torch.optim.Optimizer | None = None,
+    routing_model: torch.nn.Module | None = None,
 ) -> dict:
     """Load DDR checkpoint, apply state_dict to model. Returns full state dict.
 
@@ -66,6 +67,8 @@ def load_checkpoint(
         The KAN optimizer to restore state into, by default None.
     lstm_optimizer : torch.optim.Optimizer | None, optional
         The LSTM optimizer to restore state into, by default None.
+    routing_model : torch.nn.Module | None, optional
+        The routing model (dmc) to load GNN submodule weights into, by default None.
 
     Returns
     -------
@@ -86,6 +89,19 @@ def load_checkpoint(
         for key in lstm_state.keys():
             lstm_state[key] = lstm_state[key].to(device)
         lstm_nn.load_state_dict(lstm_state)
+
+    if routing_model is not None and "routing_model_state_dict" in state:
+        log.info("Loading routing model (GNN submodules) from checkpoint")
+        routing_state = state["routing_model_state_dict"]
+        for key in routing_state.keys():
+            if torch.is_tensor(routing_state[key]):
+                routing_state[key] = routing_state[key].to(device)
+        routing_model.load_state_dict(routing_state, strict=False)
+    elif routing_model is not None and list(routing_model.parameters()):
+        log.warning(
+            "Routing model has learnable parameters but checkpoint has no "
+            "routing_model_state_dict. GNN submodules will use initial weights."
+        )
 
     if kan_optimizer is not None:
         if "kan_optimizer_state_dict" in state:

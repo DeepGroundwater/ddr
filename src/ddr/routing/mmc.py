@@ -499,25 +499,25 @@ class MuskingumCunge:
                 log_space="n" in log_space_params,
             )
 
-        # In GNN mode (param_decoder is not None), always use decoded values.
-        # In classic mode, fall back to routing_dataclass if it provides them.
-        use_decoded = self.param_decoder is not None
+        # Top width: use decoded value if present, else fall back to routing_dataclass.
         routing_dataclass = self.routing_dataclass
-        if use_decoded or routing_dataclass.top_width.numel() == 0:
+        if "top_width" in spatial_parameters:
             self.top_width = denormalize(
                 value=spatial_parameters["top_width"],
                 bounds=self.parameter_bounds["top_width"],
                 log_space="top_width" in log_space_params,
             )
-        else:
+        elif routing_dataclass.top_width.numel() > 0:
             self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
-        if use_decoded or routing_dataclass.side_slope.numel() == 0:
+
+        # Side slope: use decoded value if present, else fall back to routing_dataclass.
+        if "side_slope" in spatial_parameters:
             self.side_slope = denormalize(
                 value=spatial_parameters["side_slope"],
                 bounds=self.parameter_bounds["side_slope"],
                 log_space="side_slope" in log_space_params,
             )
-        else:
+        elif routing_dataclass.side_slope.numel() > 0:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
         # Learnable Muskingum X (overrides hardcoded 0.3 from routing_dataclass.x)

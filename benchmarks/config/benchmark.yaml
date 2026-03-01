@@ -32,7 +32,7 @@ experiment:
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-26_10-10-56/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_5_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-28_21-04-38/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_19_mb_43.pt
 
 kan:
   hidden_size: 41
@@ -56,7 +56,7 @@ kan:
     - x_storage
   grid: 50
   k: 2
-  use_graph_context: true
+  use_node_processor: true
 
 # === DiffRoute-specific configuration ===
 diffroute:

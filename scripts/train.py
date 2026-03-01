@@ -2,6 +2,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 import hydra
 import numpy as np
@@ -15,7 +16,7 @@ from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.routing.utils import aggregate_neighbor_attributes, select_columns
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
-from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
+from ddr.validation import Config, Metrics, create_tb_logger, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ def train(
     flow: streamflow,
     routing_model: dmc,
     nn: kan,
+    tb: Any,
 ) -> None:
     """Do model training."""
     data_generator = torch.Generator()
@@ -81,6 +83,7 @@ def train(
                 log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")
             else:
                 start_mini_batch = 0
+                global_step = (epoch - 1) * len(dataloader) + i
                 routing_model.set_progress_info(epoch=epoch, mini_batch=i)
                 kan_optimizer.zero_grad()
 
@@ -167,6 +170,11 @@ def train(
                 kan_optimizer.step()
                 kan_scheduler.step()
 
+                current_lr = kan_optimizer.param_groups[0]["lr"]
+                tb.log_loss(loss.item(), global_step)
+                tb.log_grad_norm(kan_grad_norm.item(), global_step)
+                tb.log_learning_rate(current_lr, global_step)
+
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()
                 plotted_dates = dataset.dates.batch_daily_time_range[1:-1]
@@ -177,6 +185,7 @@ def train(
                 rmse = metrics.rmse
                 kge = metrics.kge
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
+                tb.log_metrics(nse, rmse, kge, global_step)
                 log.info(f"Loss: {loss.item():.4f}")
 
                 n_vals = routing_model.n.detach().cpu()
@@ -202,6 +211,21 @@ def train(
                         log.info(
                             f"Pool elevation: median={p.median():.2f}, range=[{p.min():.2f}, {p.max():.2f}]"
                         )
+
+                x_storage = routing_model.routing_engine.x_storage
+                tb.log_routing_params(
+                    n_vals=n_vals,
+                    global_step=global_step,
+                    x_vals=x_storage.detach().cpu() if x_storage is not None else None,
+                    pool_elev=p
+                    if (
+                        routing_model.routing_engine.use_reservoir
+                        and routing_model.routing_engine._pool_elevation_t is not None
+                        and routing_model.routing_engine.reservoir_mask is not None
+                        and routing_model.routing_engine.reservoir_mask.any()
+                    )
+                    else None,
+                )
 
                 random_gage = -1  # TODO: scale out when we have more gauges
                 plot_time_series(
@@ -242,6 +266,11 @@ def main(cfg: DictConfig) -> None:
     (cfg.params.save_path / "plots").mkdir(exist_ok=True)
     (cfg.params.save_path / "saved_models").mkdir(exist_ok=True)
     config = validate_config(cfg)
+    tb = create_tb_logger(
+        enabled=config.experiment.log_tensorboard,
+        log_dir=config.params.save_path / "tensorboard",
+        log_interval=config.experiment.log_interval,
+    )
     start_time = time.perf_counter()
     try:
         nn = kan(
@@ -265,12 +294,14 @@ def main(cfg: DictConfig) -> None:
             flow=flow,
             routing_model=routing_model,
             nn=nn,
+            tb=tb,
         )
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
 
     finally:
+        tb.close()
         log.info("Cleaning up...")
 
         total_time = time.perf_counter() - start_time

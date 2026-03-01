@@ -658,6 +658,7 @@ def benchmark(
     nn: kan,
     diffroute_cfg: DiffRouteConfig,
     summed_q_prime_path: str | None = None,
+    tb: Any = None,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -668,6 +669,7 @@ def benchmark(
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
         summed_q_prime_path: Optional path to summed Q' zarr store
+        tb: TensorBoard logger (TBLogger or _NoOpTBLogger)
     """
     assert cfg.geodataset == GeoDataset.MERIT, (
         f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
@@ -790,6 +792,8 @@ def benchmark(
     _nse = ddr_metrics.nse
     nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
     utils.log_metrics(nse, ddr_metrics.rmse, ddr_metrics.kge)
+    if tb is not None:
+        tb.log_benchmark_metrics(ddr_metrics, model_name="ddr")
 
     diffroute_metrics = None
     if diffroute_enabled:
@@ -799,6 +803,8 @@ def benchmark(
         _nse = diffroute_metrics.nse
         nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
         utils.log_metrics(nse, diffroute_metrics.rmse, diffroute_metrics.kge)
+        if tb is not None:
+            tb.log_benchmark_metrics(diffroute_metrics, model_name="diffroute")
 
     # Optional summed Q' baseline
     sqp_metrics = None
@@ -813,6 +819,8 @@ def benchmark(
             _nse = sqp_metrics.nse
             nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
             utils.log_metrics(nse, sqp_metrics.rmse, sqp_metrics.kge)
+            if tb is not None:
+                tb.log_benchmark_metrics(sqp_metrics, model_name="summed_q_prime")
 
     # === MASS BALANCE CHECK ===
     log.info("=" * 50)

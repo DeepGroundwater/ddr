@@ -36,6 +36,8 @@ experiment:
   rho: 90
   shuffle: true
   warmup: 3
+  log_tensorboard: false
+  log_interval: 1
 
 kan:
   hidden_size: 11

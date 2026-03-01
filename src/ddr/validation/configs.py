@@ -269,6 +269,14 @@ class ExperimentConfig(BaseModel):
         default_factory=LossConfig,
         description="Multi-component hydrograph loss weights and thresholds",
     )
+    log_tensorboard: bool = Field(
+        default=False,
+        description="Enable TensorBoard logging. Requires: uv sync --group tb",
+    )
+    log_interval: int = Field(
+        default=1,
+        description="Log to TensorBoard every N mini-batches.",
+    )
 
     @field_validator("checkpoint", mode="before")
     @classmethod

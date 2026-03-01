@@ -19,3 +19,4 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+tb = ["tensorboard>=2.18.0"]

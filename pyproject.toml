@@ -57,6 +57,9 @@ cuda12 = [
 cuda13 = [
   "cupy-cuda13x>=14.0.0",
 ]
+tb = [
+  "tensorboard>=2.18.0",
+]
 dev = [
   "ipykernel",
   "jupyterlab",

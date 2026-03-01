@@ -1,4 +1,5 @@
 import logging
+import os
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -9,6 +10,17 @@ import torch
 from scipy.sparse.linalg import spsolve_triangular
 
 log = logging.getLogger(__name__)
+
+# Point CuPy's NVRTC at the pip-installed CUDA runtime headers so it doesn't
+# pick up incompatible system headers (e.g. CUDA 13.1 headers with a 13.0 NVRTC).
+try:
+    import nvidia.cuda_runtime as _nv_rt
+
+    _bundled = os.path.dirname(_nv_rt.__file__)
+    if os.path.isdir(os.path.join(_bundled, "include")):
+        os.environ.setdefault("CUDA_PATH", _bundled)
+except ImportError:
+    pass
 
 try:
     import cupy as cp

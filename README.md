@@ -26,6 +26,14 @@ uv sync --all-packages --group cuda
 . .venv/bin/activate
 ```
 
+### JupyterLab
+
+JupyterLab is included in the default dev dependencies. After syncing, start the server with:
+
+```sh
+uv run jupyter lab
+```
+
 ### Data Engine
 
 Next, you need to create the necessary data files for running a routing across your domain.

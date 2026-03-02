@@ -195,6 +195,7 @@ module = "tests.*"
 disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "integration: end-to-end training tests using real HPC data (deselect by default)",
 ]

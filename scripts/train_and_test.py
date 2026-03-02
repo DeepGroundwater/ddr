@@ -33,7 +33,7 @@ from scripts.train import train
 log = logging.getLogger(__name__)
 
 
-def test(
+def _test(
     cfg: Config,
     flow: streamflow,
     routing_model: dmc,
@@ -238,7 +238,7 @@ def main(cfg: DictConfig) -> None:
         routing_model = dmc(cfg=test_config, device=test_config.device)
         flow = streamflow(test_config)
 
-        test(cfg=test_config, flow=flow, routing_model=routing_model, nn=nn_model)
+        _test(cfg=test_config, flow=flow, routing_model=routing_model, nn=nn_model)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

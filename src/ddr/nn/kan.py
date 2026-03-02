@@ -36,6 +36,7 @@ class kan(torch.nn.Module):
         off_parameters: list[str] | None = None,
         use_graph_context: bool = False,
         output_embedding: bool = False,
+        spatial_chunk_size: int = 8192,
     ):
         super().__init__()
         self.input_size = len(input_var_names)
@@ -43,6 +44,7 @@ class kan(torch.nn.Module):
         self.learnable_parameters = learnable_parameters
         self.output_size = len(self.learnable_parameters)
         self.output_embedding = output_embedding
+        self.spatial_chunk_size = spatial_chunk_size
 
         # When graph context is enabled, the input is augmented with neighbor-aggregated
         # attributes (original D + aggregated D), doubling the effective input dimension.
@@ -88,8 +90,18 @@ class kan(torch.nn.Module):
                         idx = self.learnable_parameters.index(param_name)
                         self.output.bias[idx] = -2.0
 
+    def _kan_layers_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Run the KAN hidden layers on a (possibly chunked) input tensor."""
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
     def forward(self, *args: Any, **kwargs: Any) -> dict[str, torch.Tensor] | torch.Tensor:
         """Forward pass of the neural network.
+
+        When in eval mode and the spatial dimension exceeds ``spatial_chunk_size``,
+        the KAN hidden layers are applied in chunks along dim=0 to avoid CUDA OOM
+        from the large intermediate tensors created inside ``KANLayer.forward``.
 
         Returns
         -------
@@ -102,8 +114,12 @@ class kan(torch.nn.Module):
         """
         _x: torch.Tensor = kwargs["inputs"]
         _x = self.input(_x)
-        for layer in self.layers:
-            _x = layer(_x)
+
+        if not self.training and _x.shape[0] > self.spatial_chunk_size:
+            chunks = _x.split(self.spatial_chunk_size, dim=0)
+            _x = torch.cat([self._kan_layers_forward(c) for c in chunks], dim=0)
+        else:
+            _x = self._kan_layers_forward(_x)
 
         if self.output_embedding:
             # Return raw embedding — ParamDecoder in dmc handles the final projection

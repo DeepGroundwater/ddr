@@ -743,6 +743,7 @@ def benchmark(
 
             dmc_output = routing_model(**dmc_kwargs)
             ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
+            routing_model.clear_batch_state()  # Free batch tensors, preserve carry state
 
     # === PHASE 2: DiffRoute per-gage ===
     if diffroute_enabled:

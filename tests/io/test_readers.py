@@ -12,6 +12,7 @@ from ddr.io.readers import (
     convert_ft3_s_to_m3_s,
     filter_gages_by_area_threshold,
     filter_gages_by_da_valid,
+    filter_headwater_gages,
     read_gage_info,
     read_zarr,
 )
@@ -311,3 +312,47 @@ class TestFilterGagesByDaValid:
         filtered, removed = filter_gages_by_da_valid(gage_ids, gage_dict)
         assert list(filtered) == ["00000001"]
         assert removed == 1
+
+
+class TestFilterHeadwaterGages:
+    """Tests for filter_headwater_gages()."""
+
+    def test_filters_headwater_gages(self) -> None:
+        gage_ids = np.array(["00000001", "00000002", "00000003"])
+        gages_adjacency = {
+            "00000001": {"indices_0": np.array([0, 1])},
+            "00000002": {"indices_0": np.array([])},  # headwater
+            "00000003": {"indices_0": np.array([2])},
+        }
+        filtered, removed = filter_headwater_gages(gage_ids, gages_adjacency)
+        assert list(filtered) == ["00000001", "00000003"]
+        assert removed == 1
+
+    def test_keeps_all_when_no_headwaters(self) -> None:
+        gage_ids = np.array(["00000001", "00000002"])
+        gages_adjacency = {
+            "00000001": {"indices_0": np.array([0])},
+            "00000002": {"indices_0": np.array([1, 2])},
+        }
+        filtered, removed = filter_headwater_gages(gage_ids, gages_adjacency)
+        assert len(filtered) == 2
+        assert removed == 0
+
+    def test_removes_missing_gages(self) -> None:
+        gage_ids = np.array(["00000001", "00000099"])
+        gages_adjacency = {
+            "00000001": {"indices_0": np.array([0])},
+        }
+        filtered, removed = filter_headwater_gages(gage_ids, gages_adjacency)
+        assert list(filtered) == ["00000001"]
+        assert removed == 1
+
+    def test_all_headwater(self) -> None:
+        gage_ids = np.array(["00000001", "00000002"])
+        gages_adjacency = {
+            "00000001": {"indices_0": np.array([])},
+            "00000002": {"indices_0": np.array([])},
+        }
+        filtered, removed = filter_headwater_gages(gage_ids, gages_adjacency)
+        assert len(filtered) == 0
+        assert removed == 2

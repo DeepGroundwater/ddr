@@ -11,6 +11,7 @@ For most use cases, prefer the auto-detecting functions from ddr_engine:
 """
 
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -212,7 +213,10 @@ def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[str]]:
     tuple[sparse.coo_matrix, list[str]]
         The COO matrix and topological order (as wb-* strings).
     """
-    return coo_from_zarr_generic(zarr_path, lynker_converter)
+    return cast(
+        tuple[sparse.coo_matrix, list[str]],
+        coo_from_zarr_generic(zarr_path, lynker_converter),
+    )
 
 
 def create_coo(

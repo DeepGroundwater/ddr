@@ -9,7 +9,6 @@ import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import ddr_functions, dmc, kan, streamflow
@@ -74,10 +73,13 @@ def train(
         drop_last=True,
     )
 
-    # Cosine annealing with warm restarts (period doubles each restart)
-    kan_scheduler = CosineAnnealingWarmRestarts(kan_optimizer, T_0=len(dataloader), T_mult=2, eta_min=1e-5)
-
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
+        new_lr = resolve_learning_rate(cfg.experiment.learning_rate, epoch)
+        if new_lr != lr:
+            lr = new_lr
+            for param_group in kan_optimizer.param_groups:
+                param_group["lr"] = lr
+            log.info(f"Learning rate updated to {lr}")
         for i, routing_dataclass in enumerate(dataloader, start=0):
             if i < start_mini_batch:
                 log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")
@@ -168,7 +170,6 @@ def train(
                     )
 
                 kan_optimizer.step()
-                kan_scheduler.step()
 
                 current_lr = kan_optimizer.param_groups[0]["lr"]
                 tb.log_loss(loss.item(), global_step)

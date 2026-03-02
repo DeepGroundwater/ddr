@@ -1,4 +1,13 @@
-"""A function which takes a trained model, then evaluates performance on a single, or many, basins"""
+"""Train DDR, then immediately evaluate on the test period.
+
+Combines scripts/train.py and the test loop into a single entrypoint.
+Training uses the config as-is (e.g. 1981-1995, batch_size=64 gages, rho=90).
+After training, the script auto-discovers the last checkpoint and evaluates on
+the MERIT test period (1995-2010, batch_size=182 days, rho=None).
+
+Usage:
+    uv run python scripts/train_and_test.py --config-name=merit_training_config
+"""
 
 import logging
 import os
@@ -18,7 +27,8 @@ from ddr import dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.routing.utils import aggregate_neighbor_attributes, select_columns
 from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
-from ddr.validation import Config, Metrics, utils, validate_config
+from ddr.validation import Config, Metrics, create_tb_logger, utils, validate_config
+from scripts.train import train
 
 log = logging.getLogger(__name__)
 
@@ -139,19 +149,32 @@ def test(
     )
 
 
-@hydra.main(
-    version_base="1.3",
-    config_path="../config",
-)
+def _find_last_checkpoint(saved_models_dir: Path) -> Path:
+    """Return the most recently modified .pt file in saved_models_dir."""
+    pts = sorted(saved_models_dir.glob("*.pt"), key=lambda p: p.stat().st_mtime)
+    if not pts:
+        raise FileNotFoundError(f"No checkpoints found in {saved_models_dir}")
+    return pts[-1]
+
+
+@hydra.main(version_base="1.3", config_path="../config")
 def main(cfg: DictConfig) -> None:
-    """Main function."""
+    """Train, then evaluate."""
     cfg.params.save_path = Path(HydraConfig.get().run.dir)
     (cfg.params.save_path / "plots").mkdir(exist_ok=True)
     (cfg.params.save_path / "saved_models").mkdir(exist_ok=True)
+
     config = validate_config(cfg)
+    tb = create_tb_logger(
+        enabled=config.experiment.log_tensorboard,
+        log_dir=config.params.save_path / "tensorboard",
+        log_interval=config.experiment.log_interval,
+    )
+
     start_time = time.perf_counter()
     try:
-        nn = kan(
+        # --- Phase 1: Train ---
+        nn_model = kan(
             input_var_names=config.kan.input_var_names,
             learnable_parameters=config.kan.learnable_parameters,
             hidden_size=config.kan.hidden_size,
@@ -167,24 +190,66 @@ def main(cfg: DictConfig) -> None:
         )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        test(
-            cfg=config,
-            flow=flow,
-            routing_model=routing_model,
-            nn=nn,
+
+        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn_model, tb=tb)
+        tb.close()
+
+        train_elapsed = time.perf_counter() - start_time
+        log.info(f"Training complete in {train_elapsed / 60:.2f} minutes")
+
+        # --- Phase 2: Test ---
+        checkpoint = _find_last_checkpoint(config.params.save_path / "saved_models")
+        log.info(f"Evaluating with checkpoint: {checkpoint.name}")
+
+        # Override config for MERIT test period.
+        # Training uses batch_size=64 (gages), rho=90 (days).
+        # Testing uses batch_size=182 (days), rho=None (full sequence).
+        test_config = config.model_copy(
+            update={
+                "mode": "testing",
+                "experiment": config.experiment.model_copy(
+                    update={
+                        "start_time": "1995/10/01",
+                        "end_time": "2010/09/30",
+                        "batch_size": 182,
+                        "rho": None,
+                        "checkpoint": checkpoint,
+                        "epochs": 1,
+                    }
+                ),
+            }
         )
+
+        # Recreate fresh models for clean eval
+        nn_model = kan(
+            input_var_names=test_config.kan.input_var_names,
+            learnable_parameters=test_config.kan.learnable_parameters,
+            hidden_size=test_config.kan.hidden_size,
+            num_hidden_layers=test_config.kan.num_hidden_layers,
+            grid=test_config.kan.grid,
+            k=test_config.kan.k,
+            seed=test_config.seed,
+            device=test_config.device,
+            gate_parameters=test_config.kan.gate_parameters,
+            off_parameters=test_config.kan.off_parameters,
+            use_graph_context=test_config.kan.use_graph_context,
+            output_embedding=test_config.kan.use_node_processor,
+        )
+        routing_model = dmc(cfg=test_config, device=test_config.device)
+        flow = streamflow(test_config)
+
+        test(cfg=test_config, flow=flow, routing_model=routing_model, nn=nn_model)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
 
     finally:
         log.info("Cleaning up...")
-
         total_time = time.perf_counter() - start_time
-        log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
+        log.info(f"Total time: {total_time / 60:.2f} minutes")
 
 
 if __name__ == "__main__":
-    print(f"Evaluating DDR with version: {__version__}")
+    log.info(f"DDR train+test with version: {__version__}")
     os.environ["DDR_VERSION"] = __version__
     main()

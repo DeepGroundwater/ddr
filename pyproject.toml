@@ -178,6 +178,7 @@ docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.11"
+explicit_package_bases = true
 warn_return_any = true
 warn_unused_configs = true
 strict_optional = true

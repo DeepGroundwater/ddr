@@ -28,7 +28,7 @@ params:
 experiment:
   batch_size: 182
   start_time: 1995/10/01
-  end_time: 2010/09/30
+  end_time: 1996/09/30
   warmup: 3
   checkpoint: /home/tbindas/projects/ddr/output/ddr-v0.6.2.dev9+g36af06c90.d20260301-merit-training/2026-03-01_19-30-41/saved_models/_ddr-v0.6.2.dev9+g36af06c90.d20260301-merit-training_epoch_5_mb_43.pt
   log_tensorboard: false
@@ -60,7 +60,7 @@ kan:
 # === DiffRoute-specific configuration ===
 diffroute:
   # Enable/disable DiffRoute comparison
-  enabled: true
+  enabled: false
 
   # Impulse Response Function model
   # Options: muskingum, linear_storage, nash_cascade, pure_lag, hayami

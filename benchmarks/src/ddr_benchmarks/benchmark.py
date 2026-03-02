@@ -248,6 +248,48 @@ def run_diffroute_benchmark(
     return output
 
 
+def build_headwater_mask(
+    gages_adjacency_path: str,
+    gage_ids: np.ndarray,
+) -> NDArray[np.bool_]:
+    """Boolean mask where True = non-headwater (keep).
+
+    Headwater gages have zero edges (empty ``indices_0``) in the
+    gages_adjacency zarr store, meaning they are single-reach
+    catchments with no upstream connectivity.
+
+    Parameters
+    ----------
+    gages_adjacency_path : str
+        Path to gages_adjacency zarr store.
+    gage_ids : np.ndarray
+        Array of gage IDs to check.
+
+    Returns
+    -------
+    NDArray[np.bool_]
+        Boolean mask aligned with *gage_ids*; True for non-headwater
+        gages that should be kept in evaluation.
+    """
+    gages_adj = read_zarr(Path(gages_adjacency_path))
+    mask = np.ones(len(gage_ids), dtype=bool)
+    num_headwater = 0
+    num_missing = 0
+    for idx, gage_id in enumerate(gage_ids):
+        if gage_id not in gages_adj:
+            mask[idx] = False
+            num_missing += 1
+            continue
+        if len(gages_adj[gage_id]["indices_0"][:]) == 0:
+            mask[idx] = False
+            num_headwater += 1
+    log.info(
+        f"Headwater filter: {int(mask.sum())}/{len(gage_ids)} gages kept "
+        f"({num_headwater} headwater, {num_missing} missing)"
+    )
+    return mask
+
+
 def load_summed_q_prime(
     summed_q_prime_path: str,
     gage_ids: np.ndarray,
@@ -758,18 +800,15 @@ def benchmark(
                 num_hourly=len(dataset.dates.hourly_time_range),
             )
 
-    # === Filter to gages DiffRoute actually routed (apples-to-apples) ===
-    if diffroute_enabled:
-        routed_mask = ~np.isnan(diffroute_predictions[:, 0])
-        num_excluded = int((~routed_mask).sum())
-        log.info(
-            f"Filtering to {int(routed_mask.sum())}/{len(all_gage_ids)} gages "
-            f"({num_excluded} headwater/skipped gages excluded for apples-to-apples comparison)"
-        )
-        all_gage_ids = all_gage_ids[routed_mask]
-        observations = observations[routed_mask]
-        ddr_predictions = ddr_predictions[routed_mask]
-        diffroute_predictions = diffroute_predictions[routed_mask]
+    # === Always filter headwater gages for consistent evaluation ===
+    assert cfg.data_sources.gages_adjacency is not None, (
+        "gages_adjacency path required for headwater filtering"
+    )
+    non_headwater = build_headwater_mask(cfg.data_sources.gages_adjacency, all_gage_ids)
+    all_gage_ids = all_gage_ids[non_headwater]
+    observations = observations[non_headwater]
+    ddr_predictions = ddr_predictions[non_headwater]
+    diffroute_predictions = diffroute_predictions[non_headwater]
 
     # === EVALUATION (same as test.py) ===
     num_days = len(ddr_predictions[0][13 : (-11 + cfg.params.tau)]) // 24

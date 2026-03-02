@@ -2,20 +2,20 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Any
 
 import hydra
 import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.routing.utils import aggregate_neighbor_attributes, select_columns
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
-from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
+from ddr.validation import Config, Metrics, create_tb_logger, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ def train(
     flow: streamflow,
     routing_model: dmc,
     nn: kan,
+    tb: Any,
 ) -> None:
     """Do model training."""
     data_generator = torch.Generator()
@@ -35,7 +36,12 @@ def train(
     start_mini_batch = 0
 
     lr = resolve_learning_rate(cfg.experiment.learning_rate, 1)
-    kan_optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
+    # GNN mode: optimize KAN + MCNodeProcessor + ParamDecoder (all owned as nn.Modules)
+    if cfg.kan.use_node_processor:
+        all_params = list(nn.parameters()) + list(routing_model.parameters())
+    else:
+        all_params = list(nn.parameters())
+    kan_optimizer = torch.optim.Adam(params=all_params, lr=lr)
 
     if cfg.experiment.checkpoint:
         state = load_checkpoint(
@@ -43,6 +49,7 @@ def train(
             cfg.experiment.checkpoint,
             torch.device(cfg.device),
             kan_optimizer=kan_optimizer,
+            routing_model=routing_model if cfg.kan.use_node_processor else None,
         )
         start_epoch = state["epoch"]
         start_mini_batch = (
@@ -66,15 +73,19 @@ def train(
         drop_last=True,
     )
 
-    # Cosine annealing with warm restarts (period doubles each restart)
-    kan_scheduler = CosineAnnealingWarmRestarts(kan_optimizer, T_0=len(dataloader), T_mult=2, eta_min=1e-5)
-
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
+        new_lr = resolve_learning_rate(cfg.experiment.learning_rate, epoch)
+        if new_lr != lr:
+            lr = new_lr
+            for param_group in kan_optimizer.param_groups:
+                param_group["lr"] = lr
+            log.info(f"Learning rate updated to {lr}")
         for i, routing_dataclass in enumerate(dataloader, start=0):
             if i < start_mini_batch:
                 log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")
             else:
                 start_mini_batch = 0
+                global_step = (epoch - 1) * len(dataloader) + i
                 routing_model.set_progress_info(epoch=epoch, mini_batch=i)
                 kan_optimizer.zero_grad()
 
@@ -88,15 +99,19 @@ def train(
                     adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
                     neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
                     kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
-                spatial_params = nn(inputs=kan_attrs)
+                kan_out = nn(inputs=kan_attrs)
 
                 dmc_kwargs = {
                     "routing_dataclass": routing_dataclass,
-                    "spatial_parameters": spatial_params,
                     "streamflow": streamflow_predictions,
                 }
+                if cfg.kan.use_node_processor:
+                    dmc_kwargs["node_embeddings"] = kan_out
+                else:
+                    dmc_kwargs["spatial_parameters"] = kan_out
 
                 dmc_output = routing_model(**dmc_kwargs)
+                del dmc_kwargs  # Free graph references held by the kwargs dict
 
                 num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
                 daily_runoff = ddr_functions.downsample(
@@ -118,44 +133,48 @@ def train(
                 target = filtered_observations[:, cfg.experiment.warmup :]
                 loss = torch.nn.functional.mse_loss(pred, target)
 
-                # --- Check forward pass output for NaN ---
+                # --- Fail fast on NaN ---
                 if torch.isnan(dmc_output["runoff"]).any():
                     nan_t = torch.isnan(dmc_output["runoff"]).any(dim=0).nonzero(as_tuple=True)[0][0].item()
-                    log.error(f"NaN in routing output at timestep {nan_t} — skipping batch")
-                    del streamflow_predictions, spatial_params, dmc_output, daily_runoff
-                    del loss, filtered_predictions, filtered_observations
-                    routing_model.clear_batch_state()
-                    continue
+                    raise RuntimeError(
+                        f"NaN in routing output at timestep {nan_t} "
+                        f"(epoch {epoch}, mini-batch {i}). "
+                        f"Check parameter bounds and numerical stability."
+                    )
 
-                # --- Check loss for NaN ---
                 if torch.isnan(loss):
-                    log.error("NaN loss — skipping backward + optimizer step")
-                    del streamflow_predictions, spatial_params, dmc_output, daily_runoff
-                    del loss, filtered_predictions, filtered_observations
-                    routing_model.clear_batch_state()
-                    continue
+                    raise RuntimeError(
+                        f"NaN loss at epoch {epoch}, mini-batch {i}. Loss value: {loss.item()}"
+                    )
 
                 log.info("Running backpropagation")
 
                 loss.backward()
 
                 # --- NaN gradient guard ---
+                clip_params = (
+                    list(nn.parameters()) + list(routing_model.parameters())
+                    if cfg.kan.use_node_processor
+                    else list(nn.parameters())
+                )
                 kan_grad_norm = torch.nn.utils.clip_grad_norm_(
-                    nn.parameters(), max_norm=cfg.experiment.grad_clip_norm
+                    clip_params, max_norm=cfg.experiment.grad_clip_norm
                 )
                 has_nan_grad = torch.isnan(kan_grad_norm)
                 grad_msg = f"Grad norms: KAN={kan_grad_norm.item():.4g}"
                 log.info(grad_msg)
 
                 if has_nan_grad:
-                    log.error(
-                        "NaN in gradients after backward — skipping optimizer step. "
-                        "Weights preserved from previous batch."
+                    raise RuntimeError(
+                        f"NaN gradients at epoch {epoch}, mini-batch {i}. Grad norm: {kan_grad_norm.item()}"
                     )
-                    kan_optimizer.zero_grad()
-                else:
-                    kan_optimizer.step()
-                    kan_scheduler.step()
+
+                kan_optimizer.step()
+
+                current_lr = kan_optimizer.param_groups[0]["lr"]
+                tb.log_loss(loss.item(), global_step)
+                tb.log_grad_norm(kan_grad_norm.item(), global_step)
+                tb.log_learning_rate(current_lr, global_step)
 
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()
@@ -167,6 +186,7 @@ def train(
                 rmse = metrics.rmse
                 kge = metrics.kge
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
+                tb.log_metrics(nse, rmse, kge, global_step)
                 log.info(f"Loss: {loss.item():.4f}")
 
                 n_vals = routing_model.n.detach().cpu()
@@ -193,6 +213,21 @@ def train(
                             f"Pool elevation: median={p.median():.2f}, range=[{p.min():.2f}, {p.max():.2f}]"
                         )
 
+                x_storage = routing_model.routing_engine.x_storage
+                tb.log_routing_params(
+                    n_vals=n_vals,
+                    global_step=global_step,
+                    x_vals=x_storage.detach().cpu() if x_storage is not None else None,
+                    pool_elev=p
+                    if (
+                        routing_model.routing_engine.use_reservoir
+                        and routing_model.routing_engine._pool_elevation_t is not None
+                        and routing_model.routing_engine.reservoir_mask is not None
+                        and routing_model.routing_engine.reservoir_mask.any()
+                    )
+                    else None,
+                )
+
                 random_gage = -1  # TODO: scale out when we have more gauges
                 plot_time_series(
                     filtered_predictions[-1].detach().cpu().numpy(),
@@ -213,10 +248,11 @@ def train(
                     kan_optimizer=kan_optimizer,
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
+                    routing_model=routing_model if cfg.kan.use_node_processor else None,
                 )
 
                 # Free batch-specific GPU tensors to prevent VRAM growth
-                del streamflow_predictions, spatial_params, dmc_output, daily_runoff
+                del streamflow_predictions, kan_out, dmc_output, daily_runoff
                 del loss, filtered_predictions, filtered_observations
                 routing_model.clear_batch_state()
 
@@ -231,6 +267,11 @@ def main(cfg: DictConfig) -> None:
     (cfg.params.save_path / "plots").mkdir(exist_ok=True)
     (cfg.params.save_path / "saved_models").mkdir(exist_ok=True)
     config = validate_config(cfg)
+    tb = create_tb_logger(
+        enabled=config.experiment.log_tensorboard,
+        log_dir=config.params.save_path / "tensorboard",
+        log_interval=config.experiment.log_interval,
+    )
     start_time = time.perf_counter()
     try:
         nn = kan(
@@ -245,6 +286,7 @@ def main(cfg: DictConfig) -> None:
             gate_parameters=config.kan.gate_parameters,
             off_parameters=config.kan.off_parameters,
             use_graph_context=config.kan.use_graph_context,
+            output_embedding=config.kan.use_node_processor,
         )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
@@ -253,12 +295,14 @@ def main(cfg: DictConfig) -> None:
             flow=flow,
             routing_model=routing_model,
             nn=nn,
+            tb=tb,
         )
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
 
     finally:
+        tb.close()
         log.info("Cleaning up...")
 
         total_time = time.perf_counter() - start_time

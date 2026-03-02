@@ -207,6 +207,7 @@ class TestdmcForwardPass:
                 streamflow=streamflow,
                 spatial_parameters=spatial_params,
                 carry_state=False,
+                node_embeddings=None,
             )
 
     def test_forward_compatibility_attributes_update(
@@ -281,7 +282,7 @@ class TestdmcStateDict:
     """Test state dictionary functionality."""
 
     def test_state_dict(self) -> None:
-        """Test state_dict method."""
+        """Test state_dict contains only nn.Module parameters (no metadata)."""
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
@@ -289,16 +290,15 @@ class TestdmcStateDict:
 
         state = model.state_dict()
 
-        # Check that custom attributes are included
-        assert "cfg" in state
-        assert "device_num" in state
-        assert "epoch" in state
-        assert "mini_batch" in state
+        # Non-tensor metadata should NOT be in state_dict (PyTorch convention)
+        assert "cfg" not in state
+        assert "device_num" not in state
+        assert "epoch" not in state
+        assert "mini_batch" not in state
 
-        assert state["cfg"] == cfg
-        assert state["device_num"] == "cpu"
-        assert state["epoch"] == 3
-        assert state["mini_batch"] == 7
+        # But instance attributes should still be accessible
+        assert model.epoch == 3
+        assert model.mini_batch == 7
 
     def test_load_state_dict(self) -> None:
         """Test load_state_dict method."""
@@ -499,12 +499,15 @@ class TestdmcIntegration:
             assert "runoff" in output
             assert_tensor_properties(output["runoff"], (2, 36))
 
-        # Test state dict functionality
-        state = model.state_dict()
-        assert "epoch" in state
-        assert state["epoch"] == 2
+        # Test that progress info is tracked on instance (not in state_dict)
+        assert model.epoch == 2
+        assert model.mini_batch == 5
 
-        # Create new model and load state
+        # Test round-trip via load_state_dict with metadata passed separately
+        state = model.state_dict()
+        state["cfg"] = cfg
+        state["epoch"] = 2
+        state["mini_batch"] = 5
         new_model = dmc(cfg, device="cpu")
         new_model.load_state_dict(state, strict=False)
         assert new_model.epoch == 2

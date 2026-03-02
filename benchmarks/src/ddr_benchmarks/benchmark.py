@@ -119,13 +119,15 @@ def run_ddr(
         adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
         neighbor_attrs = aggregate_neighbor_attributes(kan_attrs.to(cfg.device), adjacency)
         kan_attrs = torch.cat([kan_attrs.to(cfg.device), neighbor_attrs], dim=1)
-    spatial_params: torch.Tensor = nn(inputs=kan_attrs)
-    spatial_params = spatial_params.to(cfg.device)
+    kan_out = nn(inputs=kan_attrs)
     dmc_kwargs: dict[str, Any] = {
         "routing_dataclass": routing_dataclass,
-        "spatial_parameters": spatial_params,
         "streamflow": streamflow_predictions,
     }
+    if cfg.kan.use_node_processor:
+        dmc_kwargs["node_embeddings"] = kan_out
+    else:
+        dmc_kwargs["spatial_parameters"] = kan_out
     dmc_output = routing_model(**dmc_kwargs)
     return dmc_output["runoff"].cpu().numpy()
 
@@ -244,6 +246,48 @@ def run_diffroute_benchmark(
         )
 
     return output
+
+
+def build_headwater_mask(
+    gages_adjacency_path: str,
+    gage_ids: np.ndarray,
+) -> NDArray[np.bool_]:
+    """Boolean mask where True = non-headwater (keep).
+
+    Headwater gages have zero edges (empty ``indices_0``) in the
+    gages_adjacency zarr store, meaning they are single-reach
+    catchments with no upstream connectivity.
+
+    Parameters
+    ----------
+    gages_adjacency_path : str
+        Path to gages_adjacency zarr store.
+    gage_ids : np.ndarray
+        Array of gage IDs to check.
+
+    Returns
+    -------
+    NDArray[np.bool_]
+        Boolean mask aligned with *gage_ids*; True for non-headwater
+        gages that should be kept in evaluation.
+    """
+    gages_adj = read_zarr(Path(gages_adjacency_path))
+    mask = np.ones(len(gage_ids), dtype=bool)
+    num_headwater = 0
+    num_missing = 0
+    for idx, gage_id in enumerate(gage_ids):
+        if gage_id not in gages_adj:
+            mask[idx] = False
+            num_missing += 1
+            continue
+        if len(gages_adj[gage_id]["indices_0"][:]) == 0:
+            mask[idx] = False
+            num_headwater += 1
+    log.info(
+        f"Headwater filter: {int(mask.sum())}/{len(gage_ids)} gages kept "
+        f"({num_headwater} headwater, {num_missing} missing)"
+    )
+    return mask
 
 
 def load_summed_q_prime(
@@ -656,6 +700,7 @@ def benchmark(
     nn: kan,
     diffroute_cfg: DiffRouteConfig,
     summed_q_prime_path: str | None = None,
+    tb: Any = None,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -666,6 +711,7 @@ def benchmark(
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
         summed_q_prime_path: Optional path to summed Q' zarr store
+        tb: TensorBoard logger (TBLogger or _NoOpTBLogger)
     """
     assert cfg.geodataset == GeoDataset.MERIT, (
         f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
@@ -679,7 +725,12 @@ def benchmark(
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
+        load_checkpoint(
+            nn,
+            cfg.experiment.checkpoint,
+            torch.device(cfg.device),
+            routing_model=routing_model if cfg.kan.use_node_processor else None,
+        )
     else:
         log.warning("Creating new spatial model for evaluation.")
 
@@ -721,16 +772,20 @@ def benchmark(
                 adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
                 neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
                 kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
-            spatial_params = nn(inputs=kan_attrs)
+            kan_out = nn(inputs=kan_attrs)
             dmc_kwargs: dict[str, Any] = {
                 "routing_dataclass": routing_dataclass,
-                "spatial_parameters": spatial_params,
                 "streamflow": streamflow_predictions,
                 "carry_state": i > 0,
             }
+            if cfg.kan.use_node_processor:
+                dmc_kwargs["node_embeddings"] = kan_out
+            else:
+                dmc_kwargs["spatial_parameters"] = kan_out
 
             dmc_output = routing_model(**dmc_kwargs)
             ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
+            routing_model.clear_batch_state()  # Free batch tensors, preserve carry state
 
     # === PHASE 2: DiffRoute per-gage ===
     if diffroute_enabled:
@@ -745,18 +800,15 @@ def benchmark(
                 num_hourly=len(dataset.dates.hourly_time_range),
             )
 
-    # === Filter to gages DiffRoute actually routed (apples-to-apples) ===
-    if diffroute_enabled:
-        routed_mask = ~np.isnan(diffroute_predictions[:, 0])
-        num_excluded = int((~routed_mask).sum())
-        log.info(
-            f"Filtering to {int(routed_mask.sum())}/{len(all_gage_ids)} gages "
-            f"({num_excluded} headwater/skipped gages excluded for apples-to-apples comparison)"
-        )
-        all_gage_ids = all_gage_ids[routed_mask]
-        observations = observations[routed_mask]
-        ddr_predictions = ddr_predictions[routed_mask]
-        diffroute_predictions = diffroute_predictions[routed_mask]
+    # === Always filter headwater gages for consistent evaluation ===
+    assert cfg.data_sources.gages_adjacency is not None, (
+        "gages_adjacency path required for headwater filtering"
+    )
+    non_headwater = build_headwater_mask(cfg.data_sources.gages_adjacency, all_gage_ids)
+    all_gage_ids = all_gage_ids[non_headwater]
+    observations = observations[non_headwater]
+    ddr_predictions = ddr_predictions[non_headwater]
+    diffroute_predictions = diffroute_predictions[non_headwater]
 
     # === EVALUATION (same as test.py) ===
     num_days = len(ddr_predictions[0][13 : (-11 + cfg.params.tau)]) // 24
@@ -780,6 +832,8 @@ def benchmark(
     _nse = ddr_metrics.nse
     nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
     utils.log_metrics(nse, ddr_metrics.rmse, ddr_metrics.kge)
+    if tb is not None:
+        tb.log_benchmark_metrics(ddr_metrics, model_name="ddr")
 
     diffroute_metrics = None
     if diffroute_enabled:
@@ -789,6 +843,8 @@ def benchmark(
         _nse = diffroute_metrics.nse
         nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
         utils.log_metrics(nse, diffroute_metrics.rmse, diffroute_metrics.kge)
+        if tb is not None:
+            tb.log_benchmark_metrics(diffroute_metrics, model_name="diffroute")
 
     # Optional summed Q' baseline
     sqp_metrics = None
@@ -803,6 +859,8 @@ def benchmark(
             _nse = sqp_metrics.nse
             nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
             utils.log_metrics(nse, sqp_metrics.rmse, sqp_metrics.kge)
+            if tb is not None:
+                tb.log_benchmark_metrics(sqp_metrics, model_name="summed_q_prime")
 
     # === MASS BALANCE CHECK ===
     log.info("=" * 50)

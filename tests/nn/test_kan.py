@@ -74,3 +74,83 @@ class TestKan:
 
         assert output["n"].shape == (5,)
         assert output["q_spatial"].shape == (5,)
+
+    def test_kan_chunked_forward_matches_full(self) -> None:
+        """Chunked eval output must be numerically identical to non-chunked."""
+        model = kan(
+            input_var_names=[f"attr_{i}" for i in range(5)],
+            learnable_parameters=["n", "q_spatial"],
+            hidden_size=11,
+            num_hidden_layers=1,
+            grid=3,
+            k=3,
+            seed=42,
+            device="cpu",
+            spatial_chunk_size=4,  # Force chunking with N=20
+        )
+        model.eval()
+        inputs = torch.rand(20, 5)
+
+        with torch.no_grad():
+            chunked = model(inputs=inputs)
+
+        # Run without chunking by temporarily raising the threshold
+        model.spatial_chunk_size = 10_000
+        with torch.no_grad():
+            full = model(inputs=inputs)
+
+        for key in ["n", "q_spatial"]:
+            assert torch.equal(chunked[key], full[key]), f"Mismatch in {key}"
+
+    def test_kan_chunked_forward_encoder_mode(self) -> None:
+        """Chunked eval output matches full output in encoder mode."""
+        model = kan(
+            input_var_names=[f"attr_{i}" for i in range(5)],
+            learnable_parameters=["n", "q_spatial"],
+            hidden_size=11,
+            num_hidden_layers=1,
+            grid=3,
+            k=3,
+            seed=42,
+            device="cpu",
+            output_embedding=True,
+            spatial_chunk_size=4,
+        )
+        model.eval()
+        inputs = torch.rand(20, 5)
+
+        with torch.no_grad():
+            chunked = model(inputs=inputs)
+
+        assert isinstance(chunked, torch.Tensor)
+        assert chunked.shape == (20, 11)
+
+        model.spatial_chunk_size = 10_000
+        with torch.no_grad():
+            full = model(inputs=inputs)
+
+        assert torch.allclose(chunked, full, atol=1e-6)
+
+    def test_kan_chunking_only_in_eval(self) -> None:
+        """Chunking is bypassed during training mode (full batch for gradients)."""
+        model = kan(
+            input_var_names=[f"attr_{i}" for i in range(5)],
+            learnable_parameters=["n", "q_spatial"],
+            hidden_size=11,
+            num_hidden_layers=1,
+            grid=3,
+            k=3,
+            seed=42,
+            device="cpu",
+            spatial_chunk_size=4,
+        )
+        model.train()
+        inputs = torch.rand(20, 5)
+
+        # Should not error and should produce valid gradients
+        output = model(inputs=inputs)
+        loss = output["n"].sum() + output["q_spatial"].sum()
+        loss.backward()
+
+        has_grad = any(p.grad is not None for p in model.parameters())
+        assert has_grad, "No parameter received gradients in training mode"

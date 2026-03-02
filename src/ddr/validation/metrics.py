@@ -197,7 +197,10 @@ class Metrics(BaseModel):
     @staticmethod
     def _p_bias(pred: np.ndarray, target: np.ndarray) -> np.float32:
         """Calculate p bias"""
-        p_bias = np.sum(pred - target) / np.sum(target) * 100
+        target_sum = np.sum(target)
+        if target_sum == 0:
+            return np.float32(np.nan)
+        p_bias = np.sum(pred - target) / target_sum * 100
         return p_bias
 
     @staticmethod

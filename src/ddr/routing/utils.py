@@ -1,4 +1,5 @@
 import logging
+import os
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -9,6 +10,17 @@ import torch
 from scipy.sparse.linalg import spsolve_triangular
 
 log = logging.getLogger(__name__)
+
+# Point CuPy's NVRTC at the pip-installed CUDA runtime headers so it doesn't
+# pick up incompatible system headers (e.g. CUDA 13.1 headers with a 13.0 NVRTC).
+try:
+    import nvidia.cuda_runtime as _nv_rt
+
+    _bundled = os.path.dirname(_nv_rt.__file__)
+    if os.path.isdir(os.path.join(_bundled, "include")):
+        os.environ.setdefault("CUDA_PATH", _bundled)
+except ImportError:
+    pass
 
 try:
     import cupy as cp
@@ -202,8 +214,8 @@ def denormalize(value: torch.Tensor, bounds: list[float], log_space: bool = Fals
     """
     if log_space:
         # Map sigmoid output to log space, then exponentiate
-        log_min = torch.log(torch.tensor(bounds[0] + 1e-6))
-        log_max = torch.log(torch.tensor(bounds[1]))
+        log_min = torch.log(torch.tensor(bounds[0] + 1e-6, device=value.device, dtype=value.dtype))
+        log_max = torch.log(torch.tensor(bounds[1], device=value.device, dtype=value.dtype))
         log_value = value * (log_max - log_min) + log_min
         return torch.exp(log_value)
     else:

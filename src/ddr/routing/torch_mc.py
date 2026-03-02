@@ -9,6 +9,7 @@ from typing import Any
 
 import torch
 
+from ddr.nn.node_processor import MCNodeProcessor, ParamDecoder
 from ddr.routing.mmc import MuskingumCunge
 from ddr.validation.configs import Config
 
@@ -37,9 +38,31 @@ class dmc(torch.nn.Module):
         super().__init__()
         self.cfg = cfg
         self.device_num: str | torch.device = device if device is not None else "cpu"
+        self.use_node_processor: bool = getattr(cfg.kan, "use_node_processor", False)
 
-        # Initialize the core routing engine
-        self.routing_engine = MuskingumCunge(cfg, self.device_num)
+        # GNN submodules — owned here so autograd flows back through them.
+        # node_processor and param_decoder are registered nn.Modules, which means
+        # their parameters appear in dmc.parameters() and .to(device) moves them.
+        if self.use_node_processor:
+            d_hidden = cfg.kan.hidden_size
+            self.node_processor: MCNodeProcessor | None = MCNodeProcessor(d_hidden=d_hidden).to(
+                self.device_num
+            )
+            self.param_decoder: ParamDecoder | None = ParamDecoder(
+                d_hidden=d_hidden,
+                learnable_parameters=cfg.kan.learnable_parameters,
+                gate_parameters=cfg.kan.gate_parameters or [],
+                off_parameters=cfg.kan.off_parameters or [],
+                device=self.device_num,
+            )
+        else:
+            self.node_processor = None
+            self.param_decoder = None
+
+        # Initialize the core routing engine (holds references, not ownership)
+        self.routing_engine = MuskingumCunge(
+            cfg, self.device_num, node_processor=self.node_processor, param_decoder=self.param_decoder
+        )
 
         # Store configuration parameters as module attributes for compatibility
         self.t = self.routing_engine.t
@@ -82,8 +105,12 @@ class dmc(torch.nn.Module):
         else:
             self.device_num = str(device)
 
-        # Create new routing engine with updated device
-        self.routing_engine = MuskingumCunge(self.cfg, self.device_num)
+        # Create new routing engine with updated device.
+        # super().to(device) already moved self.node_processor and self.param_decoder,
+        # so we just pass the (now on-device) references to the new engine.
+        self.routing_engine = MuskingumCunge(
+            self.cfg, self.device_num, node_processor=self.node_processor, param_decoder=self.param_decoder
+        )
 
         # Update tensor attributes
         self.t = self.routing_engine.t
@@ -144,6 +171,13 @@ class dmc(torch.nn.Module):
     def clear_batch_state(self) -> None:
         """Release batch-specific tensor references to free GPU memory."""
         self.routing_engine.clear_batch_state()
+        # Clear dmc's own copied tensor references so GPU memory can be freed
+        self.network = torch.empty(0)
+        self.q_spatial = torch.empty(0)
+        self.top_width = torch.empty(0)
+        self.side_slope = torch.empty(0)
+        self.n = torch.empty(0)
+        self._discharge_t = self.routing_engine._discharge_t  # Sync with detached version
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass for the Muskingum-Cunge routing model.
@@ -169,7 +203,10 @@ class dmc(torch.nn.Module):
         # Extract inputs
         routing_dataclass = kwargs["routing_dataclass"]
         q_prime = kwargs["streamflow"].to(self.device_num)
-        spatial_parameters = kwargs["spatial_parameters"]
+        # Classic mode: spatial_parameters dict from KAN.
+        # GNN mode: node_embeddings tensor from KAN encoder; spatial_parameters=None.
+        spatial_parameters: dict[str, torch.Tensor] | None = kwargs.get("spatial_parameters", None)
+        node_embeddings: torch.Tensor | None = kwargs.get("node_embeddings", None)
 
         # Setup routing engine with all inputs
         carry_state = kwargs.get("carry_state", False)
@@ -178,6 +215,7 @@ class dmc(torch.nn.Module):
             streamflow=q_prime,
             spatial_parameters=spatial_parameters,
             carry_state=carry_state,
+            node_embeddings=node_embeddings,
         )
 
         # Update compatibility attributes
@@ -280,6 +318,7 @@ class dmc(torch.nn.Module):
         self,
         q_prime_clamp: torch.Tensor,
         mapper: Any,
+        timestep: int = 0,
     ) -> torch.Tensor:
         """Route flow for a single timestep (compatibility method).
 
@@ -289,6 +328,8 @@ class dmc(torch.nn.Module):
             Clamped lateral inflow
         mapper : Any
             Pattern mapper for sparse operations
+        timestep : int, optional
+            Current timestep index (used for GNN update frequency), by default 0
 
         Returns
         -------
@@ -298,22 +339,8 @@ class dmc(torch.nn.Module):
         return self.routing_engine.route_timestep(
             q_prime_clamp=q_prime_clamp,
             mapper=mapper,
+            timestep=timestep,
         )
-
-    def state_dict(self) -> dict[str, Any]:
-        """Return state dictionary for saving/loading.
-
-        Returns
-        -------
-        Dict[str, Any]
-            State dictionary
-        """
-        state: dict[str, Any] = super().state_dict()
-        state["cfg"] = self.cfg
-        state["device_num"] = self.device_num
-        state["epoch"] = self.epoch
-        state["mini_batch"] = self.mini_batch
-        return state
 
     def load_state_dict(self, state_dict: dict[str, Any], strict: bool = True) -> None:
         """Load state dictionary.
@@ -325,13 +352,16 @@ class dmc(torch.nn.Module):
         strict : bool, optional
             Whether to strictly enforce key matching, by default True
         """
+        # Copy to avoid mutating the caller's dict
+        state_dict = dict(state_dict)
+
         # Extract custom attributes before calling parent
         cfg = state_dict.pop("cfg", self.cfg)
         device_num = state_dict.pop("device_num", self.device_num)
         epoch = state_dict.pop("epoch", 0)
         mini_batch = state_dict.pop("mini_batch", 0)
 
-        # Load parent state
+        # Load parent state (restores node_processor/param_decoder weights)
         super().load_state_dict(state_dict, strict)
 
         # Restore custom attributes
@@ -340,6 +370,11 @@ class dmc(torch.nn.Module):
         self.epoch = epoch
         self.mini_batch = mini_batch
 
-        # Recreate routing engine
-        self.routing_engine = MuskingumCunge(self.cfg, self.device_num)
+        # Recreate routing engine with GNN submodule references
+        self.routing_engine = MuskingumCunge(
+            self.cfg,
+            self.device_num,
+            node_processor=self.node_processor,
+            param_decoder=self.param_decoder,
+        )
         self.routing_engine.set_progress_info(self.epoch, self.mini_batch)

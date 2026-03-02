@@ -222,6 +222,36 @@ def filter_gages_by_da_valid(
     return filtered, n_removed
 
 
+def filter_headwater_gages(
+    gage_ids: np.ndarray,
+    gages_adjacency: Any,
+) -> tuple[np.ndarray, int]:
+    """Filter out headwater gages that have no upstream connectivity.
+
+    Headwater gages have an empty ``indices_0`` array in the
+    gages_adjacency store, meaning they are single-reach catchments
+    with no routing edges.
+
+    Parameters
+    ----------
+    gage_ids : np.ndarray
+        Array of STAID strings.
+    gages_adjacency
+        Opened zarr store (from ``read_zarr``) keyed by gage ID.
+
+    Returns
+    -------
+    tuple[np.ndarray, int]
+        Filtered gage IDs and count of removed gages.
+    """
+    keep_mask = np.array(
+        [gid in gages_adjacency and len(gages_adjacency[gid]["indices_0"][:]) > 0 for gid in gage_ids]
+    )
+    filtered = gage_ids[keep_mask]
+    n_removed = len(gage_ids) - len(filtered)
+    return filtered, n_removed
+
+
 def compute_flow_scale_factor(
     drain_sqkm: float,
     comid_drain_sqkm: float,

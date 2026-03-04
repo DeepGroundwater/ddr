@@ -15,15 +15,15 @@ The following commands will allow you to install all required dependencies for D
 ```sh
 # Full workspace — CPU (includes ddr, ddr-engine, and ddr-benchmarks)
 uv sync --all-packages
-. .venv/bin/activate
 
 # Or core DDR only (skip engine and benchmarks)
 uv sync --package ddr
-. .venv/bin/activate
 
 # GPU support (adds CuPy for CUDA 12.4)
-uv sync --all-packages --group cuda
-. .venv/bin/activate
+uv sync --all-packages --group cuda12
+
+# GPU support (adds CuPy for CUDA 13.0)
+uv sync --all-packages --group cuda13
 ```
 
 ### Data Engine

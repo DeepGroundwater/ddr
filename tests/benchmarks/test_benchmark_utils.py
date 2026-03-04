@@ -1,4 +1,4 @@
-"""Tests for benchmark utility functions — reorder, save_results, load_summed_q_prime, build_headwater_mask."""
+"""Tests for benchmark utility functions — reorder, save_results, load_summed_q_prime."""
 
 from unittest.mock import MagicMock
 
@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 import torch
 import xarray as xr
-import zarr
 
 pytest.importorskip("ddr_benchmarks")
 
@@ -15,7 +14,6 @@ pytest.importorskip("ddr_benchmarks")
 # ============================================================================
 import pandas as pd
 from ddr_benchmarks.benchmark import (
-    build_headwater_mask,
     load_summed_q_prime,
     reorder_to_diffroute,
     reorder_to_topo,
@@ -280,104 +278,3 @@ class TestLoadSummedQPrime:
         assert result is not None
         _, sqp_preds, _ = result
         assert sqp_preds.shape[1] == 5  # uses shorter
-
-
-# ============================================================================
-# build_headwater_mask()
-# ============================================================================
-
-
-def _create_gages_adjacency_zarr(tmp_path, gage_configs):
-    """Create a mock gages_adjacency zarr store.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Temporary directory for the zarr store.
-    gage_configs : dict[str, list[int]]
-        Mapping of gage_id -> indices_0 array values.
-        Empty list means headwater (zero edges).
-
-    Returns
-    -------
-    str
-        Path to the created zarr store.
-    """
-    store_path = tmp_path / "gages_adjacency.zarr"
-    root = zarr.open_group(store_path, mode="w")
-    for gage_id, indices_0_vals in gage_configs.items():
-        grp = root.create_group(gage_id)
-        grp.create_array("indices_0", data=np.array(indices_0_vals, dtype=np.int64))
-    return str(store_path)
-
-
-class TestBuildHeadwaterMask:
-    """Tests for build_headwater_mask()."""
-
-    def test_excludes_headwater_gages(self, tmp_path) -> None:
-        """Gages with zero edges in indices_0 should be masked out."""
-        store = _create_gages_adjacency_zarr(
-            tmp_path,
-            {
-                "g1": [0, 1, 2],  # non-headwater
-                "g2": [],  # headwater
-                "g3": [5, 6],  # non-headwater
-            },
-        )
-        gage_ids = np.array(["g1", "g2", "g3"])
-        mask = build_headwater_mask(store, gage_ids)
-        np.testing.assert_array_equal(mask, [True, False, True])
-
-    def test_excludes_missing_gages(self, tmp_path) -> None:
-        """Gages not present in the zarr store should be masked out."""
-        store = _create_gages_adjacency_zarr(
-            tmp_path,
-            {"g1": [0, 1]},
-        )
-        gage_ids = np.array(["g1", "g2"])
-        mask = build_headwater_mask(store, gage_ids)
-        np.testing.assert_array_equal(mask, [True, False])
-
-    def test_all_non_headwater(self, tmp_path) -> None:
-        """When all gages are non-headwater, mask should be all True."""
-        store = _create_gages_adjacency_zarr(
-            tmp_path,
-            {
-                "g1": [0],
-                "g2": [1, 2],
-                "g3": [3],
-            },
-        )
-        gage_ids = np.array(["g1", "g2", "g3"])
-        mask = build_headwater_mask(store, gage_ids)
-        assert mask.all()
-        assert mask.sum() == 3
-
-    def test_all_headwater(self, tmp_path) -> None:
-        """When all gages are headwater, mask should be all False."""
-        store = _create_gages_adjacency_zarr(
-            tmp_path,
-            {
-                "g1": [],
-                "g2": [],
-            },
-        )
-        gage_ids = np.array(["g1", "g2"])
-        mask = build_headwater_mask(store, gage_ids)
-        assert not mask.any()
-
-    def test_mask_dtype_is_bool(self, tmp_path) -> None:
-        """Returned mask should be boolean dtype."""
-        store = _create_gages_adjacency_zarr(tmp_path, {"g1": [0]})
-        mask = build_headwater_mask(store, np.array(["g1"]))
-        assert mask.dtype == np.bool_
-
-    def test_mask_length_matches_gage_ids(self, tmp_path) -> None:
-        """Mask length should match input gage_ids length."""
-        store = _create_gages_adjacency_zarr(
-            tmp_path,
-            {"g1": [0], "g2": []},
-        )
-        gage_ids = np.array(["g1", "g2"])
-        mask = build_headwater_mask(store, gage_ids)
-        assert len(mask) == len(gage_ids)

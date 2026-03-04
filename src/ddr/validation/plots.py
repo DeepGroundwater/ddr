@@ -1,9 +1,6 @@
 from pathlib import Path
 from typing import Any
 
-import matplotlib
-
-matplotlib.use("Agg")
 import colormaps as cmaps
 import contextily as ctx
 import matplotlib.pyplot as plt

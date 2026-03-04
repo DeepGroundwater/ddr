@@ -11,7 +11,6 @@ For most use cases, prefer the auto-detecting functions from ddr_engine:
 """
 
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import rustworkx as rx
@@ -90,10 +89,7 @@ def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[int]]:
     tuple[sparse.coo_matrix, list[int]]
         The COO matrix and topological order (as COMID integers).
     """
-    return cast(
-        tuple[sparse.coo_matrix, list[int]],
-        coo_from_zarr_generic(zarr_path, merit_converter),
-    )
+    return coo_from_zarr_generic(zarr_path, merit_converter)
 
 
 def create_subset_coo(

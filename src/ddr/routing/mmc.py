@@ -242,22 +242,9 @@ class MuskingumCunge:
 
     This class implements the mathematical core of the Muskingum-Cunge routing
     algorithm, managing all routing_dataclass data, parameters, and routing calculations.
-
-    When ``node_processor`` and ``param_decoder`` are provided (GNN-like MC mode),
-    a latent node embedding h^t evolves alongside the physical discharge Q^t at
-    every routing timestep.  Physical parameters (Manning's n, channel geometry)
-    are decoded from the current embedding at each step, making them dynamic.
-    The processor and decoder are owned by the ``dmc`` nn.Module — this class
-    holds only references so that gradients flow correctly through PyTorch autograd.
     """
 
-    def __init__(
-        self,
-        cfg: Config,
-        device: str | torch.device = "cpu",
-        node_processor: Any = None,
-        param_decoder: Any = None,
-    ) -> None:
+    def __init__(self, cfg: Config, device: str | torch.device = "cpu") -> None:
         """Initialize the Muskingum-Cunge router.
 
         Parameters
@@ -266,18 +253,9 @@ class MuskingumCunge:
             Configuration object containing routing parameters
         device : str | torch.device, optional
             Device to use for computations, by default "cpu"
-        node_processor : MCNodeProcessor | None
-            Optional GNN node processor (owned by dmc).  When provided, the node
-            embedding is updated at every timestep using all four MC coefficient
-            terms as physics channels.
-        param_decoder : ParamDecoder | None
-            Optional parameter decoder (owned by dmc).  When provided, physical
-            parameters are decoded from the evolving embedding at each timestep.
         """
         self.cfg = cfg
         self.device = device
-        self.node_processor = node_processor
-        self.param_decoder = param_decoder
 
         # Time step (1 hour in seconds)
         self.t = torch.tensor(3600.0, device=self.device)
@@ -312,12 +290,6 @@ class MuskingumCunge:
         # Input data
         self.q_prime: torch.Tensor | None = None
         self.spatial_parameters: dict[str, torch.Tensor] | None = None
-
-        # GNN node embedding state (GNN-like MC mode only)
-        # Preserved across batches when carry_state=True (same semantics as _discharge_t)
-        self.node_embedding: torch.Tensor | None = None
-        _interval = getattr(cfg.kan, "gnn_update_interval", 1)
-        self.gnn_update_interval: int = _interval if isinstance(_interval, int) else 1
 
         # Progress tracking attributes (for tqdm display)
         self.epoch = 0
@@ -358,37 +330,13 @@ class MuskingumCunge:
     def clear_batch_state(self) -> None:
         """Release batch-specific tensor references to free GPU memory.
 
-        Preserves ``_discharge_t``, ``_pool_elevation_t``, and ``node_embedding``
-        (needed for ``carry_state=True`` inference) and ``n`` / ``q_spatial``
-        (used for post-batch logging).  Detaches preserved tensors to free the
-        computation graph from the previous batch.
+        Preserves ``_discharge_t`` and ``_pool_elevation_t`` (needed for
+        ``carry_state=True`` inference) and ``n`` / ``q_spatial``
+        (used for post-batch logging).
         """
         self.routing_dataclass = None
         self.q_prime = None
         self.spatial_parameters = None
-        # Detach carried state to free computation graphs while preserving values
-        if self._discharge_t is not None:
-            self._discharge_t = self._discharge_t.detach()
-        if self._pool_elevation_t is not None:
-            self._pool_elevation_t = self._pool_elevation_t.detach()
-        if self.node_embedding is not None:
-            self.node_embedding = self.node_embedding.detach()
-        # Clear batch-specific routing parameters (may hold grad_fn from ParamDecoder)
-        self.n = None
-        self.q_spatial = None
-        self.top_width = None
-        self.side_slope = None
-        self.network = None
-        self.slope = None
-        self.length = None
-        self.x_storage = None
-        self.output_indices = None
-        self.gage_catchment = None
-        self.observations = None
-        self._flat_indices = None
-        self._group_ids = None
-        self._scatter_input = None
-        self._num_outputs = None
         # Clear reservoir param refs but NOT _pool_elevation_t (preserved for carry_state)
         self.reservoir_mask = None
         self.lake_area_m2 = None
@@ -404,56 +352,20 @@ class MuskingumCunge:
         self,
         routing_dataclass: Any,
         streamflow: torch.Tensor,
-        spatial_parameters: dict[str, torch.Tensor] | None = None,
+        spatial_parameters: dict[str, torch.Tensor],
         carry_state: bool = False,
-        node_embeddings: torch.Tensor | None = None,
     ) -> None:
         """Setup all inputs for routing including routing_dataclass, streamflow, and parameters.
 
-        Exactly one of ``spatial_parameters`` (classic mode) or ``node_embeddings``
-        (GNN-like MC mode) must be provided.
-
         Parameters
         ----------
-        routing_dataclass : Any
-            Batch routing data (adjacency, attributes, observations, etc.).
-        streamflow : torch.Tensor
-            Lateral inflow q', shape (T, N).
-        spatial_parameters : dict[str, torch.Tensor] | None
-            Classic mode: KAN outputs in [0, 1], one per learnable parameter.
         carry_state : bool
-            If True, preserve discharge (and node_embedding) from the previous
-            batch instead of reinitializing.  Set True for sequential inference
-            so that batches maintain physical continuity.
-        node_embeddings : torch.Tensor | None
-            GNN mode: KAN encoder output h^0, shape (N, D_h).  When provided,
-            the node embedding initialises the processor state and parameters
-            are decoded via ``param_decoder`` instead of ``spatial_parameters``.
+            If True, preserve discharge state from the previous batch instead of
+            reinitializing from q_prime[0]. Set to True for sequential inference
+            (testing/benchmarking) so that batches maintain physical continuity.
         """
-        if spatial_parameters is None and node_embeddings is None:
-            raise ValueError("Either spatial_parameters or node_embeddings must be provided")
-
         self._set_network_context(routing_dataclass, streamflow)
-
-        if node_embeddings is not None:
-            # GNN-like MC mode: initialise embedding (respects carry_state)
-            if not carry_state or self.node_embedding is None:
-                self.node_embedding = node_embeddings.to(self.device)
-            else:
-                # Validate shape compatibility when carrying state across batches
-                if self.node_embedding.shape[0] != node_embeddings.shape[0]:
-                    log.warning(
-                        f"carry_state=True but node_embedding shape changed "
-                        f"({self.node_embedding.shape[0]} → {node_embeddings.shape[0]}). "
-                        f"Reinitializing from fresh KAN output."
-                    )
-                    self.node_embedding = node_embeddings.to(self.device)
-            # Decode initial params from current embedding for the first timestep.
-            self._update_params_from_embedding()
-        else:
-            assert spatial_parameters is not None
-            self._denormalize_spatial_parameters(spatial_parameters)
-
+        self._denormalize_spatial_parameters(spatial_parameters)
         self._init_discharge_state(carry_state)
         if self.use_reservoir:
             self._init_pool_elevation_state(carry_state)
@@ -517,25 +429,22 @@ class MuskingumCunge:
                 log_space="n" in log_space_params,
             )
 
-        # Top width: use decoded value if present, else fall back to routing_dataclass.
         routing_dataclass = self.routing_dataclass
-        if "top_width" in spatial_parameters:
+        if routing_dataclass.top_width.numel() == 0:
             self.top_width = denormalize(
                 value=spatial_parameters["top_width"],
                 bounds=self.parameter_bounds["top_width"],
                 log_space="top_width" in log_space_params,
             )
-        elif routing_dataclass.top_width.numel() > 0:
+        else:
             self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
-
-        # Side slope: use decoded value if present, else fall back to routing_dataclass.
-        if "side_slope" in spatial_parameters:
+        if routing_dataclass.side_slope.numel() == 0:
             self.side_slope = denormalize(
                 value=spatial_parameters["side_slope"],
                 bounds=self.parameter_bounds["side_slope"],
                 log_space="side_slope" in log_space_params,
             )
-        elif routing_dataclass.side_slope.numel() > 0:
+        else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
         # Learnable Muskingum X (overrides hardcoded 0.3 from routing_dataclass.x)
@@ -546,23 +455,9 @@ class MuskingumCunge:
                 log_space="x_storage" in log_space_params,
             )
 
-    def _update_params_from_embedding(self) -> None:
-        """Decode physical parameters from the current node embedding.
-
-        Called in GNN-like MC mode after the node embedding is updated at each
-        routing timestep.  Delegates to ``param_decoder`` and passes the result
-        through ``_denormalize_spatial_parameters``, reusing the same denorm path
-        as classic mode — no duplication.
-        """
-        assert self.param_decoder is not None, "param_decoder must be set for GNN-like MC mode"
-        assert self.node_embedding is not None, "node_embedding must be set"
-        spatial_params = self.param_decoder(self.node_embedding)
-        self._denormalize_spatial_parameters(spatial_params)
-
     def _init_discharge_state(self, carry_state: bool) -> None:
         """Cold-start via topological accumulation, or carry from previous batch."""
         if carry_state and self._discharge_t is not None:
-            self._discharge_t = self._discharge_t.detach()
             return
         assert self.q_prime is not None, "q_prime must be set before initializing discharge state"
         mapper, _, _ = self.create_pattern_mapper()
@@ -582,7 +477,6 @@ class MuskingumCunge:
         with flow conditions and causes forward-Euler blowup.
         """
         if carry_state and self._pool_elevation_t is not None:
-            self._pool_elevation_t = self._pool_elevation_t.detach()
             return  # preserve pool elevation from previous batch (inference)
         assert self._discharge_t is not None
         assert self.reservoir_mask is not None
@@ -686,7 +580,7 @@ class MuskingumCunge:
                 min=self.cfg.params.attribute_minimums["discharge"],
             )
 
-            q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper, timestep=timestep)
+            q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper)
 
             if output_all:
                 output[:, timestep] = q_t1
@@ -751,7 +645,6 @@ class MuskingumCunge:
         self,
         q_prime_clamp: torch.Tensor,
         mapper: PatternMapper,
-        timestep: int = 0,
     ) -> torch.Tensor:
         """Route flow for a single timestep.
 
@@ -761,8 +654,6 @@ class MuskingumCunge:
             Clamped lateral inflow
         mapper : PatternMapper
             Pattern mapper for sparse operations
-        timestep : int, optional
-            Current timestep index (used for GNN update frequency), by default 0
 
         Returns
         -------
@@ -859,28 +750,6 @@ class MuskingumCunge:
 
         # Clamp solution to physical bounds
         q_t1 = torch.clamp(solution, min=self.discharge_lb)
-
-        # --- GNN node embedding update (GNN-like MC mode only) ---
-        # Uses all four MC coefficient terms as physics channels so the processor
-        # learns which combination of (implicit upstream, explicit upstream, memory,
-        # lateral forcing) most informs how Manning's n should adapt.
-        # gnn_update_interval controls frequency: 1=every timestep, 24=daily.
-        update_gnn = self.gnn_update_interval <= 1 or timestep % self.gnn_update_interval == 0
-        if self.node_processor is not None and self.node_embedding is not None and update_gnn:
-            c1_next = c_1 * torch.matmul(self.network, q_t1)  # C1 · N@Q_{t+1}
-            c2_prev = c_2 * i_t  # C2 · N@Q_t  (i_t already computed above)
-            c3_self = c_3 * self._discharge_t  # C3 · Q_t
-            c4_lat = c_4 * q_prime_clamp  # C4 · q'
-            self.node_embedding = self.node_processor.step(
-                h=self.node_embedding,
-                c1_next_upstream=c1_next,
-                c2_prev_upstream=c2_prev,
-                c3_self=c3_self,
-                c4_lateral=c4_lat,
-                q_new=q_t1,
-                adjacency=self.network,
-            )
-            self._update_params_from_embedding()
 
         # --- Pool elevation update (forward Euler with stability clamp) ---
         if has_reservoir:

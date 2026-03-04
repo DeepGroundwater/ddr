@@ -25,7 +25,6 @@ from ddr.io.readers import (
     fill_nans,
     filter_gages_by_area_threshold,
     filter_gages_by_da_valid,
-    filter_headwater_gages,
     naninfmean,
     read_zarr,
 )
@@ -163,8 +162,6 @@ class Merit(BaseGeoDataset):
                 f"of {self.cfg.experiment.max_area_diff_sqkm} km²"
             )
         self.gages_adjacency = read_zarr(Path(self.cfg.data_sources.gages_adjacency))
-        self.gage_ids, n_headwater = filter_headwater_gages(self.gage_ids, self.gages_adjacency)
-        log.info(f"Filtered {n_headwater} headwater gages with no upstream connectivity")
         log.info(f"Training mode: routing for {len(self.gage_ids)} gauged locations")
 
     def _init_inference(self) -> None:

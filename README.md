@@ -26,14 +26,6 @@ uv sync --all-packages --group cuda
 . .venv/bin/activate
 ```
 
-### JupyterLab
-
-JupyterLab is included in the default dev dependencies. After syncing, start the server with:
-
-```sh
-uv run jupyter lab
-```
-
 ### Data Engine
 
 Next, you need to create the necessary data files for running a routing across your domain.
@@ -61,42 +53,6 @@ python scripts/train.py --config-name example_config.yaml
 #Test the model
 python scripts/test.py --config-name example_test_config.yaml
 ```
-
-### TensorBoard
-
-DDR supports optional TensorBoard logging for training curves and benchmark metric comparison.
-
-**Install:**
-```sh
-uv sync --group tb
-```
-
-**Enable in config:**
-```yaml
-experiment:
-  log_tensorboard: true
-  log_interval: 1        # log every N mini-batches (training only)
-```
-
-**Run TensorBoard:**
-```sh
-# View a single training run
-tensorboard --logdir output/<run-dir>/tensorboard/
-
-# Compare multiple runs (training or benchmark)
-tensorboard --logdir output/
-```
-
-**Logged scalars:**
-
-| Category | Tags | When |
-|---|---|---|
-| Training loss | `train/loss`, `train/learning_rate`, `train/grad_norm` | Every `log_interval` mini-batches |
-| Metrics | `metrics/{nse,rmse,kge}_{mean,median}` | Every `log_interval` mini-batches |
-| Routing params | `params/mannings_n_{median,mean,min,max}`, `params/muskingum_x_*`, `params/pool_elev_*` | Every `log_interval` mini-batches |
-| Benchmark | `benchmark/{ddr,diffroute,summed_q_prime}/{nse,kge,rmse,bias,fhv,flv}_{mean,median}` | Once per benchmark run |
-
-If `tensorboard` is not installed, setting `log_tensorboard: true` logs a warning and falls back to a no-op — no crash, no overhead.
 
 ### How to build docs locally
 The zensical documentation can be built/verified locally through installing the optional `docs` dependencies and serving through localhost:

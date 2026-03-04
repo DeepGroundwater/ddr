@@ -14,7 +14,6 @@ from omegaconf import DictConfig
 
 from ddr import dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.validation import create_tb_logger
 
 log = logging.getLogger(__name__)
 
@@ -33,12 +32,6 @@ def main(cfg: DictConfig) -> None:
     config = benchmark_cfg.ddr
     diffroute_cfg = benchmark_cfg.diffroute
 
-    tb = create_tb_logger(
-        enabled=config.experiment.log_tensorboard,
-        log_dir=config.params.save_path / "tensorboard",
-        log_interval=1,
-    )
-
     start_time = time.perf_counter()
 
     try:
@@ -55,7 +48,6 @@ def main(cfg: DictConfig) -> None:
             gate_parameters=config.kan.gate_parameters,
             off_parameters=config.kan.off_parameters,
             use_graph_context=config.kan.use_graph_context,
-            output_embedding=config.kan.use_node_processor,
         )
         routing_model = dmc(cfg=config, device=config.device)
         flow = streamflow(config)
@@ -67,14 +59,12 @@ def main(cfg: DictConfig) -> None:
             nn=nn,
             diffroute_cfg=diffroute_cfg,
             summed_q_prime_path=benchmark_cfg.summed_q_prime,
-            tb=tb,
         )
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
 
     finally:
-        tb.close()
         log.info("Cleaning up...")
         total_time = time.perf_counter() - start_time
         log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")

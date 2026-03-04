@@ -9,59 +9,59 @@ defaults:
 mode: testing
 geodataset: merit
 name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
-device: 0
+device: 1
 
 data_sources:
-  attributes: /home/tbindas/projects/ddr/data/merit_global_attributes_v2.nc
-  geospatial_fabric_gpkg: /home/tbindas/projects/ddr/data/merit/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp
-  conus_adjacency: /home/tbindas/projects/ddr/data/merit_conus_adjacency.zarr
-  gages_adjacency: /home/tbindas/projects/ddr/data/merit_gages_conus_adjacency.zarr
-  statistics: /home/tbindas/projects/ddr/data/statistics
-  streamflow: /home/tbindas/projects/ddr/data/merit_dhbv2_UH_retrospective
-  observations: /mnt/ssd1/data/icechunk/usgs_daily_observations
-  gages: /home/tbindas/projects/ddr/references/gage_info/gages_3000.csv
+  attributes: /projects/mhpi/tbindas/ddr/data/merit_global_attributes_v2.nc
+  geospatial_fabric_gpkg: /projects/mhpi/data/MERIT/raw/continent/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp
+  conus_adjacency: /projects/mhpi/tbindas/ddr/data/merit_conus_adjacency.zarr
+  gages_adjacency: /projects/mhpi/tbindas/ddr/data/merit_gages_conus_adjacency.zarr
+  statistics: /projects/mhpi/tbindas/ddr/data/statistics
+  streamflow: /projects/mhpi/tbindas/ddr/data/merit_dhbv2_UH_retrospective
+  observations: /projects/mhpi/data/icechunk/usgs_daily_observations
+  gages: /projects/mhpi/tbindas/ddr/references/gage_info/gages_3000.csv
+  reservoir_params: /projects/mhpi/tbindas/ddr/data/merit_reservoir_params.csv
 
 params:
   save_path: ./
-  use_reservoir: false
+  use_reservoir: true
+  min_reservoir_area_km2: 5.0
 
 experiment:
-  batch_size: 182
+  batch_size: 365
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /home/tbindas/projects/ddr/output/ddr-v0.6.2.dev9+g36af06c90.d20260301-merit-training/2026-03-01_19-30-41/saved_models/_ddr-v0.6.2.dev9+g36af06c90.d20260301-merit-training_epoch_5_mb_43.pt
-  log_tensorboard: false
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training/2026-02-26_10-10-56/saved_models/_ddr-v0.6.2.dev0+g8210dce90.d20260223-merit-training_epoch_5_mb_43.pt
 
 kan:
-  hidden_size: 21
+  hidden_size: 41
   input_var_names:
-    - SoilGrids1km_clay
+    - FW
     - aridity
     - meanelevation
     - meanP
     - NDVI
     - meanslope
     - log10_uparea
-    - SoilGrids1km_sand
+    - glaciers
     - ETPOT_Hargr
     - Porosity
   num_hidden_layers: 2
   learnable_parameters:
-    - n
     - q_spatial
     - top_width
     - side_slope
+    - n
+    - x_storage
   grid: 50
   k: 2
-  use_graph_context: false
-  use_node_processor: false
+  use_graph_context: true
 
 # === DiffRoute-specific configuration ===
 diffroute:
   # Enable/disable DiffRoute comparison
-  enabled:
-
+  enabled: false
 
   # Impulse Response Function model
   # Options: muskingum, linear_storage, nash_cascade, pure_lag, hayami
@@ -84,4 +84,4 @@ diffroute:
   x: 0.3
 
 # === Optional baseline comparison ===
-summed_q_prime: /home/tbindas/projects/ddr/output/ddr-v0.3.2.dev10+g2ffbf380e.d20260207-merit-q_prime/2026-02-07_19-50-49/summed_q_prime.zarr
+summed_q_prime: /projects/mhpi/tbindas/ddr/output/ddr-v0.3.2.dev10+g2ffbf380e.d20260207-merit-q_prime/2026-02-07_19-50-49/summed_q_prime.zarr

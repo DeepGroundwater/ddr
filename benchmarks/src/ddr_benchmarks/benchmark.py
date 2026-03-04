@@ -27,7 +27,6 @@ from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
 from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
 from ddr.io.readers import read_zarr
-from ddr.routing.utils import select_columns
 from ddr.scripts_utils import load_checkpoint
 from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, plot_gauge_map, plot_time_series, utils
 from ddr.validation.enums import GeoDataset
@@ -114,11 +113,7 @@ def run_ddr(
         Array of routed runoff predictions
     """
     streamflow_predictions = flow(routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32)
-    attr_names = routing_dataclass.attribute_names
-    normalized_attrs = routing_dataclass.normalized_spatial_attributes
-    assert normalized_attrs is not None and attr_names is not None
-    kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
-    spatial_params: torch.Tensor = nn(inputs=kan_attrs)
+    spatial_params: torch.Tensor = nn(inputs=routing_dataclass.normalized_spatial_attributes)
     spatial_params = spatial_params.to(cfg.device)
     dmc_kwargs: dict[str, Any] = {
         "routing_dataclass": routing_dataclass,
@@ -126,13 +121,13 @@ def run_ddr(
         "streamflow": streamflow_predictions,
     }
     if lstm_nn is not None and forcings_reader_nn is not None:
+        assert routing_dataclass.normalized_spatial_attributes is not None
         forcing_data = forcings_reader_nn(
             routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
         )
-        lstm_attrs = select_columns(normalized_attrs, list(cfg.cuda_lstm.input_var_names), attr_names)
         lstm_params = lstm_nn(
             forcings=forcing_data,
-            attributes=lstm_attrs.to(cfg.device),
+            attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
         )
         dmc_kwargs["lstm_params"] = lstm_params
     dmc_output = routing_model(**dmc_kwargs)
@@ -730,10 +725,7 @@ def benchmark(
             streamflow_predictions = flow(
                 routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
             )
-            attr_names = routing_dataclass.attribute_names
-            bench_normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
-            kan_attrs = select_columns(bench_normalized_attrs, list(cfg.kan.input_var_names), attr_names)
-            spatial_params = nn(inputs=kan_attrs)
+            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
             dmc_kwargs: dict[str, Any] = {
                 "routing_dataclass": routing_dataclass,
                 "spatial_parameters": spatial_params,
@@ -747,11 +739,7 @@ def benchmark(
                 forcing_data = forcings_reader_nn(
                     routing_dataclass=routing_dataclass, device="cpu", dtype=torch.float32
                 )
-                all_attrs = select_columns(
-                    routing_dataclass.normalized_spatial_attributes,
-                    list(cfg.cuda_lstm.input_var_names),
-                    attr_names,
-                )
+                all_attrs = routing_dataclass.normalized_spatial_attributes
                 n_reaches = all_attrs.shape[0]
 
                 # Save full hidden states from previous dataloader batch (None on first)

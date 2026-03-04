@@ -4,6 +4,7 @@ import pytest
 
 pytest.importorskip("ddr_engine")
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -19,8 +20,6 @@ from ddr_engine.merit import (
 )
 from scipy import sparse
 from shapely.geometry import LineString
-
-from ddr.geodatazoo.dataclasses import GaugeSet, MERITGauge
 
 # =============================================================================
 # Sandbox Network Reference
@@ -54,9 +53,19 @@ SANDBOX_INPUT_DIR = TESTS_DIR / "input" / "Sandbox"
 # =============================================================================
 
 
-def make_gauge_set(gauges: list[dict[str, Any]]) -> GaugeSet:
-    """Create a GaugeSet from a list of dicts with STAID and COMID keys."""
-    return GaugeSet(gauges=[MERITGauge(STAID=g["STAID"], COMID=g["COMID"], DRAIN_SQKM=1.0) for g in gauges])
+@dataclass
+class MockGauge:
+    """Mock gauge matching MERITGauge interface."""
+
+    STAID: str
+    COMID: int
+
+
+@dataclass
+class MockGaugeSet:
+    """Mock gauge set matching GaugeSet interface."""
+
+    gauges: list[MockGauge]
 
 
 # =============================================================================
@@ -132,23 +141,23 @@ def mock_merit_fp(sandbox_connections: pd.DataFrame) -> gpd.GeoDataFrame:
 
 
 @pytest.fixture(scope="session")
-def sandbox_gauge_set() -> GaugeSet:
+def sandbox_gauge_set() -> MockGaugeSet:
     """
     Create mock gauge set for Sandbox network.
 
     From SANDBOX.md, gauging stations are at positions 3 and 5 in the
     selection matrix, corresponding to COMIDs 30 and 50.
     """
-    return make_gauge_set(
-        [
-            {"STAID": "00000030", "COMID": 30},
-            {"STAID": "00000050", "COMID": 50},
+    return MockGaugeSet(
+        gauges=[
+            MockGauge(STAID="00000030", COMID=30),
+            MockGauge(STAID="00000050", COMID=50),
         ]
     )
 
 
 @pytest.fixture(scope="session")
-def sandbox_gauge_csv(tmp_path_factory: pytest.TempPathFactory, sandbox_gauge_set: GaugeSet) -> Path:
+def sandbox_gauge_csv(tmp_path_factory: pytest.TempPathFactory, sandbox_gauge_set: MockGaugeSet) -> Path:
     """Write mock gauge set to CSV file."""
     tmp_dir: Path = tmp_path_factory.mktemp("sandbox_gages")
     csv_path = tmp_dir / "sandbox_gages.csv"

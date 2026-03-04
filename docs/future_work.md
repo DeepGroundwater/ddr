@@ -1014,6 +1014,9 @@ experiment:
   epochs: 50            # Training epochs
   warmup: 3             # Days excluded from loss (cold-start stabilization)
   rho: 365              # Days per random time window
+  learning_rate:
+    1: 0.001            # LR for epochs 1+
+    30: 0.0001          # LR for epochs 30+
   checkpoint: null      # Path to resume from, or null for fresh start
 
 params:
@@ -1160,6 +1163,7 @@ main() [Hydra]
     → Dataset + DataLoader + RandomSampler
     → Optional: load_checkpoint() → restore optimizer, epoch, nn weights
     → For epoch in range(epochs):
+      → LR scheduling (cfg.experiment.learning_rate: {epoch: lr})
       → For batch in dataloader:
         → flow() → q_prime (T_hourly, N)
         → nn() → spatial_params {name: (N,)}

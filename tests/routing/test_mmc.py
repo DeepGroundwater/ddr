@@ -11,6 +11,7 @@ from tests.routing.test_utils import (
     assert_no_nan_or_inf,
     assert_tensor_properties,
     create_mock_config,
+    create_mock_lstm_params,
     create_mock_routing_dataclass,
     create_mock_spatial_parameters,
     create_mock_streamflow,
@@ -46,6 +47,10 @@ class TestMuskingumCungeInputSetup:
 
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
 
+        # Provide n via LSTM path (time-varying)
+        lstm_params = create_mock_lstm_params(num_timesteps=24, num_reaches=10)
+        mc.setup_lstm_params(lstm_params)
+
         # Check that all inputs were stored
         assert mc.routing_dataclass is hydrofabric
         assert mc.q_prime is not None
@@ -70,7 +75,7 @@ class TestMuskingumCungeInputSetup:
         assert_tensor_properties(mc.x_storage, (10,))
 
         # Check parameter denormalization
-        assert mc.n is not None  # n is static from KAN spatial params
+        assert mc._n_t is not None  # n is time-varying from LSTM
         assert mc.q_spatial is not None
         assert_tensor_properties(mc.q_spatial, (10,))
 
@@ -273,6 +278,9 @@ class TestMuskingumCungeRouteTimestep:
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc.setup_lstm_params(create_mock_lstm_params(num_timesteps=12, num_reaches=5))
+        assert mc._n_t is not None
+        mc.n = mc._n_t[0]
 
         # Create mapper
         mapper, _, _ = mc.create_pattern_mapper()
@@ -299,6 +307,9 @@ class TestMuskingumCungeRouteTimestep:
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc.setup_lstm_params(create_mock_lstm_params(num_timesteps=12, num_reaches=5))
+        assert mc._n_t is not None
+        mc.n = mc._n_t[0]
 
         # Create mapper
         mapper, _, _ = mc.create_pattern_mapper()
@@ -336,6 +347,7 @@ class TestMuskingumCungeForward:
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
         spatial_params = create_mock_spatial_parameters(num_reaches=10)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc.setup_lstm_params(create_mock_lstm_params(num_timesteps=24, num_reaches=10))
 
         # Set progress info
         mc.set_progress_info(1, 0)
@@ -401,6 +413,7 @@ class TestMuskingumCungeForward:
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
         spatial_params = create_mock_spatial_parameters(num_reaches=5)
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc.setup_lstm_params(create_mock_lstm_params(num_timesteps=12, num_reaches=5))
 
         mc.set_progress_info(1, 0)
 
@@ -434,6 +447,11 @@ class TestMuskingumCungeIntegration:
         spatial_params = create_mock_spatial_parameters(num_reaches=scenario["num_reaches"])
 
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc.setup_lstm_params(
+            create_mock_lstm_params(
+                num_timesteps=scenario["num_timesteps"], num_reaches=scenario["num_reaches"]
+            )
+        )
         mc.set_progress_info(1, 0)
 
         with patch("ddr.routing.mmc.triangular_sparse_solve") as mock_solve:
@@ -459,10 +477,13 @@ class TestMuskingumCungeIntegration:
         hydrofabric = create_mock_routing_dataclass(num_reaches=10)
         streamflow = create_mock_streamflow(num_timesteps=24, num_reaches=10)
         spatial_params = create_mock_spatial_parameters(num_reaches=10)
+        lstm_params = create_mock_lstm_params(num_timesteps=24, num_reaches=10)
 
         # Setup both instances
         mc1.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc1.setup_lstm_params(lstm_params)
         mc2.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc2.setup_lstm_params(lstm_params)
 
         mc1.set_progress_info(1, 0)
         mc2.set_progress_info(1, 0)
@@ -497,10 +518,11 @@ class TestMuskingumCungeIntegration:
         spatial_params = create_mock_spatial_parameters(num_reaches=8)
 
         mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc.setup_lstm_params(create_mock_lstm_params(num_timesteps=36, num_reaches=8))
 
         # Test state after setup
         assert mc.routing_dataclass is not None
-        assert mc.n is not None  # n is static from KAN spatial params
+        assert mc._n_t is not None  # n is time-varying from LSTM
         assert mc.q_spatial is not None
         assert mc._discharge_t is not None
 

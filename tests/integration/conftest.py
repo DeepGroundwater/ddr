@@ -142,7 +142,6 @@ def integration_models(
         seed=cfg.seed,
         device=cfg.device,
         gate_parameters=cfg.kan.gate_parameters,
-        off_parameters=cfg.kan.off_parameters,
     )
     lstm_nn = CudaLSTM(
         input_var_names=cfg.cuda_lstm.input_var_names,

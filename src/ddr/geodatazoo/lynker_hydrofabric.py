@@ -267,7 +267,7 @@ class LynkerHydrofabric(BaseGeoDataset):
             num_segments=compressed_size,
         )
 
-        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _, _, _ = (
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _, _ = (
             self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
         )
 
@@ -308,7 +308,6 @@ class LynkerHydrofabric(BaseGeoDataset):
         dict[str, torch.Tensor],
         torch.Tensor | None,
         torch.Tensor | None,
-        dict[str, torch.Tensor] | None,
     ]:
         """Build tensors common to all collate methods."""
         adjacency_matrix = torch.sparse_csr_tensor(
@@ -362,7 +361,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             spatial_attributes,
             normalized_spatial_attributes,
             flowpath_tensors,
-            None,
             None,
             None,
         )
@@ -427,7 +425,7 @@ class LynkerHydrofabric(BaseGeoDataset):
 
         outflow_idx = [np.array([i]) for i in range(compressed_size)]
 
-        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _, _, _ = (
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _, _ = (
             self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
         )
 
@@ -468,7 +466,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         divide_ids = np.array([f"cat-{_id}" for _id in self.hf_ids])
         flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
-        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _, _, _ = (
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _, _ = (
             self._build_common_tensors(csr_matrix, divide_ids, flowpath_attr)
         )
 
@@ -545,7 +543,7 @@ class LynkerHydrofabric(BaseGeoDataset):
             num_segments=compressed_size,
         )
 
-        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _, _, _ = (
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _, _ = (
             self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
         )
 

@@ -11,7 +11,7 @@ from omegaconf import DictConfig
 from torch.nn.functional import mse_loss
 from torch.utils.data import DataLoader, RandomSampler
 
-from ddr import ddr_functions, dmc, kan, leakance_lstm, streamflow
+from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
@@ -19,22 +19,14 @@ from ddr.validation import Config, Metrics, plot_time_series, utils, validate_co
 log = logging.getLogger(__name__)
 
 
-def train(
-    cfg: Config,
-    flow: streamflow,
-    routing_model: dmc,
-    nn: kan,
-    leakance_nn: leakance_lstm | None = None,
-) -> None:
+def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     """Do model training."""
     data_generator = torch.Generator()
     data_generator.manual_seed(cfg.seed)
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        state = load_checkpoint(
-            nn, cfg.experiment.checkpoint, torch.device(cfg.device), leakance_nn=leakance_nn
-        )
+        state = load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
         start_epoch = state["epoch"]
         start_mini_batch = (
             0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
@@ -46,10 +38,7 @@ def train(
         start_mini_batch = 0
         lr = cfg.experiment.learning_rate[start_epoch]
 
-    all_params = list(nn.parameters())
-    if leakance_nn is not None:
-        all_params += list(leakance_nn.parameters())
-    optimizer = torch.optim.Adam(params=all_params, lr=lr)
+    optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
     sampler = RandomSampler(
         data_source=dataset,
         generator=data_generator,
@@ -85,20 +74,6 @@ def train(
                     "spatial_parameters": spatial_params,
                     "streamflow": streamflow_predictions,
                 }
-
-                if leakance_nn is not None:
-                    # Downsample hourly q_prime to daily (mean over 24h windows)
-                    T_hourly = streamflow_predictions.shape[0]
-                    T_daily = T_hourly // 24
-                    daily_q_prime = (
-                        streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
-                    )
-                    leakance_params = leakance_nn(
-                        q_prime=daily_q_prime,
-                        attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
-                    )
-                    dmc_kwargs["leakance_params"] = leakance_params
-
                 dmc_output = routing_model(**dmc_kwargs)
 
                 num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
@@ -162,7 +137,6 @@ def train(
                     optimizer=optimizer,
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
-                    leakance_nn=leakance_nn,
                 )
 
 
@@ -188,19 +162,9 @@ def main(cfg: DictConfig) -> None:
             seed=config.seed,
             device=config.device,
         )
-        leakance_nn = None
-        if config.params.use_leakance:
-            leakance_nn = leakance_lstm(
-                input_var_names=config.leakance_lstm.input_var_names,
-                hidden_size=config.leakance_lstm.hidden_size,
-                num_layers=config.leakance_lstm.num_layers,
-                dropout=config.leakance_lstm.dropout,
-                seed=config.seed,
-                device=config.device,
-            )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn, leakance_nn=leakance_nn)
+        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

@@ -23,11 +23,10 @@ from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
 # Reuse ALL DDR imports
-from ddr import ddr_functions, dmc, kan, leakance_lstm, streamflow
+from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
 from ddr.io.readers import read_zarr
-from ddr.scripts_utils import load_checkpoint
 from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, plot_gauge_map, plot_time_series, utils
 from ddr.validation.enums import GeoDataset
 
@@ -94,7 +93,6 @@ def run_ddr(
     routing_model: dmc,
     nn: kan,
     routing_dataclass: RoutingDataclass,
-    leakance_nn: leakance_lstm | None = None,
 ) -> NDArray[np.floating[Any]]:
     """Run DDR model - extracted from scripts/test.py.
 
@@ -104,7 +102,6 @@ def run_ddr(
         routing_model: DMC routing model
         nn: KAN neural network for spatial parameters
         routing_dataclass: RoutingDataclass with all routing data
-        leakance_nn: Optional leakance LSTM model
 
     Returns
     -------
@@ -113,22 +110,11 @@ def run_ddr(
     streamflow_predictions = flow(routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32)
     spatial_params: torch.Tensor = nn(inputs=routing_dataclass.normalized_spatial_attributes)
     spatial_params = spatial_params.to(cfg.device)
-    dmc_kwargs: dict[str, Any] = {
-        "routing_dataclass": routing_dataclass,
-        "spatial_parameters": spatial_params,
-        "streamflow": streamflow_predictions,
-    }
-    if leakance_nn is not None:
-        assert routing_dataclass.normalized_spatial_attributes is not None
-        T_hourly = streamflow_predictions.shape[0]
-        T_daily = T_hourly // 24
-        daily_q_prime = streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
-        leakance_params = leakance_nn(
-            q_prime=daily_q_prime,
-            attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
-        )
-        dmc_kwargs["leakance_params"] = leakance_params
-    dmc_output = routing_model(**dmc_kwargs)
+    dmc_output = routing_model(
+        routing_dataclass=routing_dataclass,
+        spatial_parameters=spatial_params,
+        streamflow=streamflow_predictions,
+    )
     return dmc_output["runoff"].cpu().numpy()
 
 
@@ -658,7 +644,6 @@ def benchmark(
     nn: kan,
     diffroute_cfg: DiffRouteConfig,
     summed_q_prime_path: str | None = None,
-    leakance_nn: leakance_lstm | None = None,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -669,7 +654,6 @@ def benchmark(
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
         summed_q_prime_path: Optional path to summed Q' zarr store
-        leakance_nn: Optional leakance LSTM model
     """
     assert cfg.geodataset == GeoDataset.MERIT, (
         f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
@@ -683,14 +667,18 @@ def benchmark(
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), leakance_nn=leakance_nn)
+        file_path = Path(cfg.experiment.checkpoint)
+        device = torch.device(cfg.device)
+        log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
+        state = torch.load(file_path, map_location=device)
+        state_dict = state["model_state_dict"]
+        for key in state_dict.keys():
+            state_dict[key] = state_dict[key].to(device)
+        nn.load_state_dict(state_dict)
     else:
         log.warning("Creating new spatial model for evaluation.")
 
     nn = nn.eval()
-    if leakance_nn is not None:
-        leakance_nn.cache_states = True
-        leakance_nn = leakance_nn.eval()
 
     sampler = SequentialSampler(data_source=dataset)
     dataloader = DataLoader(
@@ -722,24 +710,12 @@ def benchmark(
                 routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
             )
             spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
-            dmc_kwargs: dict[str, Any] = {
-                "routing_dataclass": routing_dataclass,
-                "spatial_parameters": spatial_params,
-                "streamflow": streamflow_predictions,
-                "carry_state": i > 0,
-            }
-
-            if leakance_nn is not None:
-                T_hourly = streamflow_predictions.shape[0]
-                T_daily = T_hourly // 24
-                daily_q_prime = streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
-                leakance_params = leakance_nn(
-                    q_prime=daily_q_prime,
-                    attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
-                )
-                dmc_kwargs["leakance_params"] = leakance_params
-
-            dmc_output = routing_model(**dmc_kwargs)
+            dmc_output = routing_model(
+                routing_dataclass=routing_dataclass,
+                spatial_parameters=spatial_params,
+                streamflow=streamflow_predictions,
+                carry_state=i > 0,
+            )
             ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
     # === PHASE 2: DiffRoute per-gage ===

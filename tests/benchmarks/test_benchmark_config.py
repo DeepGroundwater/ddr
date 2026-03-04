@@ -76,9 +76,6 @@ class TestBenchmarkConfig:
                 "grid": 5,
                 "k": 3,
             },
-            leakance_lstm={
-                "input_var_names": ["slope"],
-            },
         )
 
     def test_construction(self, _minimal_ddr_config) -> None:

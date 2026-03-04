@@ -10,11 +10,11 @@ DDR models each reach as a trapezoidal channel with learned geometry. Given top 
 
 ```
          <---- w_t ---->
-       ___________________
-       \        d        /
-        \   z:1 |  z:1  /
-         \------|------/
-          <--- w_b --->
+         _______________
+        /      d       \
+       /  z:1   |  z:1  \
+      /---------|--------\
+      <--- w_b --->
 ```
 
 Bottom width:
@@ -168,8 +168,6 @@ $$\mathbf{A}\, \mathbf{Q}_{t+1} = \mathbf{C}_2\,(\mathbf{N}\,\mathbf{Q}_t) + \ma
 
 An optional binary gate $g_i \in \{0, 1\}$ (learned via straight-through estimator) enables or disables leakance per reach: $\zeta_i \leftarrow g_i \cdot \zeta_i$.
 
-Flow depth in the zeta calculation is clamped to `depth_lb` (matching `_get_trapezoid_velocity()`) to prevent gradient singularities from `pow(~0, a<1)` at near-zero discharge.
-
 **Implementation**: `_compute_zeta()` in `mmc.py:163-223`.
 
 ### 5.1 Hydraulic Conductivity (Cosby PTF + KAN Delta)
@@ -210,8 +208,8 @@ Where:
 |--------|-------|-------------|
 | $C_w$ | 0.4 | Weir discharge coefficient (broad-crested) |
 | $W_L$ | $\max(1, 0.01 \cdot L_{\text{shore}})$ | Effective weir length [m] |
-| $C_o$ | 0.1 | Orifice discharge coefficient (NWM/RFC-DA conservative default) |
-| $A_o$ | back-calculated (capped at 100 m^2) | Orifice cross-sectional area [m^2] |
+| $C_o$ | 0.6 | Orifice discharge coefficient |
+| $A_o$ | back-calculated | Orifice cross-sectional area [m^2] |
 | $g$ | 9.81 | Gravitational acceleration [m/s^2] |
 | $\epsilon$ | $10^{-8}$ | Numerical stability for sqrt gradient |
 | $Q_{\text{lb}}$ | $10^{-4}$ | Discharge lower bound [m^3/s] |
@@ -267,7 +265,7 @@ The orifice area $A_o$ is not directly observable. It is back-calculated from Hy
 
 $$Q_{\text{avg}} = C_o\, A_o\, \sqrt{2g\, h_{\text{mid}}} \quad \Longrightarrow \quad A_o = \frac{Q_{\text{avg}}}{C_o\, \sqrt{2g\, h_{\text{mid}}} + \epsilon}$$
 
-Where $h_{\text{mid}} = (0.5 - f_{\text{invert}}) \times \text{depth} = 0.35 \times \text{depth}$ is the head above the orifice at half-depth pool. The resulting area is capped at 100 m^2 to prevent forward Euler instability for small reservoirs (see Section 6.5).
+Where $h_{\text{mid}} = 0.5 \times \text{depth}$.
 
 ### 6.5 Forward Euler Stability
 
@@ -281,23 +279,17 @@ $$\frac{\partial Q_{\text{out}}}{\partial H} \approx \frac{3}{2}\, C_w\, W_L\, (
 
 For small reservoirs (small $A_s$), even modest head produces a ratio $> 2$, causing the pool to overshoot on correction, oscillate with growing amplitude, and blow up to $\pm\infty$. The subsequent `inf - inf = NaN` propagates through the sparse solve to all downstream reaches.
 
-Two mitigations prevent instability:
+The stability clamp (Section 6.2, Step 4) bounds pool elevation to $[H_{\text{orifice}}, H_{\text{weir}} + D]$, preventing the oscillation from producing overflow values while preserving physically meaningful dynamics within bounds.
 
-1. **Orifice area cap**: $A_o$ is capped at 100 m^2 during parameter derivation (Section 6.4), ensuring the stability ratio $A_s / (\Delta t \cdot \partial Q / \partial H)$ remains well above the critical threshold of 2.
-2. **Pool elevation clamp**: The stability clamp (Section 6.2, Step 4) bounds pool elevation to $[H_{\text{orifice}}, H_{\text{weir}} + D]$, preventing the oscillation from producing overflow values while preserving physically meaningful dynamics within bounds.
+### 6.6 Reservoir Reference Elevations
 
-### 6.6 Reservoir Reference Elevations (RFC-DA Conventions)
-
-Derived from HydroLAKES fields using RFC-DA elevation fractions (Lynker `nhf-builds` / NWM hydrofabric conventions):
+Derived from HydroLAKES fields:
 
 | Elevation | Formula | Physical Meaning |
 |-----------|---------|-----------------|
-| $\text{base}$ | `elevation - depth` | Lake bottom |
-| $H_{\text{orifice}}$ | `base + 0.15 * depth` | Orifice invert at 15% of pool height (dead storage below) |
-| $H_{\text{weir}}$ | `base + 0.90 * depth` | Weir crest at 90% of pool height |
+| $H_{\text{weir}}$ | `elevation - 0.25 * depth` | Weir crest at 75% of full pool |
+| $H_{\text{orifice}}$ | `elevation - depth` | Lake bottom (orifice center) |
 | $D$ | $H_{\text{weir}} - H_{\text{orifice}}$ | = 0.75 $\times$ depth |
-
-The 15% invert fraction creates a **dead storage** zone below the orifice where water cannot drain, providing a permanent baseflow buffer. This is physically realistic for engineered reservoirs with low-level outlets above the dam toe.
 
 ### 6.7 Behavior Regimes
 

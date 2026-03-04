@@ -171,7 +171,6 @@ def _compute_zeta(
     d_gw: torch.Tensor,
     top_width: torch.Tensor,
     side_slope: torch.Tensor,
-    depth_lb: torch.Tensor,
 ) -> torch.Tensor:
     """Compute groundwater-surface water exchange (leakance) term.
 
@@ -205,8 +204,6 @@ def _compute_zeta(
         Channel top width [m]
     side_slope : torch.Tensor
         Channel side slope (z horizontal : 1 vertical)
-    depth_lb : torch.Tensor
-        Lower bound for depth (prevents gradient singularity in pow)
 
     Returns
     -------
@@ -215,12 +212,9 @@ def _compute_zeta(
     """
     numerator = q_t * n * (q_spatial + 1)
     denominator = p_spatial * torch.pow(s0, 0.5)
-    depth = torch.clamp(
-        torch.pow(
-            torch.div(numerator, denominator + 1e-8),
-            torch.div(3.0, 5.0 + 3.0 * q_spatial),
-        ),
-        min=depth_lb,
+    depth = torch.pow(
+        torch.div(numerator, denominator + 1e-8),
+        torch.div(3.0, 5.0 + 3.0 * q_spatial),
     )
     width = torch.pow(p_spatial * depth, q_spatial)
     area = width * length
@@ -866,7 +860,6 @@ class MuskingumCunge:
                 self.d_gw,
                 self.top_width,
                 self.side_slope,
-                self.depth_lb,
             )
             if self.leakance_gate is not None:
                 zeta = zeta * self.leakance_gate

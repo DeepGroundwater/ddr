@@ -8,12 +8,11 @@ import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
-from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts
 from torch.utils.data import DataLoader, RandomSampler
 
-from ddr import ddr_functions, dmc, kan, streamflow
+from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
 from ddr._version import __version__
-from ddr.routing.utils import aggregate_neighbor_attributes, select_columns
+from ddr.routing.utils import select_columns
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
 
@@ -25,6 +24,8 @@ def train(
     flow: streamflow,
     routing_model: dmc,
     nn: kan,
+    lstm_nn: CudaLSTM | None = None,
+    forcings_reader_nn: forcings_reader | None = None,
 ) -> None:
     """Do model training."""
     data_generator = torch.Generator()
@@ -36,13 +37,18 @@ def train(
 
     lr = resolve_learning_rate(cfg.experiment.learning_rate, 1)
     kan_optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
+    lstm_optimizer: torch.optim.Optimizer | None = None
+    if lstm_nn is not None:
+        lstm_optimizer = torch.optim.Adam(params=lstm_nn.parameters(), lr=lr)
 
     if cfg.experiment.checkpoint:
         state = load_checkpoint(
             nn,
             cfg.experiment.checkpoint,
             torch.device(cfg.device),
+            lstm_nn=lstm_nn,
             kan_optimizer=kan_optimizer,
+            lstm_optimizer=lstm_optimizer,
         )
         start_epoch = state["epoch"]
         start_mini_batch = (
@@ -51,6 +57,9 @@ def train(
         lr = resolve_learning_rate(cfg.experiment.learning_rate, start_epoch)
         for param_group in kan_optimizer.param_groups:
             param_group["lr"] = lr
+        if lstm_optimizer is not None:
+            for param_group in lstm_optimizer.param_groups:
+                param_group["lr"] = lr
     else:
         log.info("Creating new spatial model")
     sampler = RandomSampler(
@@ -66,10 +75,15 @@ def train(
         drop_last=True,
     )
 
-    # Cosine annealing with warm restarts (period doubles each restart)
-    kan_scheduler = CosineAnnealingWarmRestarts(kan_optimizer, T_0=len(dataloader), T_mult=2, eta_min=1e-5)
-
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
+        if epoch in cfg.experiment.learning_rate:
+            lr = cfg.experiment.learning_rate[epoch]
+            log.info(f"Setting learning rate: {lr}")
+            for param_group in kan_optimizer.param_groups:
+                param_group["lr"] = lr
+            if lstm_optimizer is not None:
+                for param_group in lstm_optimizer.param_groups:
+                    param_group["lr"] = lr
         for i, routing_dataclass in enumerate(dataloader, start=0):
             if i < start_mini_batch:
                 log.info(f"Skipping mini-batch {i}. Resuming at {start_mini_batch}")
@@ -77,6 +91,8 @@ def train(
                 start_mini_batch = 0
                 routing_model.set_progress_info(epoch=epoch, mini_batch=i)
                 kan_optimizer.zero_grad()
+                if lstm_optimizer is not None:
+                    lstm_optimizer.zero_grad()
 
                 streamflow_predictions = flow(
                     routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
@@ -84,16 +100,27 @@ def train(
                 attr_names = routing_dataclass.attribute_names
                 normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
                 kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
-                if cfg.kan.use_graph_context:
-                    adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
-                    neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
-                    kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
                 spatial_params = nn(inputs=kan_attrs)
+
+                lstm_params: dict[str, torch.Tensor] | None = None
+                forcing_data: torch.Tensor | None = None
+                if lstm_nn is not None and forcings_reader_nn is not None and cfg.cuda_lstm is not None:
+                    forcing_data = forcings_reader_nn(
+                        routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+                    )
+                    lstm_attrs = select_columns(
+                        normalized_attrs, list(cfg.cuda_lstm.input_var_names), attr_names
+                    )
+                    lstm_params = lstm_nn(
+                        forcings=forcing_data,
+                        attributes=lstm_attrs,
+                    )
 
                 dmc_kwargs = {
                     "routing_dataclass": routing_dataclass,
                     "spatial_parameters": spatial_params,
                     "streamflow": streamflow_predictions,
+                    "lstm_params": lstm_params,
                 }
 
                 dmc_output = routing_model(**dmc_kwargs)
@@ -116,7 +143,15 @@ def train(
 
                 pred = filtered_predictions[:, cfg.experiment.warmup :]
                 target = filtered_observations[:, cfg.experiment.warmup :]
-                loss = torch.nn.functional.mse_loss(pred, target)
+                per_gage_mse = ((pred - target) ** 2).mean(dim=1)  # [N]
+                loss = per_gage_mse.mean()
+
+                if cfg.params.use_leakance and "zeta_sum" in dmc_output:
+                    zeta = dmc_output["zeta_sum"].detach().cpu()
+                    qp = dmc_output["q_prime_sum"].detach().cpu()
+                    zeta_frac = zeta.sum() / (qp.sum() + 1e-8)
+                    n_losing = int((zeta > 0).sum())
+                    log.info(f"Leakance: zeta/q_prime={zeta_frac.item():.4f}, losing={n_losing}/{len(zeta)}")
 
                 # --- Check forward pass output for NaN ---
                 if torch.isnan(dmc_output["runoff"]).any():
@@ -124,6 +159,10 @@ def train(
                     log.error(f"NaN in routing output at timestep {nan_t} — skipping batch")
                     del streamflow_predictions, spatial_params, dmc_output, daily_runoff
                     del loss, filtered_predictions, filtered_observations
+                    if forcing_data is not None:
+                        del forcing_data
+                    if lstm_params is not None:
+                        del lstm_params
                     routing_model.clear_batch_state()
                     continue
 
@@ -132,6 +171,10 @@ def train(
                     log.error("NaN loss — skipping backward + optimizer step")
                     del streamflow_predictions, spatial_params, dmc_output, daily_runoff
                     del loss, filtered_predictions, filtered_observations
+                    if forcing_data is not None:
+                        del forcing_data
+                    if lstm_params is not None:
+                        del lstm_params
                     routing_model.clear_batch_state()
                     continue
 
@@ -140,11 +183,15 @@ def train(
                 loss.backward()
 
                 # --- NaN gradient guard ---
-                kan_grad_norm = torch.nn.utils.clip_grad_norm_(
-                    nn.parameters(), max_norm=cfg.experiment.grad_clip_norm
-                )
+                kan_grad_norm = torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=float("inf"))
                 has_nan_grad = torch.isnan(kan_grad_norm)
                 grad_msg = f"Grad norms: KAN={kan_grad_norm.item():.4g}"
+                if lstm_nn is not None:
+                    lstm_grad_norm = torch.nn.utils.clip_grad_norm_(
+                        lstm_nn.parameters(), max_norm=float("inf")
+                    )
+                    has_nan_grad = has_nan_grad or torch.isnan(lstm_grad_norm)
+                    grad_msg += f", LSTM={lstm_grad_norm.item():.4g}"
                 log.info(grad_msg)
 
                 if has_nan_grad:
@@ -153,9 +200,12 @@ def train(
                         "Weights preserved from previous batch."
                     )
                     kan_optimizer.zero_grad()
+                    if lstm_optimizer is not None:
+                        lstm_optimizer.zero_grad()
                 else:
                     kan_optimizer.step()
-                    kan_scheduler.step()
+                    if lstm_optimizer is not None:
+                        lstm_optimizer.step()
 
                 np_pred = filtered_predictions.detach().cpu().numpy()
                 np_target = filtered_observations.detach().cpu().numpy()
@@ -167,7 +217,7 @@ def train(
                 rmse = metrics.rmse
                 kge = metrics.kge
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
-                log.info(f"Loss: {loss.item():.4f}")
+                log.info(f"Loss: {loss.item()}")
 
                 n_vals = routing_model.n.detach().cpu()
                 log.info(
@@ -175,14 +225,6 @@ def train(
                     f"mean={n_vals.mean().item():.4f}, "
                     f"min={n_vals.min().item():.4f}, max={n_vals.max().item():.4f}"
                 )
-
-                if routing_model.routing_engine.x_storage is not None:
-                    x_vals = routing_model.routing_engine.x_storage.detach().cpu()
-                    log.info(
-                        f"Muskingum X: median={x_vals.median().item():.4f}, "
-                        f"mean={x_vals.mean().item():.4f}, "
-                        f"min={x_vals.min().item():.4f}, max={x_vals.max().item():.4f}"
-                    )
 
                 if routing_model.routing_engine.use_reservoir:
                     pool_elev = routing_model.routing_engine._pool_elevation_t
@@ -213,11 +255,17 @@ def train(
                     kan_optimizer=kan_optimizer,
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
+                    lstm_nn=lstm_nn,
+                    lstm_optimizer=lstm_optimizer,
                 )
 
                 # Free batch-specific GPU tensors to prevent VRAM growth
                 del streamflow_predictions, spatial_params, dmc_output, daily_runoff
                 del loss, filtered_predictions, filtered_observations
+                if forcing_data is not None:
+                    del forcing_data
+                if lstm_params is not None:
+                    del lstm_params
                 routing_model.clear_batch_state()
 
 
@@ -244,8 +292,21 @@ def main(cfg: DictConfig) -> None:
             device=config.device,
             gate_parameters=config.kan.gate_parameters,
             off_parameters=config.kan.off_parameters,
-            use_graph_context=config.kan.use_graph_context,
         )
+        lstm_nn: CudaLSTM | None = None
+        forcings_reader_nn: forcings_reader | None = None
+        if config.cuda_lstm is not None:
+            lstm_nn = CudaLSTM(
+                input_var_names=config.cuda_lstm.input_var_names,
+                forcing_var_names=config.cuda_lstm.forcing_var_names,
+                learnable_parameters=config.cuda_lstm.learnable_parameters,
+                hidden_size=config.cuda_lstm.hidden_size,
+                num_layers=config.cuda_lstm.num_layers,
+                dropout=config.cuda_lstm.dropout,
+                seed=config.seed,
+                device=config.device,
+            )
+            forcings_reader_nn = forcings_reader(config)
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
         train(
@@ -253,6 +314,8 @@ def main(cfg: DictConfig) -> None:
             flow=flow,
             routing_model=routing_model,
             nn=nn,
+            lstm_nn=lstm_nn,
+            forcings_reader_nn=forcings_reader_nn,
         )
 
     except KeyboardInterrupt:

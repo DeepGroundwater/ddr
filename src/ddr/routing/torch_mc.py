@@ -56,6 +56,8 @@ class dmc(torch.nn.Module):
         self.q_spatial: torch.Tensor = torch.empty(0)
         self.top_width: torch.Tensor = torch.empty(0)
         self.side_slope: torch.Tensor = torch.empty(0)
+        self.K_D: torch.Tensor = torch.empty(0)
+        self.d_gw: torch.Tensor = torch.empty(0)
 
         self.epoch = 0
         self.mini_batch = 0
@@ -144,6 +146,8 @@ class dmc(torch.nn.Module):
     def clear_batch_state(self) -> None:
         """Release batch-specific tensor references to free GPU memory."""
         self.routing_engine.clear_batch_state()
+        self.K_D = torch.empty(0)
+        self.d_gw = torch.empty(0)
 
     def forward(self, **kwargs: Any) -> dict[str, torch.Tensor]:
         """Forward pass for the Muskingum-Cunge routing model.
@@ -158,7 +162,8 @@ class dmc(torch.nn.Module):
             Keyword arguments containing:
             - routing_dataclass: routing_dataclass object with network and channel properties
             - streamflow: Input streamflow tensor
-            - spatial_parameters: Dictionary of spatial parameters (q_spatial, n, etc.)
+            - spatial_parameters: Dictionary of spatial parameters (q_spatial, n, K_D, etc.)
+            - lstm_params: Dictionary of time-varying parameters from LSTM (d_gw)
 
         Returns
         -------
@@ -180,6 +185,11 @@ class dmc(torch.nn.Module):
             carry_state=carry_state,
         )
 
+        # Setup time-varying LSTM params (d_gw)
+        lstm_params = kwargs.get("lstm_params", None)
+        if lstm_params is not None:
+            self.routing_engine.setup_lstm_params(lstm_params)
+
         # Update compatibility attributes
         self.network = self.routing_engine.network
         self.q_spatial = self.routing_engine.q_spatial
@@ -193,6 +203,9 @@ class dmc(torch.nn.Module):
         # Update state AFTER forward() so they reference current-batch values
         self._discharge_t = self.routing_engine._discharge_t
         self.n = self.routing_engine.n  # Static spatial value from KAN
+        if self.routing_engine.use_leakance:
+            self.K_D = self.routing_engine.K_D
+            self.d_gw = self.routing_engine.d_gw
 
         if kwargs.get("retain_grads", False):
             if self.n is not None and self.n.requires_grad:
@@ -201,6 +214,11 @@ class dmc(torch.nn.Module):
                 self.q_spatial.retain_grad()
             if self._discharge_t is not None:
                 self._discharge_t.retain_grad()
+            if self.routing_engine.use_leakance:
+                if self.routing_engine.K_D is not None:
+                    self.routing_engine.K_D.retain_grad()
+                if self.routing_engine.d_gw is not None:
+                    self.routing_engine.d_gw.retain_grad()
 
             # Retain gradients for the original spatial parameters so they can be tested
             spatial_params = self.routing_engine.spatial_parameters
@@ -215,6 +233,10 @@ class dmc(torch.nn.Module):
                     spatial_params["side_slope"].retain_grad()
                 if "p_spatial" in spatial_params:
                     spatial_params["p_spatial"].retain_grad()
+                if "K_D" in spatial_params:
+                    spatial_params["K_D"].retain_grad()
+                if "d_gw" in spatial_params:
+                    spatial_params["d_gw"].retain_grad()
 
             output.retain_grad()  # Retain gradients for the output tensor
 
@@ -222,6 +244,10 @@ class dmc(torch.nn.Module):
         output_dict: dict[str, torch.Tensor] = {
             "runoff": output,
         }
+
+        if self.routing_engine.use_leakance and self.routing_engine._zeta_sum is not None:
+            output_dict["zeta_sum"] = self.routing_engine._zeta_sum
+            output_dict["q_prime_sum"] = self.routing_engine._q_prime_sum
 
         if self.routing_engine.use_reservoir and self.routing_engine._pool_elevation_t is not None:
             output_dict["pool_elevation"] = self.routing_engine._pool_elevation_t.detach()

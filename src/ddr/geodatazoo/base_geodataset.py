@@ -90,6 +90,8 @@ class BaseGeoDataset(Dataset, ABC):
         torch.Tensor,
         torch.Tensor,
         dict[str, torch.Tensor],
+        torch.Tensor | None,
+        torch.Tensor | None,
         dict[str, torch.Tensor] | None,
     ]:
         """Build tensors common to all collate methods."""

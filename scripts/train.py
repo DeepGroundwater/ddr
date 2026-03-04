@@ -115,7 +115,22 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                 utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
                 log.info(f"Loss: {loss.item()}")
 
-                log.info(f"Median Mannings Roughness: {torch.median(routing_model.n.detach().cpu()).item()}")
+                # Log parameter ranges for all learnable routing parameters
+                param_map = {
+                    "n": routing_model.n,
+                    "q_spatial": routing_model.q_spatial,
+                    "top_width": routing_model.top_width,
+                    "side_slope": routing_model.side_slope,
+                }
+                for param_name in cfg.kan.learnable_parameters:
+                    param_tensor = param_map.get(param_name)
+                    if param_tensor is not None:
+                        p = param_tensor.detach().cpu()
+                        log.info(
+                            f"{param_name}: min={p.min().item():.6f}, "
+                            f"median={torch.median(p).item():.6f}, "
+                            f"max={p.max().item():.6f}"
+                        )
 
                 random_gage = -1  # TODO: scale out when we have more gauges
                 plot_time_series(

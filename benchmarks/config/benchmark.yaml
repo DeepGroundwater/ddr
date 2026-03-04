@@ -9,7 +9,7 @@ defaults:
 mode: testing
 geodataset: merit
 name: benchmarks-v${oc.env:BENCHMARKS_VERSION,dev}-${geodataset}
-device: 3
+device: 4
 
 data_sources:
   attributes: /projects/mhpi/tbindas/ddr/data/merit_global_attributes_v2.nc
@@ -20,10 +20,13 @@ data_sources:
   streamflow: /projects/mhpi/tbindas/ddr/data/merit_dhbv2_UH_retrospective
   observations: /projects/mhpi/data/icechunk/usgs_daily_observations
   gages: /projects/mhpi/tbindas/ddr/references/gage_info/gages_3000.csv
-  forcings: /projects/mhpi/data/icechunk/merit_forcing_conus
 
 params:
   save_path: ./
+  log_space_parameters: [top_width, side_slope]
+  defaults:
+    p_spatial: 21
+  tau: 3
   use_leakance: true
 
 experiment:
@@ -31,7 +34,7 @@ experiment:
   start_time: 1995/10/01
   end_time: 2010/09/30
   warmup: 3
-  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-14_21-55-58/saved_models/_ddr-v0.5.0-merit-training_epoch_5_mb_43.pt
+  checkpoint: /projects/mhpi/tbindas/ddr/output/ddr-v0.5.0-merit-training/2026-02-11_21-14-07/saved_models/_ddr-v0.5.0-merit-training_epoch_5_mb_43.pt
 
 kan:
   hidden_size: 21
@@ -48,24 +51,17 @@ kan:
     - Porosity
   num_hidden_layers: 2
   learnable_parameters:
+    - n
     - q_spatial
     - top_width
     - side_slope
-    - K_D
   grid: 50
   k: 2
 
-cuda_lstm:
-  hidden_size: 128
+leakance_lstm:
+  hidden_size: 64
   num_layers: 1
   dropout: 0.5
-  forcing_var_names:
-    - P
-    - PET
-    - Temp
-  learnable_parameters:
-    - n
-    - d_gw
   input_var_names:
     - SoilGrids1km_clay
     - aridity
@@ -75,7 +71,7 @@ cuda_lstm:
     - meanslope
     - log10_uparea
     - SoilGrids1km_sand
-    - permeability
+    - ETPOT_Hargr
     - Porosity
 
 # === DiffRoute-specific configuration ===

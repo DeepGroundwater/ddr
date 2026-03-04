@@ -23,7 +23,7 @@ from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
 # Reuse ALL DDR imports
-from ddr import CudaLSTM, ddr_functions, dmc, forcings_reader, kan, streamflow
+from ddr import ddr_functions, dmc, kan, leakance_lstm, streamflow
 from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
 from ddr.io.readers import read_zarr
@@ -94,8 +94,7 @@ def run_ddr(
     routing_model: dmc,
     nn: kan,
     routing_dataclass: RoutingDataclass,
-    lstm_nn: CudaLSTM | None = None,
-    forcings_reader_nn: forcings_reader | None = None,
+    leakance_nn: leakance_lstm | None = None,
 ) -> NDArray[np.floating[Any]]:
     """Run DDR model - extracted from scripts/test.py.
 
@@ -105,8 +104,7 @@ def run_ddr(
         routing_model: DMC routing model
         nn: KAN neural network for spatial parameters
         routing_dataclass: RoutingDataclass with all routing data
-        lstm_nn: Optional leakance LSTM model
-        forcings_reader_nn: Optional forcings reader for leakance LSTM inputs
+        leakance_nn: Optional leakance LSTM model
 
     Returns
     -------
@@ -120,16 +118,16 @@ def run_ddr(
         "spatial_parameters": spatial_params,
         "streamflow": streamflow_predictions,
     }
-    if lstm_nn is not None and forcings_reader_nn is not None:
+    if leakance_nn is not None:
         assert routing_dataclass.normalized_spatial_attributes is not None
-        forcing_data = forcings_reader_nn(
-            routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-        )
-        lstm_params = lstm_nn(
-            forcings=forcing_data,
+        T_hourly = streamflow_predictions.shape[0]
+        T_daily = T_hourly // 24
+        daily_q_prime = streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+        leakance_params = leakance_nn(
+            q_prime=daily_q_prime,
             attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
         )
-        dmc_kwargs["lstm_params"] = lstm_params
+        dmc_kwargs["leakance_params"] = leakance_params
     dmc_output = routing_model(**dmc_kwargs)
     return dmc_output["runoff"].cpu().numpy()
 
@@ -660,8 +658,7 @@ def benchmark(
     nn: kan,
     diffroute_cfg: DiffRouteConfig,
     summed_q_prime_path: str | None = None,
-    lstm_nn: CudaLSTM | None = None,
-    forcings_reader_nn: forcings_reader | None = None,
+    leakance_nn: leakance_lstm | None = None,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -672,8 +669,7 @@ def benchmark(
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
         summed_q_prime_path: Optional path to summed Q' zarr store
-        lstm_nn: Optional leakance LSTM model
-        forcings_reader_nn: Optional forcings reader for leakance LSTM inputs
+        leakance_nn: Optional leakance LSTM model
     """
     assert cfg.geodataset == GeoDataset.MERIT, (
         f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
@@ -687,14 +683,14 @@ def benchmark(
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), lstm_nn=lstm_nn)
+        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), leakance_nn=leakance_nn)
     else:
         log.warning("Creating new spatial model for evaluation.")
 
     nn = nn.eval()
-    if lstm_nn is not None:
-        lstm_nn.cache_states = True
-        lstm_nn = lstm_nn.eval()
+    if leakance_nn is not None:
+        leakance_nn.cache_states = True
+        leakance_nn = leakance_nn.eval()
 
     sampler = SequentialSampler(data_source=dataset)
     dataloader = DataLoader(
@@ -733,66 +729,15 @@ def benchmark(
                 "carry_state": i > 0,
             }
 
-            if lstm_nn is not None and forcings_reader_nn is not None:
-                lstm_batch_size = 1_000
-                # Load forcings to CPU to avoid GPU OOM on full network
-                forcing_data = forcings_reader_nn(
-                    routing_dataclass=routing_dataclass, device="cpu", dtype=torch.float32
+            if leakance_nn is not None:
+                T_hourly = streamflow_predictions.shape[0]
+                T_daily = T_hourly // 24
+                daily_q_prime = streamflow_predictions[: T_daily * 24].reshape(T_daily, 24, -1).mean(dim=1)
+                leakance_params = leakance_nn(
+                    q_prime=daily_q_prime,
+                    attributes=routing_dataclass.normalized_spatial_attributes.to(cfg.device),
                 )
-                all_attrs = routing_dataclass.normalized_spatial_attributes
-                n_reaches = all_attrs.shape[0]
-
-                # Save full hidden states from previous dataloader batch (None on first)
-                full_hn = lstm_nn.hn
-                full_cn = lstm_nn.cn
-                new_full_hn: torch.Tensor | None = None
-                new_full_cn: torch.Tensor | None = None
-                batch_outputs: dict[str, list[torch.Tensor]] = {
-                    key: [] for key in lstm_nn.learnable_parameters
-                }
-
-                for s in range(0, n_reaches, lstm_batch_size):
-                    e = min(s + lstm_batch_size, n_reaches)
-                    bf = forcing_data[:, s:e, :].to(cfg.device)
-                    ba = all_attrs[s:e, :].to(cfg.device)
-
-                    # Slice cached hidden states for this reach batch
-                    if full_hn is not None:
-                        assert full_cn is not None
-                        lstm_nn.hn = full_hn[:, s:e, :].contiguous()
-                        lstm_nn.cn = full_cn[:, s:e, :].contiguous()
-                    else:
-                        lstm_nn.hn = None
-                        lstm_nn.cn = None
-
-                    bout = lstm_nn(forcings=bf, attributes=ba)
-
-                    # Accumulate hidden states for next dataloader batch
-                    if lstm_nn.cache_states and lstm_nn.hn is not None:
-                        if new_full_hn is None:
-                            nl, _, hs = lstm_nn.hn.shape
-                            new_full_hn = torch.zeros(nl, n_reaches, hs, device="cpu")
-                            new_full_cn = torch.zeros(nl, n_reaches, hs, device="cpu")
-                        assert lstm_nn.cn is not None
-                        assert new_full_hn is not None and new_full_cn is not None
-                        new_full_hn[:, s:e, :] = lstm_nn.hn.cpu()
-                        new_full_cn[:, s:e, :] = lstm_nn.cn.cpu()
-
-                    for key in lstm_nn.learnable_parameters:
-                        batch_outputs[key].append(bout[key])
-
-                    del bf, ba, bout
-                    torch.cuda.empty_cache()
-
-                # Restore full hidden states for next dataloader batch
-                if lstm_nn.cache_states:
-                    lstm_nn.hn = new_full_hn
-                    lstm_nn.cn = new_full_cn
-
-                del forcing_data
-                lstm_params = {k: torch.cat(v, dim=1) for k, v in batch_outputs.items()}
-                del batch_outputs
-                dmc_kwargs["lstm_params"] = lstm_params
+                dmc_kwargs["leakance_params"] = leakance_params
 
             dmc_output = routing_model(**dmc_kwargs)
             ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()

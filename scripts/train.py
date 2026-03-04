@@ -100,6 +100,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                 log.info("Running backpropagation")
 
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad()
 

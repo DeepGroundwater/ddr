@@ -221,6 +221,41 @@ def filter_gages_by_da_valid(
     return filtered, n_removed
 
 
+def filter_headwater_gages(
+    gage_ids: np.ndarray,
+    gages_adjacency: dict,
+) -> tuple[np.ndarray, int]:
+    """Filter out headwater gages that have no upstream connectivity.
+
+    Headwater gages are single-reach catchments with an empty upstream
+    adjacency (``indices_0`` is length 0). These are excluded because
+    Muskingum-Cunge routing is trivial for them (no routing edges).
+
+    Parameters
+    ----------
+    gage_ids : np.ndarray
+        Array of gage ID strings
+    gages_adjacency : dict
+        Loaded gages adjacency zarr store
+
+    Returns
+    -------
+    tuple[np.ndarray, int]
+        Filtered gage IDs and count of removed headwater gages
+    """
+    keep_mask = np.ones(len(gage_ids), dtype=bool)
+    for idx, gage_id in enumerate(gage_ids):
+        if gage_id not in gages_adjacency:
+            keep_mask[idx] = False
+            continue
+        if len(gages_adjacency[gage_id]["indices_0"][:]) == 0:
+            keep_mask[idx] = False
+
+    filtered = gage_ids[keep_mask]
+    n_removed = len(gage_ids) - len(filtered)
+    return filtered, n_removed
+
+
 def compute_flow_scale_factor(
     drain_sqkm: float,
     comid_drain_sqkm: float,

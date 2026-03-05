@@ -14,6 +14,15 @@ class Mode(StrEnum):
     ROUTING = "routing"
 
 
+class PhiInputs(StrEnum):
+    """The type of inputs for the temporal phi-KAN bias correction"""
+
+    STATIC = "static"
+    MONTHLY = "monthly"
+    FORCING = "forcing"
+    RANDOM = "random"
+
+
 class GeoDataset(StrEnum):
     """The geospatial dataset used for predictions and routing"""
 

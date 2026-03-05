@@ -9,7 +9,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from ddr.validation.enums import GeoDataset, Mode
+from ddr.validation.enums import GeoDataset, Mode, PhiInputs
 
 log = logging.getLogger(__name__)
 
@@ -188,6 +188,44 @@ class ExperimentConfig(BaseModel):
         return check_path(str(v))
 
 
+class BiasCorrection(BaseModel):
+    """Configuration for KAN-based bias correction of lateral inflows"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(default=False, description="Whether to enable bias correction")
+    phi_inputs: PhiInputs = Field(
+        default=PhiInputs.MONTHLY,
+        description="Input type for the temporal phi-KAN",
+    )
+    forcing_var: str | None = Field(
+        default=None,
+        description="Forcing variable name (required when phi_inputs='forcing')",
+    )
+    phi_hidden_size: int = Field(default=5, description="Hidden layer size for the phi-KAN")
+    phi_grid: int = Field(default=8, description="Grid size for phi-KAN B-spline basis")
+    phi_k: int = Field(default=3, description="B-spline order for phi-KAN layers")
+    lambda_mass: float = Field(
+        default=0.5,
+        description="Weight for mass balance loss relative to KGE loss",
+    )
+    lambda_anneal: bool = Field(
+        default=False,
+        description="Whether to anneal lambda_mass over training epochs",
+    )
+    use_kge_loss: bool = Field(
+        default=True,
+        description="Whether to use KGE loss (True) or MSE loss (False) when bias is enabled",
+    )
+
+    @model_validator(mode="after")
+    def validate_forcing_var(self) -> "BiasCorrection":
+        """Validate that forcing_var is set when phi_inputs is 'forcing'"""
+        if self.phi_inputs == PhiInputs.FORCING and self.forcing_var is None:
+            raise ValueError("forcing_var must be set when phi_inputs='forcing'")
+        return self
+
+
 class Config(BaseModel):
     """The base level configuration for the dMC (differentiable Muskingum-Cunge) model"""
 
@@ -205,6 +243,10 @@ class Config(BaseModel):
     mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
+    bias: BiasCorrection = Field(
+        default_factory=BiasCorrection,
+        description="Configuration for KAN-based bias correction of lateral inflows",
+    )
     np_seed: int = Field(default=1, description="Random seed for NumPy operations to ensure reproducibility")
     seed: int = Field(default=0, description="Random seed for PyTorch operations to ensure reproducibility")
     device: int | str = Field(

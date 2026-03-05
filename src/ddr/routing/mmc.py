@@ -373,15 +373,17 @@ class MuskingumCunge:
                 dtype=torch.float32,
             )
 
-            # Vectorized initial values
+            # Vectorized initial values — compute clamp on standalone tensor
+            # to avoid read-modify-write on output (breaks autograd when
+            # discharge requires grad, e.g. via TemporalPhiKAN)
             gathered = self._discharge_t[self._flat_indices]
-            output[:, 0] = torch.scatter_add(
+            initial = torch.scatter_add(
                 input=self._scatter_input,
                 dim=0,
                 index=self._group_ids,
                 src=gathered,
             )
-            output[:, 0] = torch.clamp(output[:, 0], min=self.discharge_lb)
+            output[:, 0] = torch.clamp(initial, min=self.discharge_lb)
 
         # Route through time series
         for timestep in tqdm(

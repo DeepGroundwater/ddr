@@ -53,6 +53,9 @@ class TemporalPhiKAN(nn.Module):
             seed=seed,
             device=device,
         )
+        self.phi_kan.save_act = False  # avoid in-place ops + save memory
+
+        self.chunk_size = 8192
 
     def forward(
         self,
@@ -112,9 +115,13 @@ class TemporalPhiKAN(nn.Module):
         else:
             raise ValueError(f"Unknown phi_inputs mode: {self.phi_inputs}")
 
-        # Flatten (T, N, input_dim) → (T*N, input_dim), run KAN, reshape back
+        # Flatten (T, N, input_dim) → (T*N, input_dim), run KAN in chunks, reshape back
         phi_input_flat = phi_input.reshape(T * N, self.input_dim)
-        q_corrected_norm = self.phi_kan(phi_input_flat).reshape(T, N)  # (T, N)
+        if T * N > self.chunk_size:
+            chunks = phi_input_flat.split(self.chunk_size, dim=0)
+            q_corrected_norm = torch.cat([self.phi_kan(c) for c in chunks], dim=0).reshape(T, N)
+        else:
+            q_corrected_norm = self.phi_kan(phi_input_flat).reshape(T, N)  # (T, N)
 
         # Denormalize back to physical units
         if grid_bounds is not None:

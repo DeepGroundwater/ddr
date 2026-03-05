@@ -46,6 +46,7 @@ def load_checkpoint(
     nn: torch.nn.Module,
     checkpoint_path: str | Path,
     device: str | torch.device,
+    phi_kan: torch.nn.Module | None = None,
 ) -> dict:
     """Load DDR checkpoint, apply state_dict to model. Returns full state dict.
 
@@ -57,6 +58,8 @@ def load_checkpoint(
         Path to the .pt checkpoint file.
     device : str | torch.device
         Device to map tensors to.
+    phi_kan : torch.nn.Module | None
+        Optional phi-KAN module to load weights into.
 
     Returns
     -------
@@ -70,6 +73,16 @@ def load_checkpoint(
     for key in state_dict.keys():
         state_dict[key] = state_dict[key].to(device)
     nn.load_state_dict(state_dict)
+
+    if phi_kan is not None and "phi_kan_state_dict" in state:
+        phi_state = state["phi_kan_state_dict"]
+        for key in phi_state:
+            phi_state[key] = phi_state[key].to(device)
+        phi_kan.load_state_dict(phi_state)
+        log.info("Loaded phi_kan weights from checkpoint")
+    elif phi_kan is not None:
+        log.warning("No phi_kan_state_dict in checkpoint, using random init")
+
     return state
 
 

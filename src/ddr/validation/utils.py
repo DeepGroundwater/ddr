@@ -17,6 +17,7 @@ def save_state(
     optimizer: nn.Module,
     name: str,
     saved_model_path: Path,
+    phi_kan: nn.Module | None = None,
 ) -> None:
     """Save model state
 
@@ -65,6 +66,9 @@ def save_state(
     }
     if torch.cuda.is_available():
         state["cuda_rng_state"] = torch.cuda.get_rng_state()
+    if phi_kan is not None:
+        state["phi_kan_state_dict"] = {k: v.cpu() for k, v in phi_kan.state_dict().items()}
+
     if mini_batch == -1:
         state["epoch"] = epoch + 1
         state["mini_batch"] = 0

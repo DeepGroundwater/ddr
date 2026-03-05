@@ -13,20 +13,24 @@ from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
+from ddr.nn import TemporalPhiKAN
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
+from ddr.validation.losses import kge_loss, mass_balance_loss
 
 log = logging.getLogger(__name__)
 
 
-def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
+def train(
+    cfg: Config, flow: streamflow, routing_model: dmc, nn: kan, phi_kan: TemporalPhiKAN | None = None
+) -> None:
     """Do model training."""
     data_generator = torch.Generator()
     data_generator.manual_seed(cfg.seed)
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        state = load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
+        state = load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), phi_kan=phi_kan)
         start_epoch = state["epoch"]
         start_mini_batch = (
             0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
@@ -38,7 +42,10 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
         start_mini_batch = 0
         lr = cfg.experiment.learning_rate[start_epoch]
 
-    optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
+    params_to_optimize = list(nn.parameters())
+    if phi_kan is not None:
+        params_to_optimize += list(phi_kan.parameters())
+    optimizer = torch.optim.Adam(params=params_to_optimize, lr=lr)
     sampler = RandomSampler(
         data_source=dataset,
         generator=data_generator,
@@ -69,6 +76,16 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                     routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
                 )
                 spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
+
+                if phi_kan is not None:
+                    month = dataset.dates.batch_month_tensor.to(cfg.device)
+                    grid_bounds = spatial_params.pop("grid_bounds", None)
+                    streamflow_predictions = phi_kan(
+                        streamflow_predictions,
+                        month=month,
+                        grid_bounds=grid_bounds,
+                    )
+
                 dmc_kwargs = {
                     "routing_dataclass": routing_dataclass,
                     "spatial_parameters": spatial_params,
@@ -92,15 +109,22 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
 
                 filtered_predictions = daily_runoff[~np_nan_mask]
 
-                loss = mse_loss(
-                    input=filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
-                    target=filtered_observations.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
-                )
+                if phi_kan is not None and cfg.bias.use_kge_loss:
+                    pred_gt = filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :]
+                    obs_gt = filtered_observations.transpose(0, 1)[cfg.experiment.warmup :]
+                    mb_loss = mass_balance_loss(pred_gt, obs_gt)
+                    kge = kge_loss(pred_gt, obs_gt)
+                    loss = cfg.bias.lambda_mass * mb_loss + (1 - cfg.bias.lambda_mass) * kge
+                else:
+                    loss = mse_loss(
+                        input=filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
+                        target=filtered_observations.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
+                    )
 
                 log.info("Running backpropagation")
 
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(params_to_optimize, max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad()
 
@@ -112,9 +136,14 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                 _nse = metrics.nse
                 nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
                 rmse = metrics.rmse
-                kge = metrics.kge
-                utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
-                log.info(f"Loss: {loss.item()}")
+                kge_metric = metrics.kge
+                utils.log_metrics(nse, rmse, kge_metric, epoch=epoch, mini_batch=i)
+                if phi_kan is not None and cfg.bias.use_kge_loss:
+                    log.info(
+                        f"Loss: {loss.item():.6f} (mass_balance: {mb_loss.item():.6f}, kge: {kge.item():.6f})"
+                    )
+                else:
+                    log.info(f"Loss: {loss.item()}")
 
                 # Log parameter ranges for all learnable routing parameters
                 param_map = {
@@ -153,6 +182,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                     optimizer=optimizer,
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
+                    phi_kan=phi_kan,
                 )
 
 
@@ -177,10 +207,21 @@ def main(cfg: DictConfig) -> None:
             k=config.kan.k,
             seed=config.seed,
             device=config.device,
+            output_grid_bounds=config.bias.enabled,
+            bias_cfg=config.bias if config.bias.enabled else None,
         )
+
+        phi_kan = None
+        if config.bias.enabled:
+            phi_kan = TemporalPhiKAN(
+                cfg=config.bias,
+                seed=config.seed,
+                device=config.device,
+            )
+
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
+        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn, phi_kan=phi_kan)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

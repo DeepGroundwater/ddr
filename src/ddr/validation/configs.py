@@ -217,6 +217,8 @@ class BiasCorrection(BaseModel):
         default=True,
         description="Whether to use KGE loss (True) or MSE loss (False) when bias is enabled",
     )
+    bounds_grid: int = Field(default=8, description="Grid size for bounds head KAN B-spline basis")
+    bounds_k: int = Field(default=3, description="B-spline order for bounds head KAN layers")
 
     @model_validator(mode="after")
     def validate_forcing_var(self) -> "BiasCorrection":

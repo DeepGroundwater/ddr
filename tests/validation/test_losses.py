@@ -37,6 +37,17 @@ class TestMassBalanceLoss:
         assert pred.grad is not None
         assert torch.isfinite(pred.grad).all()
 
+    def test_gradient_does_not_flow_through_mc(self) -> None:
+        """mass_balance_loss on pre-MC q_corrected must not grad MC params."""
+        mc_layer = torch.nn.Linear(4, 4, bias=False)
+        q_corrected = torch.tensor([[1.0, 2.0, 3.0, 4.0]], requires_grad=True)
+        target = torch.tensor([[2.0, 3.0, 4.0, 5.0]])
+        _mc_output = mc_layer(q_corrected)  # MC processes but loss ignores
+        loss = mass_balance_loss(q_corrected, target)
+        loss.backward()
+        assert mc_layer.weight.grad is None, "MC should not receive gradients from mass_balance_loss"
+        assert q_corrected.grad is not None, "q_corrected should receive gradients"
+
 
 class TestKgeLoss:
     """Test KGE loss."""

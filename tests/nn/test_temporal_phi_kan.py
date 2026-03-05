@@ -108,6 +108,20 @@ class TestTemporalPhiKAN:
         output = model(q_prime, grid_bounds=None)
         assert output.shape == (T, N)
 
+    def test_monotonicity(self) -> None:
+        """Output should increase when Q' increases (other inputs fixed)."""
+        model = self._make_phi_kan(PhiInputs.STATIC)
+        model.eval()
+        N = 10
+        q_low = torch.full((1, N), 0.2)
+        q_high = torch.full((1, N), 0.8)
+        with torch.no_grad():
+            out_low = model(q_low)
+            out_high = model(q_high)
+        assert (out_high >= out_low).all(), (
+            f"Expected monotonic increase: out_low={out_low}, out_high={out_high}"
+        )
+
     def test_sin_cos_encoding(self) -> None:
         """Verify sin/cos month encoding produces expected values."""
         # January: month=1 → sin(2π/12) ≈ 0.5, cos(2π/12) ≈ 0.866

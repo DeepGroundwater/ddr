@@ -16,13 +16,19 @@ from ddr._version import __version__
 from ddr.nn import TemporalPhiKAN
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
-from ddr.validation.losses import kge_loss, mass_balance_loss
+from ddr.validation.enums import BiasLossFn
+from ddr.validation.losses import huber_loss, kge_loss, mass_balance_loss
 
 log = logging.getLogger(__name__)
 
 
 def train(
-    cfg: Config, flow: streamflow, routing_model: dmc, nn: kan, phi_kan: TemporalPhiKAN | None = None
+    cfg: Config,
+    flow: streamflow,
+    routing_model: dmc,
+    nn: kan,
+    phi_kan: TemporalPhiKAN | None = None,
+    q_prime_stats: dict[str, dict[str, float]] | None = None,
 ) -> None:
     """Do model training."""
     data_generator = torch.Generator()
@@ -78,12 +84,24 @@ def train(
                 spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
 
                 if phi_kan is not None:
+                    assert q_prime_stats is not None
                     month = dataset.dates.batch_month_tensor.to(cfg.device)
-                    grid_bounds = spatial_params.pop("grid_bounds", None)
+                    divide_ids = routing_dataclass.divide_ids
+                    q_mean = torch.tensor(
+                        [q_prime_stats.get(str(did), {}).get("mean", 1e-6) for did in divide_ids],
+                        device=cfg.device,
+                        dtype=torch.float32,
+                    )
+                    q_std = torch.tensor(
+                        [q_prime_stats.get(str(did), {}).get("std", 1e-8) for did in divide_ids],
+                        device=cfg.device,
+                        dtype=torch.float32,
+                    )
                     streamflow_predictions = phi_kan(
                         streamflow_predictions,
                         month=month,
-                        grid_bounds=grid_bounds,
+                        q_prime_mean=q_mean,
+                        q_prime_std=q_std,
                     )
 
                 dmc_kwargs = {
@@ -109,16 +127,21 @@ def train(
 
                 filtered_predictions = daily_runoff[~np_nan_mask]
 
-                if phi_kan is not None and cfg.bias.use_kge_loss:
+                if phi_kan is not None:
                     pred_gt = filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :]
                     obs_gt = filtered_observations.transpose(0, 1)[cfg.experiment.warmup :]
                     mb_loss = mass_balance_loss(pred_gt, obs_gt)
-                    kge = kge_loss(pred_gt, obs_gt)
-                    loss = cfg.bias.lambda_mass * mb_loss + (1 - cfg.bias.lambda_mass) * kge
+                    if cfg.bias.loss_fn == BiasLossFn.HUBER:
+                        routing_loss = huber_loss(pred_gt, obs_gt)
+                    elif cfg.bias.loss_fn == BiasLossFn.KGE:
+                        routing_loss = kge_loss(pred_gt, obs_gt)
+                    else:
+                        routing_loss = mse_loss(pred_gt, obs_gt)
+                    loss = cfg.bias.lambda_mass * mb_loss + (1 - cfg.bias.lambda_mass) * routing_loss
                 else:
-                    loss = mse_loss(
-                        input=filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
-                        target=filtered_observations.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
+                    loss = huber_loss(
+                        filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :],
+                        filtered_observations.transpose(0, 1)[cfg.experiment.warmup :],
                     )
 
                 log.info("Running backpropagation")
@@ -138,9 +161,10 @@ def train(
                 rmse = metrics.rmse
                 kge_metric = metrics.kge
                 utils.log_metrics(nse, rmse, kge_metric, epoch=epoch, mini_batch=i)
-                if phi_kan is not None and cfg.bias.use_kge_loss:
+                if phi_kan is not None:
                     log.info(
-                        f"Loss: {loss.item():.6f} (mass_balance: {mb_loss.item():.6f}, kge: {kge.item():.6f})"
+                        f"Loss: {loss.item():.6f} (mass_balance: {mb_loss.item():.6f}, "
+                        f"{cfg.bias.loss_fn.value}: {routing_loss.item():.6f})"
                     )
                 else:
                     log.info(f"Loss: {loss.item()}")
@@ -185,6 +209,14 @@ def train(
                     phi_kan=phi_kan,
                 )
 
+                # Free autograd graph from this mini-batch so the next
+                # iteration doesn't OOM during the phi_kan forward pass.
+                del dmc_output, daily_runoff, streamflow_predictions, loss
+                del filtered_predictions, filtered_observations
+                routing_model.routing_engine.q_prime = None
+                routing_model.routing_engine._discharge_t = None
+                torch.cuda.empty_cache()
+
 
 @hydra.main(
     version_base="1.3",
@@ -207,11 +239,10 @@ def main(cfg: DictConfig) -> None:
             k=config.kan.k,
             seed=config.seed,
             device=config.device,
-            output_grid_bounds=config.bias.enabled,
-            bias_cfg=config.bias if config.bias.enabled else None,
         )
 
         phi_kan = None
+        q_prime_stats = None
         if config.bias.enabled:
             phi_kan = TemporalPhiKAN(
                 cfg=config.bias,
@@ -221,7 +252,20 @@ def main(cfg: DictConfig) -> None:
 
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn, phi_kan=phi_kan)
+
+        if config.bias.enabled:
+            from ddr.io.statistics import set_streamflow_statistics
+
+            q_prime_stats = set_streamflow_statistics(config, flow.ds)
+
+        train(
+            cfg=config,
+            flow=flow,
+            routing_model=routing_model,
+            nn=nn,
+            phi_kan=phi_kan,
+            q_prime_stats=q_prime_stats,
+        )
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

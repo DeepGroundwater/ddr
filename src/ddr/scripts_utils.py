@@ -70,8 +70,8 @@ def load_checkpoint(
     log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
     state: dict = torch.load(file_path, map_location=device)
     state_dict = state["model_state_dict"]
-    for key in state_dict.keys():
-        state_dict[key] = state_dict[key].to(device)
+    # Filter out bounds_head keys from old checkpoints (bounds_head was removed)
+    state_dict = {k: v.to(device) for k, v in state_dict.items() if not k.startswith("bounds_head")}
     nn.load_state_dict(state_dict)
 
     if phi_kan is not None and "phi_kan_state_dict" in state:

@@ -14,6 +14,7 @@ import math
 import torch
 import torch.nn as nn
 from kan import KAN
+from torch.utils.checkpoint import checkpoint
 
 from ddr.validation.configs import BiasCorrection
 from ddr.validation.enums import PhiInputs
@@ -52,6 +53,7 @@ class TemporalPhiKAN(nn.Module):
             k=cfg.phi_k,
             seed=seed,
             device=device,
+            grid_range=[-4, 4],
         )
         self.phi_kan.save_act = False  # avoid in-place ops + save memory
 
@@ -62,7 +64,8 @@ class TemporalPhiKAN(nn.Module):
         q_prime: torch.Tensor,
         month: torch.Tensor | None = None,
         forcing: torch.Tensor | None = None,
-        grid_bounds: torch.Tensor | None = None,
+        q_prime_mean: torch.Tensor | None = None,
+        q_prime_std: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Bias-correct lateral inflows.
 
@@ -74,8 +77,10 @@ class TemporalPhiKAN(nn.Module):
             Month of year as float [1, 12]. Required for MONTHLY mode.
         forcing : (T, N), optional
             Forcing variable values. Required for FORCING mode.
-        grid_bounds : (N, 2), optional
-            Per-node [min, max] from Spatial KAN for normalization.
+        q_prime_mean : (N,), optional
+            Per-basin mean of Q' from pre-computed statistics.
+        q_prime_std : (N,), optional
+            Per-basin std of Q' from pre-computed statistics.
 
         Returns
         -------
@@ -84,11 +89,9 @@ class TemporalPhiKAN(nn.Module):
         """
         T, N = q_prime.shape
 
-        # Normalize Q' per-node using Spatial KAN's grid bounds
-        if grid_bounds is not None:
-            grid_min = grid_bounds[:, 0]  # (N,)
-            grid_max = grid_bounds[:, 1]  # (N,)
-            q_norm = (q_prime - grid_min) / (grid_max - grid_min + 1e-8)  # (T, N)
+        # Z-score normalize Q' per-node using pre-computed statistics
+        if q_prime_mean is not None and q_prime_std is not None:
+            q_norm = (q_prime - q_prime_mean) / (q_prime_std + 1e-8)  # (T, N)
         else:
             q_norm = q_prime
 
@@ -115,17 +118,25 @@ class TemporalPhiKAN(nn.Module):
         else:
             raise ValueError(f"Unknown phi_inputs mode: {self.phi_inputs}")
 
-        # Flatten (T, N, input_dim) → (T*N, input_dim), run KAN in chunks, reshape back
+        # Flatten (T, N, input_dim) → (T*N, input_dim), run KAN in chunks, reshape back.
+        # Gradient checkpointing trades compute for memory: intermediates are freed
+        # during forward and recomputed during backward (~4 GiB savings).
         phi_input_flat = phi_input.reshape(T * N, self.input_dim)
         if T * N > self.chunk_size:
             chunks = phi_input_flat.split(self.chunk_size, dim=0)
-            q_corrected_norm = torch.cat([self.phi_kan(c) for c in chunks], dim=0).reshape(T, N)
+            q_corrected_norm = torch.cat(
+                [checkpoint(self.phi_kan, c, use_reentrant=False) for c in chunks], dim=0
+            ).reshape(T, N)
         else:
             q_corrected_norm = self.phi_kan(phi_input_flat).reshape(T, N)  # (T, N)
 
+        # Clear pykan internal caches that hold autograd graph references
+        self.phi_kan.cache_data = None
+        self.phi_kan.acts = []
+
         # Denormalize back to physical units
-        if grid_bounds is not None:
-            q_corrected = q_corrected_norm * (grid_max - grid_min) + grid_min
+        if q_prime_mean is not None and q_prime_std is not None:
+            q_corrected = q_corrected_norm * (q_prime_std + 1e-8) + q_prime_mean
         else:
             q_corrected = q_corrected_norm
 

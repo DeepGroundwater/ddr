@@ -2,6 +2,7 @@
 
 mass_balance_loss: gives φ-KAN direct gradients (bypasses MC routing).
 kge_loss: Kling-Gupta Efficiency loss that flows through MC routing.
+huber_loss: robust regression loss (quadratic near zero, linear for outliers).
 """
 
 import torch
@@ -82,3 +83,30 @@ def kge_loss(
     # Euclidean distance from ideal (1, 1, 1)
     ed = torch.sqrt((r - 1) ** 2 + (alpha - 1) ** 2 + (beta - 1) ** 2 + eps)  # (G,)
     return ed.mean()
+
+
+def huber_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    delta: float = 1.0,
+) -> torch.Tensor:
+    """Huber loss averaged across gauges and time.
+
+    Quadratic for errors < delta, linear for errors >= delta.
+    Provides stronger raw-magnitude gradients than KGE while being
+    robust to outlier flood events.
+
+    Parameters
+    ----------
+    pred : (G, T)
+        Predicted discharge at gauge locations.
+    target : (G, T)
+        Observed discharge at gauge locations.
+    delta : float
+        Threshold where loss transitions from quadratic to linear.
+
+    Returns
+    -------
+    loss : scalar tensor
+    """
+    return torch.nn.functional.huber_loss(pred, target, delta=delta)

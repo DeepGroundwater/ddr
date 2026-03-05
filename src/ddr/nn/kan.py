@@ -21,15 +21,12 @@ class kan(torch.nn.Module):
         k: int,
         seed: int,
         device: int | str = "cpu",
-        output_grid_bounds: bool = False,
-        bias_cfg: Any | None = None,
     ):
         super().__init__()
         self.input_size = len(input_var_names)
         self.hidden_size = hidden_size
         self.learnable_parameters = learnable_parameters
         self.output_size = len(self.learnable_parameters)
-        self.output_grid_bounds = output_grid_bounds
 
         self.input = torch.nn.Linear(self.input_size, self.hidden_size, device=device)
         self.layers = torch.nn.ModuleList()
@@ -41,20 +38,10 @@ class kan(torch.nn.Module):
                     grid=grid,
                     seed=seed,
                     device=device,
+                    grid_range=[-4, 4],
                 )
             )
         self.output = torch.nn.Linear(self.hidden_size, self.output_size, bias=True, device=device)
-
-        if output_grid_bounds:
-            bounds_grid = bias_cfg.bounds_grid if bias_cfg else 8
-            bounds_k = bias_cfg.bounds_k if bias_cfg else 3
-            self.bounds_head = KAN(
-                [self.hidden_size, 2],
-                grid=bounds_grid,
-                k=bounds_k,
-                seed=seed,
-                device=device,
-            )
 
         torch.nn.init.kaiming_normal_(self.input.weight, nonlinearity="relu")
         torch.nn.init.xavier_normal_(self.output.weight, gain=0.1)
@@ -75,12 +62,5 @@ class kan(torch.nn.Module):
         x_transpose = _params.transpose(0, 1)
         for idx, key in enumerate(self.learnable_parameters):
             outputs[key] = x_transpose[idx]
-
-        # Grid bounds for φ-KAN normalization
-        if self.output_grid_bounds:
-            bounds_raw = self.bounds_head(_x)
-            bounds = F.softplus(bounds_raw)  # enforce positive
-            grid_bounds = torch.stack([bounds[:, 0], bounds[:, 0] + bounds[:, 1]], dim=1)
-            outputs["grid_bounds"] = grid_bounds
 
         return outputs

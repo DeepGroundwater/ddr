@@ -39,6 +39,7 @@ def _test(
     routing_model: dmc,
     nn: kan,
     phi_kan: TemporalPhiKAN | None = None,
+    q_prime_stats: dict[str, dict[str, float]] | None = None,
 ) -> None:
     """Do model evaluation and get performance metrics."""
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
@@ -84,12 +85,24 @@ def _test(
             spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
 
             if phi_kan is not None:
+                assert q_prime_stats is not None
                 month = dataset.dates.batch_month_tensor.to(cfg.device)
-                grid_bounds = spatial_params.pop("grid_bounds", None)
+                divide_ids = routing_dataclass.divide_ids
+                q_mean = torch.tensor(
+                    [q_prime_stats.get(str(did), {}).get("mean", 1e-6) for did in divide_ids],
+                    device=cfg.device,
+                    dtype=torch.float32,
+                )
+                q_std = torch.tensor(
+                    [q_prime_stats.get(str(did), {}).get("std", 1e-8) for did in divide_ids],
+                    device=cfg.device,
+                    dtype=torch.float32,
+                )
                 streamflow_predictions = phi_kan(
                     streamflow_predictions,
                     month=month,
-                    grid_bounds=grid_bounds,
+                    q_prime_mean=q_mean,
+                    q_prime_std=q_std,
                 )
 
             dmc_kwargs = {
@@ -172,11 +185,10 @@ def main(cfg: DictConfig) -> None:
             k=config.kan.k,
             seed=config.seed,
             device=config.device,
-            output_grid_bounds=config.bias.enabled,
-            bias_cfg=config.bias if config.bias.enabled else None,
         )
 
         phi_kan = None
+        q_prime_stats = None
         if config.bias.enabled:
             phi_kan = TemporalPhiKAN(
                 cfg=config.bias,
@@ -187,7 +199,19 @@ def main(cfg: DictConfig) -> None:
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
 
-        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn_model, phi_kan=phi_kan)
+        if config.bias.enabled:
+            from ddr.io.statistics import set_streamflow_statistics
+
+            q_prime_stats = set_streamflow_statistics(config, flow.ds)
+
+        train(
+            cfg=config,
+            flow=flow,
+            routing_model=routing_model,
+            nn=nn_model,
+            phi_kan=phi_kan,
+            q_prime_stats=q_prime_stats,
+        )
 
         train_elapsed = time.perf_counter() - start_time
         log.info(f"Training complete in {train_elapsed / 60:.2f} minutes")
@@ -221,8 +245,6 @@ def main(cfg: DictConfig) -> None:
             k=test_config.kan.k,
             seed=test_config.seed,
             device=test_config.device,
-            output_grid_bounds=test_config.bias.enabled,
-            bias_cfg=test_config.bias if test_config.bias.enabled else None,
         )
 
         phi_kan = None
@@ -236,7 +258,14 @@ def main(cfg: DictConfig) -> None:
         routing_model = dmc(cfg=test_config, device=test_config.device)
         flow = streamflow(test_config)
 
-        _test(cfg=test_config, flow=flow, routing_model=routing_model, nn=nn_model, phi_kan=phi_kan)
+        _test(
+            cfg=test_config,
+            flow=flow,
+            routing_model=routing_model,
+            nn=nn_model,
+            phi_kan=phi_kan,
+            q_prime_stats=q_prime_stats,
+        )
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

@@ -9,7 +9,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from ddr.validation.enums import GeoDataset, Mode, PhiInputs
+from ddr.validation.enums import BiasLossFn, GeoDataset, Mode, PhiInputs
 
 log = logging.getLogger(__name__)
 
@@ -213,12 +213,10 @@ class BiasCorrection(BaseModel):
         default=False,
         description="Whether to anneal lambda_mass over training epochs",
     )
-    use_kge_loss: bool = Field(
-        default=True,
-        description="Whether to use KGE loss (True) or MSE loss (False) when bias is enabled",
+    loss_fn: BiasLossFn = Field(
+        default=BiasLossFn.HUBER,
+        description="Loss function for bias correction training: 'huber', 'kge', or 'mse'",
     )
-    bounds_grid: int = Field(default=8, description="Grid size for bounds head KAN B-spline basis")
-    bounds_k: int = Field(default=3, description="B-spline order for bounds head KAN layers")
 
     @model_validator(mode="after")
     def validate_forcing_var(self) -> "BiasCorrection":

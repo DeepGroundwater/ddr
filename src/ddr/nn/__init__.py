@@ -1,3 +1,4 @@
 from .kan import kan
+from .temporal_phi_kan import TemporalPhiKAN
 
-__all__ = ["kan"]
+__all__ = ["TemporalPhiKAN", "kan"]

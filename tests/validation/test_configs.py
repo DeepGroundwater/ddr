@@ -5,7 +5,7 @@ import torch
 from omegaconf import OmegaConf
 from pydantic import ValidationError
 
-from ddr.validation.configs import Config, Params, validate_config
+from ddr.validation.configs import BiasCorrection, Config, Params, validate_config
 
 
 def _minimal_config_dict(**overrides):
@@ -220,3 +220,81 @@ class TestValidateConfig:
         config = validate_config(dc, save_config=False)
         assert isinstance(config, Config)
         assert config.name == "test_run"
+
+
+class TestBiasCorrection:
+    """Test BiasCorrection config."""
+
+    def test_default_bias_disabled(self) -> None:
+        """BiasCorrection() defaults to enabled=False."""
+        bc = BiasCorrection()
+        assert bc.enabled is False
+        assert bc.phi_inputs == "monthly"
+        assert bc.lambda_mass == 0.5
+
+    def test_config_without_bias_gets_default(self, tmp_path) -> None:
+        """Config without bias key gets BiasCorrection(enabled=False)."""
+        gpkg = tmp_path / "test.gpkg"
+        gpkg.touch()
+        adj = tmp_path / "adj"
+        adj.mkdir()
+
+        d = _minimal_config_dict()
+        d["data_sources"]["geospatial_fabric_gpkg"] = str(gpkg)
+        d["data_sources"]["conus_adjacency"] = str(adj)
+
+        config = Config(**d)
+        assert config.bias.enabled is False
+
+    def test_config_with_bias_enabled(self, tmp_path) -> None:
+        """Config with bias.enabled=True is accepted."""
+        gpkg = tmp_path / "test.gpkg"
+        gpkg.touch()
+        adj = tmp_path / "adj"
+        adj.mkdir()
+
+        d = _minimal_config_dict()
+        d["data_sources"]["geospatial_fabric_gpkg"] = str(gpkg)
+        d["data_sources"]["conus_adjacency"] = str(adj)
+        d["bias"] = {"enabled": True}
+
+        config = Config(**d)
+        assert config.bias.enabled is True
+        assert config.bias.phi_inputs == "monthly"
+
+    def test_bias_extra_fields_rejected(self) -> None:
+        """extra='forbid' rejects unknown fields in BiasCorrection."""
+        with pytest.raises(ValidationError):
+            BiasCorrection(enabled=True, unknown_field="bad")
+
+    def test_bias_invalid_phi_inputs_rejected(self) -> None:
+        """Invalid phi_inputs string raises ValidationError."""
+        with pytest.raises(ValidationError):
+            BiasCorrection(phi_inputs="invalid_mode")
+
+    def test_forcing_requires_forcing_var(self) -> None:
+        """phi_inputs='forcing' without forcing_var raises."""
+        with pytest.raises(ValidationError, match="forcing_var"):
+            BiasCorrection(phi_inputs="forcing", forcing_var=None)
+
+    def test_forcing_with_var_valid(self) -> None:
+        """phi_inputs='forcing' with forcing_var is accepted."""
+        bc = BiasCorrection(phi_inputs="forcing", forcing_var="precip")
+        assert bc.forcing_var == "precip"
+
+    def test_validate_config_with_bias(self, tmp_path) -> None:
+        """validate_config round-trip with bias section."""
+        gpkg = tmp_path / "test.gpkg"
+        gpkg.touch()
+        adj = tmp_path / "adj"
+        adj.mkdir()
+
+        d = _minimal_config_dict(device="cpu")
+        d["data_sources"]["geospatial_fabric_gpkg"] = str(gpkg)
+        d["data_sources"]["conus_adjacency"] = str(adj)
+        d["bias"] = {"enabled": True, "phi_inputs": "static"}
+
+        dc = OmegaConf.create(d)
+        config = validate_config(dc, save_config=False)
+        assert config.bias.enabled is True
+        assert config.bias.phi_inputs == "static"

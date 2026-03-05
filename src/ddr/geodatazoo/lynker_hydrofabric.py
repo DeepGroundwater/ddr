@@ -54,12 +54,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         self.id_to_index = {
             divide_id: idx for idx, divide_id in enumerate(self.attribute_ds.divide_id.values)
         }
-        all_names = list(self.cfg.kan.input_var_names)
-        if self.cfg.cuda_lstm is not None:
-            for name in self.cfg.cuda_lstm.input_var_names:
-                if name not in all_names:
-                    all_names.append(name)
-        self.attributes_list = all_names
+        self.attributes_list = list(self.cfg.kan.input_var_names)
 
         # Precompute mean/std tensors for normalization
         self.means = torch.tensor(
@@ -185,6 +180,8 @@ class LynkerHydrofabric(BaseGeoDataset):
                     f"of {self.cfg.experiment.max_area_diff_sqkm} km²"
                 )
             self.gages_adjacency = read_zarr(Path(self.cfg.data_sources.gages_adjacency))
+            self.gage_ids, n_headwater = filter_headwater_gages(self.gage_ids, self.gages_adjacency)
+            log.info(f"Filtered {n_headwater} headwater gages with no upstream connectivity")
             log.info(f"Gages mode: {len(self.gage_ids)} gauged locations")
             self.routing_dataclass = self._build_routing_data_gages()
 
@@ -270,7 +267,7 @@ class LynkerHydrofabric(BaseGeoDataset):
             num_segments=compressed_size,
         )
 
-        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _ = (
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
             self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
         )
 
@@ -296,7 +293,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             outflow_idx=outflow_idx,
             gage_catchment=gage_catchment,
             flow_scale=flow_scale,
-            attribute_names=self.attributes_list,
         )
 
     def _build_common_tensors(
@@ -304,13 +300,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         csr_matrix: sparse.csr_matrix,
         catchment_ids: np.ndarray,
         flowpath_attr: gpd.GeoDataFrame,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        dict[str, torch.Tensor],
-        dict[str, torch.Tensor] | None,
-    ]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Build tensors common to all collate methods."""
         adjacency_matrix = torch.sparse_csr_tensor(
             crow_indices=csr_matrix.indptr,
@@ -358,13 +348,7 @@ class LynkerHydrofabric(BaseGeoDataset):
             ),
         }
 
-        return (
-            adjacency_matrix,
-            spatial_attributes,
-            normalized_spatial_attributes,
-            flowpath_tensors,
-            None,
-        )
+        return adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors
 
     def _build_routing_data_target_catchments(self) -> RoutingDataclass:
         """Build hydrofabric for target catchments by finding all upstream segments."""
@@ -426,7 +410,7 @@ class LynkerHydrofabric(BaseGeoDataset):
 
         outflow_idx = [np.array([i]) for i in range(compressed_size)]
 
-        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _ = (
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
             self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
         )
 
@@ -445,7 +429,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             divide_ids=divide_ids,
             outflow_idx=outflow_idx,
             gage_catchment=None,
-            attribute_names=self.attributes_list,
         )
 
     def _build_routing_data_all_catchments(self) -> RoutingDataclass:
@@ -467,7 +450,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         divide_ids = np.array([f"cat-{_id}" for _id in self.hf_ids])
         flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
-        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _ = (
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
             self._build_common_tensors(csr_matrix, divide_ids, flowpath_attr)
         )
 
@@ -486,7 +469,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             divide_ids=divide_ids,
             outflow_idx=None,
             gage_catchment=None,
-            attribute_names=self.attributes_list,
         )
 
     def _build_routing_data_gages(self) -> RoutingDataclass:
@@ -544,7 +526,7 @@ class LynkerHydrofabric(BaseGeoDataset):
             num_segments=compressed_size,
         )
 
-        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors, _ = (
+        adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
             self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
         )
 
@@ -570,5 +552,4 @@ class LynkerHydrofabric(BaseGeoDataset):
             outflow_idx=outflow_idx,
             gage_catchment=gage_catchment,
             flow_scale=flow_scale,
-            attribute_names=self.attributes_list,
         )

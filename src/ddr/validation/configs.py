@@ -71,43 +71,6 @@ class DataSources(BaseModel):
     target_catchments: list[str] | None = Field(
         default=None, description="Optional list of specific catchment IDs to route to (overrides gages)"
     )
-    reservoir_params: str | None = Field(
-        default=None,
-        description="Path to preprocessed HydroLAKES reservoir parameters CSV (from build_reservoir_params.py)",
-    )
-
-
-_DEFAULT_PARAMETER_RANGES: dict[str, list[float]] = {
-    "n": [0.015, 0.25],  # Manning's roughness (s/m¹ᐟ³)
-    "q_spatial": [0.0, 1.0],  # Channel shape: 0=rectangular, 1=triangular (-)
-    "top_width": [1.0, 5000.0],  # Channel top width, log-space (m)
-    "side_slope": [0.5, 50.0],  # H:V ratio, log-space (-)
-    "x_storage": [0.0, 0.5],  # Muskingum storage weighting (0=pure storage, 0.5=pure lag)
-}
-
-
-class LossConfig(BaseModel):
-    """Multi-component hydrograph loss configuration."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    overall_weight: float = Field(
-        default=0.01, description="Weight for overall MSE component (all timesteps, un-normalized)"
-    )
-    peak_weight: float = Field(
-        default=1.0, description="Weight for peak amplitude (high-flow) loss component"
-    )
-    baseflow_weight: float = Field(default=1.0, description="Weight for baseflow (low-flow) loss component")
-    timing_weight: float = Field(
-        default=0.5, description="Weight for temporal gradient (timing) loss component"
-    )
-    peak_percentile: float = Field(
-        default=0.98, description="Percentile threshold (0–1) for peak flow selection"
-    )
-    baseflow_percentile: float = Field(
-        default=0.30, description="Percentile threshold (0–1) for baseflow selection"
-    )
-    eps: float = Field(default=0.1, description="Stabilization constant added to variance denominators")
 
 
 class Params(BaseModel):
@@ -126,25 +89,14 @@ class Params(BaseModel):
         },
     )
     parameter_ranges: dict[str, list[float]] = Field(
-        default_factory=lambda: dict(_DEFAULT_PARAMETER_RANGES),
-        description="The parameter space bounds [min, max] to project learned physical values to. "
-        "Partial overrides are merged with defaults — only specify the ranges you want to change.",
+        default_factory=lambda: {
+            "n": [0.015, 0.25],  # (m⁻¹/³s)
+            "q_spatial": [0.0, 1.0],  # 0 = rectangular, 1 = triangular
+            "top_width": [1.0, 5000.0],  # Log-space (m)
+            "side_slope": [0.5, 50.0],  # H:V ratio Log-space (-)
+        },
+        description="The parameter space bounds [min, max] to project learned physical values to",
     )
-
-    @field_validator("parameter_ranges", mode="before")
-    @classmethod
-    def merge_parameter_ranges_with_defaults(cls, v: dict[str, list[float]]) -> dict[str, list[float]]:
-        """Merge user-provided parameter_ranges on top of defaults.
-
-        This allows YAML configs to specify only the ranges they want to override
-        (e.g. just n) without wiping out defaults for other parameters.
-        """
-        if isinstance(v, dict):
-            merged = dict(_DEFAULT_PARAMETER_RANGES)
-            merged.update(v)
-            return merged
-        return v
-
     log_space_parameters: list[str] = Field(
         default_factory=lambda: [
             "top_width",
@@ -157,14 +109,6 @@ class Params(BaseModel):
             "p_spatial": 21,
         },
         description="Default parameter values for physical processes when not learned",
-    )
-    use_reservoir: bool = Field(
-        default=False,
-        description="Enable level pool reservoir routing for reaches intersecting HydroLAKES waterbodies.",
-    )
-    min_reservoir_area_km2: float = Field(
-        default=10.0,
-        description="Minimum lake area (km²) for level pool routing. Smaller reservoirs use MC.",
     )
     tau: int = Field(
         default=3,
@@ -192,34 +136,6 @@ class Kan(BaseModel):
     )
     grid: int = Field(default=3, description="Grid size for KAN spline basis functions")
     k: int = Field(default=3, description="Order of B-spline basis functions in KAN layers")
-    gate_parameters: list[str] = Field(
-        default_factory=list,
-        description="Parameters that use binary STE gating (bias initialized to OFF)",
-    )
-    off_parameters: list[str] = Field(
-        default_factory=list,
-        description="Parameters with bias initialized to -2.0 (sigmoid ≈ 0.12, default OFF). "
-        "Unlike gate_parameters, these remain continuous (no binary STE).",
-    )
-    use_graph_context: bool = Field(
-        default=False,
-        description="Prepend neighbor-aggregated attributes to KAN input via 1-hop message passing. "
-        "Doubles the effective input dimension (original D + aggregated D from upstream neighbors).",
-    )
-    use_node_processor: bool = Field(
-        default=False,
-        description="Enable GNN-like dynamic node embedding alongside MC physics solve. "
-        "KAN becomes an encoder (output_embedding=True); MCNodeProcessor evolves h^t at each "
-        "routing timestep using all four MC coefficient terms as physics channels; "
-        "ParamDecoder decodes dynamic Manning's n and geometry from h^t. "
-        "Mutually exclusive with use_graph_context.",
-    )
-    gnn_update_interval: int = Field(
-        default=1,
-        description="GNN node processor update frequency in routing timesteps. "
-        "1 = every timestep (original), 24 = daily. "
-        "Higher values reduce GPU memory by running fewer GNN forward/backward passes.",
-    )
 
 
 class ExperimentConfig(BaseModel):
@@ -240,6 +156,10 @@ class ExperimentConfig(BaseModel):
         default=None, description="Path to checkpoint file (.pt) for resuming model from previous state"
     )
     epochs: int = Field(default=1, description="Number of complete passes through the training dataset")
+    learning_rate: dict[int, float] = Field(
+        default_factory=lambda: {1: 0.005, 3: 0.001},
+        description="Learning rate schedule mapping epoch numbers to learning rate values",
+    )
     rho: int | None = Field(
         default=None, description="Number of consecutive days selected in each training batch"
     )
@@ -250,32 +170,11 @@ class ExperimentConfig(BaseModel):
         default=3,
         description="Number of days excluded from loss calculation as routing starts from dry conditions",
     )
-    grad_clip_norm: float = Field(
-        default=1.0,
-        description="Maximum gradient norm for clipping. Controls training stability.",
-    )
     max_area_diff_sqkm: float | None = Field(
         default=50,
         description="Maximum absolute drainage area difference (km²) between USGS gage and COMID. "
         "Gages exceeding this threshold are excluded from training/evaluation. None disables filtering. "
         "For MERIT geodataset, the DA_VALID column in gage CSVs is preferred.",
-    )
-    learning_rate: dict[int, float] = Field(
-        default_factory=lambda: {1: 0.001, 5: 0.0005, 9: 0.0001},
-        description="Learning rate schedule mapping epoch number to LR. "
-        "At each epoch, the most recent entry at or before the current epoch is used.",
-    )
-    loss: LossConfig = Field(
-        default_factory=LossConfig,
-        description="Multi-component hydrograph loss weights and thresholds",
-    )
-    log_tensorboard: bool = Field(
-        default=False,
-        description="Enable TensorBoard logging. Requires: uv sync --group tb",
-    )
-    log_interval: int = Field(
-        default=1,
-        description="Log to TensorBoard every N mini-batches.",
     )
 
     @field_validator("checkpoint", mode="before")
@@ -306,8 +205,8 @@ class Config(BaseModel):
     mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
-    np_seed: int = Field(default=42, description="Random seed for NumPy operations to ensure reproducibility")
-    seed: int = Field(default=42, description="Random seed for PyTorch operations to ensure reproducibility")
+    np_seed: int = Field(default=1, description="Random seed for NumPy operations to ensure reproducibility")
+    seed: int = Field(default=0, description="Random seed for PyTorch operations to ensure reproducibility")
     device: int | str = Field(
         default=0, description="Compute device specification (GPU index number, 'cpu', or 'cuda', or 'mps')"
     )
@@ -341,45 +240,6 @@ class Config(BaseModel):
                     "HydraConfig is not set. Using default save_path './'. "
                     "If using a jupyter notebook, manually set save_path."
                 )
-
-        kan_params = set(self.kan.learnable_parameters)
-
-        # KAN params must exist in parameter_ranges
-        missing = [p for p in kan_params if p not in self.params.parameter_ranges]
-        if missing:
-            raise ValueError(
-                f"Parameters {missing} are in learnable_parameters but missing from parameter_ranges"
-            )
-
-        # When use_reservoir=True, reservoir_params path must be provided
-        if self.params.use_reservoir:
-            if self.data_sources.reservoir_params is None:
-                raise ValueError("use_reservoir=True requires data_sources.reservoir_params")
-
-        # All gate_parameters must be in kan.learnable_parameters
-        invalid_gates = [g for g in self.kan.gate_parameters if g not in self.kan.learnable_parameters]
-        if invalid_gates:
-            raise ValueError(
-                f"gate_parameters {invalid_gates} not found in kan.learnable_parameters. "
-                f"gate_parameters must be a subset of learnable_parameters."
-            )
-
-        # All off_parameters must be in kan.learnable_parameters
-        invalid_off = [p for p in self.kan.off_parameters if p not in self.kan.learnable_parameters]
-        if invalid_off:
-            raise ValueError(
-                f"off_parameters {invalid_off} not found in kan.learnable_parameters. "
-                f"off_parameters must be a subset of learnable_parameters."
-            )
-
-        # use_node_processor and use_graph_context are mutually exclusive.
-        # MCNodeProcessor supersedes static 1-hop mean aggregation.
-        if self.kan.use_node_processor and self.kan.use_graph_context:
-            raise ValueError(
-                "use_node_processor=True and use_graph_context=True are mutually exclusive. "
-                "MCNodeProcessor already aggregates upstream embeddings dynamically — "
-                "disable use_graph_context when use_node_processor is enabled."
-            )
 
         return self
 

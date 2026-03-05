@@ -70,8 +70,9 @@ class TestMuskingumCungeInputSetup:
         assert_tensor_properties(mc.x_storage, (10,))
 
         # Check parameter denormalization
-        assert mc.n is not None  # n is static from KAN spatial params
+        assert mc.n is not None
         assert mc.q_spatial is not None
+        assert_tensor_properties(mc.n, (10,))
         assert_tensor_properties(mc.q_spatial, (10,))
 
         # Check discharge initialization (hotstart: accumulated upstream inflows)
@@ -500,7 +501,7 @@ class TestMuskingumCungeIntegration:
 
         # Test state after setup
         assert mc.routing_dataclass is not None
-        assert mc.n is not None  # n is static from KAN spatial params
+        assert mc.n is not None
         assert mc.q_spatial is not None
         assert mc._discharge_t is not None
 

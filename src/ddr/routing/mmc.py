@@ -143,121 +143,14 @@ def _get_trapezoid_velocity(
     return c
 
 
-def _level_pool_outflow(
-    pool_elevation: torch.Tensor,
-    weir_elevation: torch.Tensor,
-    orifice_elevation: torch.Tensor,
-    weir_coeff: torch.Tensor,
-    weir_length: torch.Tensor,
-    orifice_coeff: torch.Tensor,
-    orifice_area: torch.Tensor,
-    discharge_lb: torch.Tensor,
-) -> torch.Tensor:
-    """Compute reservoir outflow via weir + orifice discharge.
-
-    Parameters
-    ----------
-    pool_elevation : torch.Tensor
-        Current pool water surface elevation [m].
-    weir_elevation : torch.Tensor
-        Weir crest elevation [m].
-    orifice_elevation : torch.Tensor
-        Orifice center elevation [m].
-    weir_coeff : torch.Tensor
-        Weir discharge coefficient (dimensionless, ~0.4).
-    weir_length : torch.Tensor
-        Effective weir length [m].
-    orifice_coeff : torch.Tensor
-        Orifice discharge coefficient (dimensionless, ~0.6).
-    orifice_area : torch.Tensor
-        Orifice cross-sectional area [m^2].
-    discharge_lb : torch.Tensor
-        Lower bound for discharge [m^3/s].
-
-    Returns
-    -------
-    torch.Tensor
-        Total outflow discharge [m^3/s].
-    """
-    # Weir: Q_w = C_w * W_L * (H - WE)^(3/2) when H > WE
-    h_weir = torch.clamp(pool_elevation - weir_elevation, min=0.0)
-    q_weir = weir_coeff * weir_length * torch.pow(h_weir + 1e-8, 1.5)
-    # Zero out weir flow when head is effectively zero
-    q_weir = q_weir * (h_weir > 0.0).float()
-
-    # Orifice: Q_o = C_o * O_a * sqrt(2g * (H - OE)) when H > OE
-    h_orifice = torch.clamp(pool_elevation - orifice_elevation, min=0.0)
-    q_orifice = orifice_coeff * orifice_area * torch.sqrt(2.0 * 9.81 * h_orifice + 1e-8)
-    # Zero out orifice flow when head is effectively zero
-    q_orifice = q_orifice * (h_orifice > 0.0).float()
-
-    return torch.clamp(q_weir + q_orifice, min=discharge_lb)
-
-
-def _compute_equilibrium_pool_elevation(
-    inflow: torch.Tensor,
-    orifice_elevation: torch.Tensor,
-    orifice_coeff: torch.Tensor,
-    orifice_area: torch.Tensor,
-    weir_elevation: torch.Tensor,
-) -> torch.Tensor:
-    """Compute pool elevation where orifice outflow equals inflow.
-
-    Inverts the orifice equation Q = C_o * A_o * sqrt(2g * h) to solve for
-    the equilibrium head:
-
-        h = Q^2 / (2g * (C_o * A_o)^2)
-        pool_elevation = orifice_elevation + h
-
-    Result is capped at weir_elevation so the pool doesn't start above the
-    weir (which would be physically unreasonable for equilibrium).
-
-    Parameters
-    ----------
-    inflow : torch.Tensor
-        Inflow discharge at reservoir reaches [m^3/s].
-    orifice_elevation : torch.Tensor
-        Orifice center elevation [m].
-    orifice_coeff : torch.Tensor
-        Orifice discharge coefficient (dimensionless, ~0.6).
-    orifice_area : torch.Tensor
-        Orifice cross-sectional area [m^2].
-    weir_elevation : torch.Tensor
-        Weir crest elevation [m] (used as upper cap).
-
-    Returns
-    -------
-    torch.Tensor
-        Equilibrium pool elevation [m].
-    """
-    g = 9.81
-    denom = 2.0 * g * (orifice_coeff * orifice_area) ** 2
-    h_eq = inflow**2 / (denom + 1e-8)
-    pool_eq = orifice_elevation + h_eq
-    return torch.minimum(pool_eq, weir_elevation)
-
-
 class MuskingumCunge:
     """Core Muskingum-Cunge routing implementation.
 
     This class implements the mathematical core of the Muskingum-Cunge routing
     algorithm, managing all routing_dataclass data, parameters, and routing calculations.
-
-    When ``node_processor`` and ``param_decoder`` are provided (GNN-like MC mode),
-    a latent node embedding h^t evolves alongside the physical discharge Q^t at
-    every routing timestep.  Physical parameters (Manning's n, channel geometry)
-    are decoded from the current embedding at each step, making them dynamic.
-    The processor and decoder are owned by the ``dmc`` nn.Module — this class
-    holds only references so that gradients flow correctly through PyTorch autograd.
     """
 
-    def __init__(
-        self,
-        cfg: Config,
-        device: str | torch.device = "cpu",
-        node_processor: Any = None,
-        param_decoder: Any = None,
-    ) -> None:
+    def __init__(self, cfg: Config, device: str | torch.device = "cpu") -> None:
         """Initialize the Muskingum-Cunge router.
 
         Parameters
@@ -266,18 +159,9 @@ class MuskingumCunge:
             Configuration object containing routing parameters
         device : str | torch.device, optional
             Device to use for computations, by default "cpu"
-        node_processor : MCNodeProcessor | None
-            Optional GNN node processor (owned by dmc).  When provided, the node
-            embedding is updated at every timestep using all four MC coefficient
-            terms as physics channels.
-        param_decoder : ParamDecoder | None
-            Optional parameter decoder (owned by dmc).  When provided, physical
-            parameters are decoded from the evolving embedding at each timestep.
         """
         self.cfg = cfg
         self.device = device
-        self.node_processor = node_processor
-        self.param_decoder = param_decoder
 
         # Time step (1 hour in seconds)
         self.t = torch.tensor(3600.0, device=self.device)
@@ -313,28 +197,9 @@ class MuskingumCunge:
         self.q_prime: torch.Tensor | None = None
         self.spatial_parameters: dict[str, torch.Tensor] | None = None
 
-        # GNN node embedding state (GNN-like MC mode only)
-        # Preserved across batches when carry_state=True (same semantics as _discharge_t)
-        self.node_embedding: torch.Tensor | None = None
-        _interval = getattr(cfg.kan, "gnn_update_interval", 1)
-        self.gnn_update_interval: int = _interval if isinstance(_interval, int) else 1
-
         # Progress tracking attributes (for tqdm display)
         self.epoch = 0
         self.mini_batch = 0
-
-        # Level pool reservoir routing state
-        self.use_reservoir: bool = cfg.params.use_reservoir
-        self._pool_elevation_t: torch.Tensor | None = None
-        self.reservoir_mask: torch.Tensor | None = None
-        self.lake_area_m2: torch.Tensor | None = None
-        self.weir_elevation: torch.Tensor | None = None
-        self.orifice_elevation: torch.Tensor | None = None
-        self.weir_coeff: torch.Tensor | None = None
-        self.weir_length: torch.Tensor | None = None
-        self.orifice_coeff: torch.Tensor | None = None
-        self.orifice_area: torch.Tensor | None = None
-        self.initial_pool_elevation: torch.Tensor | None = None
 
         # Scatter indices for ragged output (initialized in setup_inputs)
         self._flat_indices: torch.Tensor | None = None
@@ -355,108 +220,25 @@ class MuskingumCunge:
         self.epoch = epoch
         self.mini_batch = mini_batch
 
-    def clear_batch_state(self) -> None:
-        """Release batch-specific tensor references to free GPU memory.
-
-        Preserves ``_discharge_t``, ``_pool_elevation_t``, and ``node_embedding``
-        (needed for ``carry_state=True`` inference) and ``n`` / ``q_spatial``
-        (used for post-batch logging).  Detaches preserved tensors to free the
-        computation graph from the previous batch.
-        """
-        self.routing_dataclass = None
-        self.q_prime = None
-        self.spatial_parameters = None
-        # Detach carried state to free computation graphs while preserving values
-        if self._discharge_t is not None:
-            self._discharge_t = self._discharge_t.detach()
-        if self._pool_elevation_t is not None:
-            self._pool_elevation_t = self._pool_elevation_t.detach()
-        if self.node_embedding is not None:
-            self.node_embedding = self.node_embedding.detach()
-        # Clear batch-specific routing parameters (may hold grad_fn from ParamDecoder)
-        self.n = None
-        self.q_spatial = None
-        self.top_width = None
-        self.side_slope = None
-        self.network = None
-        self.slope = None
-        self.length = None
-        self.x_storage = None
-        self.output_indices = None
-        self.gage_catchment = None
-        self.observations = None
-        self._flat_indices = None
-        self._group_ids = None
-        self._scatter_input = None
-        self._num_outputs = None
-        # Clear reservoir param refs but NOT _pool_elevation_t (preserved for carry_state)
-        self.reservoir_mask = None
-        self.lake_area_m2 = None
-        self.weir_elevation = None
-        self.orifice_elevation = None
-        self.weir_coeff = None
-        self.weir_length = None
-        self.orifice_coeff = None
-        self.orifice_area = None
-        self.initial_pool_elevation = None
-
     def setup_inputs(
         self,
         routing_dataclass: Any,
         streamflow: torch.Tensor,
-        spatial_parameters: dict[str, torch.Tensor] | None = None,
+        spatial_parameters: dict[str, torch.Tensor],
         carry_state: bool = False,
-        node_embeddings: torch.Tensor | None = None,
     ) -> None:
         """Setup all inputs for routing including routing_dataclass, streamflow, and parameters.
 
-        Exactly one of ``spatial_parameters`` (classic mode) or ``node_embeddings``
-        (GNN-like MC mode) must be provided.
-
         Parameters
         ----------
-        routing_dataclass : Any
-            Batch routing data (adjacency, attributes, observations, etc.).
-        streamflow : torch.Tensor
-            Lateral inflow q', shape (T, N).
-        spatial_parameters : dict[str, torch.Tensor] | None
-            Classic mode: KAN outputs in [0, 1], one per learnable parameter.
         carry_state : bool
-            If True, preserve discharge (and node_embedding) from the previous
-            batch instead of reinitializing.  Set True for sequential inference
-            so that batches maintain physical continuity.
-        node_embeddings : torch.Tensor | None
-            GNN mode: KAN encoder output h^0, shape (N, D_h).  When provided,
-            the node embedding initialises the processor state and parameters
-            are decoded via ``param_decoder`` instead of ``spatial_parameters``.
+            If True, preserve discharge state from the previous batch instead of
+            reinitializing from q_prime[0]. Set to True for sequential inference
+            (testing/benchmarking) so that batches maintain physical continuity.
         """
-        if spatial_parameters is None and node_embeddings is None:
-            raise ValueError("Either spatial_parameters or node_embeddings must be provided")
-
         self._set_network_context(routing_dataclass, streamflow)
-
-        if node_embeddings is not None:
-            # GNN-like MC mode: initialise embedding (respects carry_state)
-            if not carry_state or self.node_embedding is None:
-                self.node_embedding = node_embeddings.to(self.device)
-            else:
-                # Validate shape compatibility when carrying state across batches
-                if self.node_embedding.shape[0] != node_embeddings.shape[0]:
-                    log.warning(
-                        f"carry_state=True but node_embedding shape changed "
-                        f"({self.node_embedding.shape[0]} → {node_embeddings.shape[0]}). "
-                        f"Reinitializing from fresh KAN output."
-                    )
-                    self.node_embedding = node_embeddings.to(self.device)
-            # Decode initial params from current embedding for the first timestep.
-            self._update_params_from_embedding()
-        else:
-            assert spatial_parameters is not None
-            self._denormalize_spatial_parameters(spatial_parameters)
-
+        self._denormalize_spatial_parameters(spatial_parameters)
         self._init_discharge_state(carry_state)
-        if self.use_reservoir:
-            self._init_pool_elevation_state(carry_state)
         self._precompute_scatter_indices()
 
     def _set_network_context(self, routing_dataclass: Any, streamflow: torch.Tensor) -> None:
@@ -484,85 +266,43 @@ class MuskingumCunge:
         if routing_dataclass.flow_scale is not None:
             self.q_prime = self.q_prime * routing_dataclass.flow_scale.unsqueeze(0).to(self.device)
 
-        # Reservoir parameters (when use_reservoir=True)
-        if self.use_reservoir and routing_dataclass.reservoir_mask is not None:
-            self.reservoir_mask = routing_dataclass.reservoir_mask.to(self.device)
-            self.lake_area_m2 = routing_dataclass.lake_area_m2.to(self.device).to(torch.float32)
-            self.weir_elevation = routing_dataclass.weir_elevation.to(self.device).to(torch.float32)
-            self.orifice_elevation = routing_dataclass.orifice_elevation.to(self.device).to(torch.float32)
-            self.weir_coeff = routing_dataclass.weir_coeff.to(self.device).to(torch.float32)
-            self.weir_length = routing_dataclass.weir_length.to(self.device).to(torch.float32)
-            self.orifice_coeff = routing_dataclass.orifice_coeff.to(self.device).to(torch.float32)
-            self.orifice_area = routing_dataclass.orifice_area.to(self.device).to(torch.float32)
-            self.initial_pool_elevation = routing_dataclass.initial_pool_elevation.to(self.device).to(
-                torch.float32
-            )
-
     def _denormalize_spatial_parameters(self, spatial_parameters: dict[str, torch.Tensor]) -> None:
         """Denormalize NN [0,1] outputs to physical parameter bounds with log-space handling."""
         self.spatial_parameters = spatial_parameters
         log_space_params = self.cfg.params.log_space_parameters
 
+        self.n = denormalize(
+            value=spatial_parameters["n"],
+            bounds=self.parameter_bounds["n"],
+            log_space="n" in log_space_params,
+        )
         self.q_spatial = denormalize(
             value=spatial_parameters["q_spatial"],
             bounds=self.parameter_bounds["q_spatial"],
             log_space="q_spatial" in log_space_params,
         )
 
-        # Manning's n (from KAN, static spatial)
-        if "n" in spatial_parameters:
-            self.n = denormalize(
-                value=spatial_parameters["n"],
-                bounds=self.parameter_bounds["n"],
-                log_space="n" in log_space_params,
-            )
-
-        # Top width: use decoded value if present, else fall back to routing_dataclass.
         routing_dataclass = self.routing_dataclass
-        if "top_width" in spatial_parameters:
+        if routing_dataclass.top_width.numel() == 0:
             self.top_width = denormalize(
                 value=spatial_parameters["top_width"],
                 bounds=self.parameter_bounds["top_width"],
                 log_space="top_width" in log_space_params,
             )
-        elif routing_dataclass.top_width.numel() > 0:
+        else:
             self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
-
-        # Side slope: use decoded value if present, else fall back to routing_dataclass.
-        if "side_slope" in spatial_parameters:
+        if routing_dataclass.side_slope.numel() == 0:
             self.side_slope = denormalize(
                 value=spatial_parameters["side_slope"],
                 bounds=self.parameter_bounds["side_slope"],
                 log_space="side_slope" in log_space_params,
             )
-        elif routing_dataclass.side_slope.numel() > 0:
+        else:
             self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
-
-        # Learnable Muskingum X (overrides hardcoded 0.3 from routing_dataclass.x)
-        if "x_storage" in spatial_parameters:
-            self.x_storage = denormalize(
-                value=spatial_parameters["x_storage"],
-                bounds=self.parameter_bounds["x_storage"],
-                log_space="x_storage" in log_space_params,
-            )
-
-    def _update_params_from_embedding(self) -> None:
-        """Decode physical parameters from the current node embedding.
-
-        Called in GNN-like MC mode after the node embedding is updated at each
-        routing timestep.  Delegates to ``param_decoder`` and passes the result
-        through ``_denormalize_spatial_parameters``, reusing the same denorm path
-        as classic mode — no duplication.
-        """
-        assert self.param_decoder is not None, "param_decoder must be set for GNN-like MC mode"
-        assert self.node_embedding is not None, "node_embedding must be set"
-        spatial_params = self.param_decoder(self.node_embedding)
-        self._denormalize_spatial_parameters(spatial_params)
 
     def _init_discharge_state(self, carry_state: bool) -> None:
         """Cold-start via topological accumulation, or carry from previous batch."""
         if carry_state and self._discharge_t is not None:
-            self._discharge_t = self._discharge_t.detach()
             return
         assert self.q_prime is not None, "q_prime must be set before initializing discharge state"
         mapper, _, _ = self.create_pattern_mapper()
@@ -572,37 +312,6 @@ class MuskingumCunge:
             self.discharge_lb,
             self.device,
         )
-
-    def _init_pool_elevation_state(self, carry_state: bool) -> None:
-        """Initialize pool elevation from equilibrium orifice inversion, or carry.
-
-        Uses ``_discharge_t`` (hotstart Q) at reservoir reaches to compute the
-        equilibrium pool elevation where orifice outflow matches inflow.  This
-        avoids the HydroLAKES ``initial_pool_elevation`` which is inconsistent
-        with flow conditions and causes forward-Euler blowup.
-        """
-        if carry_state and self._pool_elevation_t is not None:
-            self._pool_elevation_t = self._pool_elevation_t.detach()
-            return  # preserve pool elevation from previous batch (inference)
-        assert self._discharge_t is not None
-        assert self.reservoir_mask is not None
-        assert self.orifice_elevation is not None
-        assert self.orifice_coeff is not None
-        assert self.orifice_area is not None
-        assert self.weir_elevation is not None
-
-        # Start with zeros for all reaches (non-reservoir rows are unused)
-        self._pool_elevation_t = torch.zeros(len(self._discharge_t), device=self.device)
-
-        if self.reservoir_mask.any():
-            res_mask = self.reservoir_mask
-            self._pool_elevation_t[res_mask] = _compute_equilibrium_pool_elevation(
-                inflow=self._discharge_t[res_mask],
-                orifice_elevation=self.orifice_elevation[res_mask],
-                orifice_coeff=self.orifice_coeff[res_mask],
-                orifice_area=self.orifice_area[res_mask],
-                weir_elevation=self.weir_elevation[res_mask],
-            )
 
     def _precompute_scatter_indices(self) -> None:
         """Precompute scatter_add indices for ragged output (gages mode)."""
@@ -686,7 +395,7 @@ class MuskingumCunge:
                 min=self.cfg.params.attribute_minimums["discharge"],
             )
 
-            q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper, timestep=timestep)
+            q_t1 = self.route_timestep(q_prime_clamp=q_prime_clamp, mapper=mapper)
 
             if output_all:
                 output[:, timestep] = q_t1
@@ -751,7 +460,6 @@ class MuskingumCunge:
         self,
         q_prime_clamp: torch.Tensor,
         mapper: PatternMapper,
-        timestep: int = 0,
     ) -> torch.Tensor:
         """Route flow for a single timestep.
 
@@ -761,8 +469,6 @@ class MuskingumCunge:
             Clamped lateral inflow
         mapper : PatternMapper
             Pattern mapper for sparse operations
-        timestep : int, optional
-            Current timestep index (used for GNN update frequency), by default 0
 
         Returns
         -------
@@ -805,44 +511,8 @@ class MuskingumCunge:
         # Calculate right-hand side of equation
         b = (c_2 * i_t) + (c_3 * self._discharge_t) + (c_4 * q_prime_clamp)
 
-        # --- Reservoir RHS override ---
-        # Set b[res] = level-pool outflow so the sparse solve produces correct
-        # reservoir outflow directly (and downstream rows see it via forward sub).
-        has_reservoir = (
-            self.use_reservoir
-            and self.reservoir_mask is not None
-            and self._pool_elevation_t is not None
-            and self.reservoir_mask.any()
-        )
-        if has_reservoir:
-            assert self.reservoir_mask is not None and self._pool_elevation_t is not None
-            assert self.weir_elevation is not None and self.orifice_elevation is not None
-            assert self.weir_coeff is not None and self.weir_length is not None
-            assert self.orifice_coeff is not None and self.orifice_area is not None
-            assert self.lake_area_m2 is not None
-            res_mask = self.reservoir_mask
-            outflow_res = _level_pool_outflow(
-                pool_elevation=self._pool_elevation_t[res_mask],
-                weir_elevation=self.weir_elevation[res_mask],
-                orifice_elevation=self.orifice_elevation[res_mask],
-                weir_coeff=self.weir_coeff[res_mask],
-                weir_length=self.weir_length[res_mask],
-                orifice_coeff=self.orifice_coeff[res_mask],
-                orifice_area=self.orifice_area[res_mask],
-                discharge_lb=self.discharge_lb,
-            )
-            b = b.clone()
-            b[res_mask] = outflow_res
-
         # Setup sparse matrix for solving
         c_1_ = c_1 * -1
-        # Zero out reservoir rows → identity (q_t1[res] = b[res] = outflow)
-        # MUST come before c_1_[0] = 1.0 because the PatternMapper maps ALL
-        # diagonal entries to datvec[0].  If a reservoir sits at index 0 and we
-        # zero it after setting 1.0, the entire matrix diagonal becomes 0 →
-        # division-by-zero in forward substitution → NaN.
-        if has_reservoir:
-            c_1_[res_mask] = 0.0
         c_1_[0] = 1.0
         A_values = mapper.map(c_1_)
 
@@ -859,57 +529,6 @@ class MuskingumCunge:
 
         # Clamp solution to physical bounds
         q_t1 = torch.clamp(solution, min=self.discharge_lb)
-
-        # --- GNN node embedding update (GNN-like MC mode only) ---
-        # Uses all four MC coefficient terms as physics channels so the processor
-        # learns which combination of (implicit upstream, explicit upstream, memory,
-        # lateral forcing) most informs how Manning's n should adapt.
-        # gnn_update_interval controls frequency: 1=every timestep, 24=daily.
-        update_gnn = self.gnn_update_interval <= 1 or timestep % self.gnn_update_interval == 0
-        if self.node_processor is not None and self.node_embedding is not None and update_gnn:
-            c1_next = c_1 * torch.matmul(self.network, q_t1)  # C1 · N@Q_{t+1}
-            c2_prev = c_2 * i_t  # C2 · N@Q_t  (i_t already computed above)
-            c3_self = c_3 * self._discharge_t  # C3 · Q_t
-            c4_lat = c_4 * q_prime_clamp  # C4 · q'
-            self.node_embedding = self.node_processor.step(
-                h=self.node_embedding,
-                c1_next_upstream=c1_next,
-                c2_prev_upstream=c2_prev,
-                c3_self=c3_self,
-                c4_lateral=c4_lat,
-                q_new=q_t1,
-                adjacency=self.network,
-            )
-            self._update_params_from_embedding()
-
-        # --- Pool elevation update (forward Euler with stability clamp) ---
-        if has_reservoir:
-            assert self.lake_area_m2 is not None
-            assert self._pool_elevation_t is not None
-            # Inflow = routed upstream flow + local lateral inflow
-            inflow_res = torch.matmul(self.network, q_t1)[res_mask] + q_prime_clamp[res_mask]
-            # Guard: replace NaN/non-positive lake areas with large value (disables pool update)
-            area_res = self.lake_area_m2[res_mask]
-            safe_area = torch.where(
-                torch.isnan(area_res) | (area_res <= 0),
-                torch.tensor(1e12, device=self.device, dtype=area_res.dtype),
-                area_res,
-            )
-            dh = 3600.0 * (inflow_res - outflow_res) / (safe_area + 1e-8)
-            new_pool = self._pool_elevation_t[res_mask] + dh
-            # Clamp pool elevation to prevent forward Euler instability.
-            # Small reservoirs violate the explicit Euler stability criterion
-            # (dt * dQ/dH / A > 2), causing pool oscillation → inf → NaN.
-            # Bounds: lake bottom (orifice_elevation) to 1 full depth above weir.
-            assert self.orifice_elevation is not None and self.weir_elevation is not None
-            pool_min = self.orifice_elevation[res_mask]
-            pool_max = self.weir_elevation[res_mask] + (
-                self.weir_elevation[res_mask] - self.orifice_elevation[res_mask]
-            )
-            new_pool = torch.maximum(new_pool, pool_min)
-            new_pool = torch.minimum(new_pool, pool_max)
-            self._pool_elevation_t = self._pool_elevation_t.clone()
-            self._pool_elevation_t[res_mask] = new_pool
 
         return q_t1
 

@@ -27,9 +27,7 @@ from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
 from ddr.io.readers import read_zarr
-from ddr.routing.utils import aggregate_neighbor_attributes, select_columns
-from ddr.scripts_utils import load_checkpoint
-from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, plot_gauge_map, utils
+from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, plot_gauge_map, plot_time_series, utils
 from ddr.validation.enums import GeoDataset
 
 # Adapter functions
@@ -110,25 +108,13 @@ def run_ddr(
         Array of routed runoff predictions
     """
     streamflow_predictions = flow(routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32)
-    attr_names = routing_dataclass.attribute_names
-    normalized_attrs = routing_dataclass.normalized_spatial_attributes
-    assert normalized_attrs is not None and attr_names is not None
-    kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
-    if cfg.kan.use_graph_context:
-        assert routing_dataclass.adjacency_matrix is not None
-        adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
-        neighbor_attrs = aggregate_neighbor_attributes(kan_attrs.to(cfg.device), adjacency)
-        kan_attrs = torch.cat([kan_attrs.to(cfg.device), neighbor_attrs], dim=1)
-    kan_out = nn(inputs=kan_attrs)
-    dmc_kwargs: dict[str, Any] = {
-        "routing_dataclass": routing_dataclass,
-        "streamflow": streamflow_predictions,
-    }
-    if cfg.kan.use_node_processor:
-        dmc_kwargs["node_embeddings"] = kan_out
-    else:
-        dmc_kwargs["spatial_parameters"] = kan_out
-    dmc_output = routing_model(**dmc_kwargs)
+    spatial_params: torch.Tensor = nn(inputs=routing_dataclass.normalized_spatial_attributes)
+    spatial_params = spatial_params.to(cfg.device)
+    dmc_output = routing_model(
+        routing_dataclass=routing_dataclass,
+        spatial_parameters=spatial_params,
+        streamflow=streamflow_predictions,
+    )
     return dmc_output["runoff"].cpu().numpy()
 
 
@@ -569,62 +555,62 @@ def generate_comparison_plots(
             log.warning("Failed to generate gauge maps", exc_info=True)
 
     # === Per-gage hydrographs ===
-    # if gage_ids is not None and ddr_daily is not None and daily_obs is not None and dates is not None:
-    #     hydro_path = plot_path / "hydrographs"
-    #     hydro_path.mkdir(exist_ok=True)
-    #     time_range = dates.daily_time_range[1:-1]
+    if gage_ids is not None and ddr_daily is not None and daily_obs is not None and dates is not None:
+        hydro_path = plot_path / "hydrographs"
+        hydro_path.mkdir(exist_ok=True)
+        time_range = dates.daily_time_range[1:-1]
 
-    #     # Expand subset metrics to full gage arrays for hydrograph labeling
-    #     dr_nse_full = None
-    #     if diffroute_metrics is not None and diffroute_daily is not None:
-    #         dr_routed_mask = ~np.isnan(diffroute_daily[:, 0])
-    #         dr_nse_full = np.full(len(gage_ids), np.nan)
-    #         dr_nse_full[dr_routed_mask] = diffroute_metrics.nse
+        # Expand subset metrics to full gage arrays for hydrograph labeling
+        dr_nse_full = None
+        if diffroute_metrics is not None and diffroute_daily is not None:
+            dr_routed_mask = ~np.isnan(diffroute_daily[:, 0])
+            dr_nse_full = np.full(len(gage_ids), np.nan)
+            dr_nse_full[dr_routed_mask] = diffroute_metrics.nse
 
-    #     sqp_nse_full = None
-    #     if sqp_metrics is not None and sqp_common_mask is not None:
-    #         sqp_nse_full = np.full(len(gage_ids), np.nan)
-    #         sqp_nse_full[sqp_common_mask] = sqp_metrics.nse
+        sqp_nse_full = None
+        if sqp_metrics is not None and sqp_common_mask is not None:
+            sqp_nse_full = np.full(len(gage_ids), np.nan)
+            sqp_nse_full[sqp_common_mask] = sqp_metrics.nse
 
-    #     for gage_idx, gage_id in enumerate(
-    #         tqdm(gage_ids, desc="Generating hydrographs", ncols=140, ascii=True)
-    #     ):
-    #         additional = []
-    #         if diffroute_daily is not None and dr_nse_full is not None:
-    #             # Skip DiffRoute line for headwater gages (NaN predictions)
-    #             if not np.isnan(diffroute_daily[gage_idx, 0]):
-    #                 additional.append(
-    #                     (
-    #                         diffroute_daily[gage_idx],
-    #                         dr_label,
-    #                         {"nse": float(dr_nse_full[gage_idx])},
-    #                     )
-    #                 )
-    #         if sqp_daily is not None and sqp_nse_full is not None:
-    #             # Skip summed Q' line for gages not in the summed Q' store
-    #             if not np.isnan(sqp_nse_full[gage_idx]):
-    #                 # sqp_daily is indexed by common gages; find position in subset
-    #                 sqp_sub_idx = int(sqp_common_mask[: gage_idx + 1].sum()) - 1  # type: ignore
-    #                 additional.append(
-    #                     (
-    #                         sqp_daily[sqp_sub_idx],
-    #                         sqp_label,
-    #                         {"nse": float(sqp_nse_full[gage_idx])},
-    #                     )
-    #                 )
+        for gage_idx, gage_id in enumerate(
+            tqdm(gage_ids, desc="Generating hydrographs", ncols=140, ascii=True)
+        ):
+            additional = []
+            if diffroute_daily is not None and dr_nse_full is not None:
+                # Skip DiffRoute line for headwater gages (NaN predictions)
+                if not np.isnan(diffroute_daily[gage_idx, 0]):
+                    additional.append(
+                        (
+                            diffroute_daily[gage_idx],
+                            dr_label,
+                            {"nse": float(dr_nse_full[gage_idx])},
+                        )
+                    )
+            if sqp_daily is not None and sqp_nse_full is not None:
+                # Skip summed Q' line for gages not in the summed Q' store
+                if not np.isnan(sqp_nse_full[gage_idx]):
+                    # sqp_daily is indexed by common gages; find position in subset
+                    sqp_sub_idx = int(sqp_common_mask[: gage_idx + 1].sum()) - 1  # type: ignore
+                    additional.append(
+                        (
+                            sqp_daily[sqp_sub_idx],
+                            sqp_label,
+                            {"nse": float(sqp_nse_full[gage_idx])},
+                        )
+                    )
 
-    #         plot_time_series(
-    #             prediction=ddr_daily[gage_idx],
-    #             observation=daily_obs[gage_idx],
-    #             time_range=time_range,
-    #             gage_id=str(gage_id),
-    #             name=str(gage_id),
-    #             metrics={"nse": float(ddr_metrics.nse[gage_idx])},
-    #             path=hydro_path / f"{gage_id}.png",
-    #             warmup=cfg.experiment.warmup,
-    #             title=f"Benchmark Hydrograph - GAGE ID: {gage_id}",
-    #             additional_predictions=additional if additional else None,
-    #         )
+            plot_time_series(
+                prediction=ddr_daily[gage_idx],
+                observation=daily_obs[gage_idx],
+                time_range=time_range,
+                gage_id=str(gage_id),
+                name=str(gage_id),
+                metrics={"nse": float(ddr_metrics.nse[gage_idx])},
+                path=hydro_path / f"{gage_id}.png",
+                warmup=cfg.experiment.warmup,
+                title=f"Benchmark Hydrograph - GAGE ID: {gage_id}",
+                additional_predictions=additional if additional else None,
+            )
 
     log.info(f"Comparison plots saved to {plot_path}")
 
@@ -700,7 +686,6 @@ def benchmark(
     nn: kan,
     diffroute_cfg: DiffRouteConfig,
     summed_q_prime_path: str | None = None,
-    tb: Any = None,
 ) -> None:
     """Run benchmark comparison - adapted from scripts/test.py:test().
 
@@ -711,7 +696,6 @@ def benchmark(
         nn: KAN neural network
         diffroute_cfg: DiffRoute-specific configuration
         summed_q_prime_path: Optional path to summed Q' zarr store
-        tb: TensorBoard logger (TBLogger or _NoOpTBLogger)
     """
     assert cfg.geodataset == GeoDataset.MERIT, (
         f"Benchmarking is currently only supported on MERIT, got '{cfg.geodataset}'"
@@ -725,12 +709,14 @@ def benchmark(
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(
-            nn,
-            cfg.experiment.checkpoint,
-            torch.device(cfg.device),
-            routing_model=routing_model if cfg.kan.use_node_processor else None,
-        )
+        file_path = Path(cfg.experiment.checkpoint)
+        device = torch.device(cfg.device)
+        log.info(f"Loading spatial_nn from checkpoint: {file_path.stem}")
+        state = torch.load(file_path, map_location=device)
+        state_dict = state["model_state_dict"]
+        for key in state_dict.keys():
+            state_dict[key] = state_dict[key].to(device)
+        nn.load_state_dict(state_dict)
     else:
         log.warning("Creating new spatial model for evaluation.")
 
@@ -765,27 +751,14 @@ def benchmark(
             streamflow_predictions = flow(
                 routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
             )
-            attr_names = routing_dataclass.attribute_names
-            bench_normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
-            kan_attrs = select_columns(bench_normalized_attrs, list(cfg.kan.input_var_names), attr_names)
-            if cfg.kan.use_graph_context:
-                adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
-                neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
-                kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
-            kan_out = nn(inputs=kan_attrs)
-            dmc_kwargs: dict[str, Any] = {
-                "routing_dataclass": routing_dataclass,
-                "streamflow": streamflow_predictions,
-                "carry_state": i > 0,
-            }
-            if cfg.kan.use_node_processor:
-                dmc_kwargs["node_embeddings"] = kan_out
-            else:
-                dmc_kwargs["spatial_parameters"] = kan_out
-
-            dmc_output = routing_model(**dmc_kwargs)
+            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
+            dmc_output = routing_model(
+                routing_dataclass=routing_dataclass,
+                spatial_parameters=spatial_params,
+                streamflow=streamflow_predictions,
+                carry_state=i > 0,
+            )
             ddr_predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
-            routing_model.clear_batch_state()  # Free batch tensors, preserve carry state
 
     # === PHASE 2: DiffRoute per-gage ===
     if diffroute_enabled:
@@ -832,8 +805,6 @@ def benchmark(
     _nse = ddr_metrics.nse
     nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
     utils.log_metrics(nse, ddr_metrics.rmse, ddr_metrics.kge)
-    if tb is not None:
-        tb.log_benchmark_metrics(ddr_metrics, model_name="ddr")
 
     diffroute_metrics = None
     if diffroute_enabled:
@@ -843,8 +814,6 @@ def benchmark(
         _nse = diffroute_metrics.nse
         nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
         utils.log_metrics(nse, diffroute_metrics.rmse, diffroute_metrics.kge)
-        if tb is not None:
-            tb.log_benchmark_metrics(diffroute_metrics, model_name="diffroute")
 
     # Optional summed Q' baseline
     sqp_metrics = None
@@ -859,8 +828,6 @@ def benchmark(
             _nse = sqp_metrics.nse
             nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
             utils.log_metrics(nse, sqp_metrics.rmse, sqp_metrics.kge)
-            if tb is not None:
-                tb.log_benchmark_metrics(sqp_metrics, model_name="summed_q_prime")
 
     # === MASS BALANCE CHECK ===
     log.info("=" * 50)

@@ -7,6 +7,8 @@ data_sources:
   statistics: ./../../data/
   gages: ./sample_gauge.csv
 
+np_seed: 1
+seed: 0
 device: 0
 
 params:

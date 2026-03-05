@@ -199,7 +199,7 @@ examples/eval/*.zarr
 examples/scratch
 
 # claude
-CLAUDE.md
+Claude.md
 .claude/
 
 # misc
@@ -207,4 +207,3 @@ CLAUDE.md
 .ruff_cache/
 !benchmarks/config/
 *.png
-notebooks/

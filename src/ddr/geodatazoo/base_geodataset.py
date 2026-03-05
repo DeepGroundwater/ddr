@@ -85,12 +85,6 @@ class BaseGeoDataset(Dataset, ABC):
         csr_matrix: sparse.csr_matrix,
         catchment_ids: np.ndarray,
         flowpath_attr: gpd.GeoDataFrame,
-    ) -> tuple[
-        torch.Tensor,
-        torch.Tensor,
-        torch.Tensor,
-        dict[str, torch.Tensor],
-        dict[str, torch.Tensor] | None,
-    ]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Build tensors common to all collate methods."""
         raise NotImplementedError

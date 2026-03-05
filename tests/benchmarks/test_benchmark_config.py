@@ -60,6 +60,7 @@ class TestBenchmarkConfig:
                 "batch_size": 1,
                 "epochs": 1,
                 "warmup": 0,
+                "learning_rate": {1: 0.001},
             },
             data_sources={
                 "streamflow": "/fake",
@@ -69,7 +70,7 @@ class TestBenchmarkConfig:
             },
             kan={
                 "input_var_names": ["slope"],
-                "learnable_parameters": ["q_spatial"],
+                "learnable_parameters": ["n"],
                 "hidden_size": 8,
                 "num_hidden_layers": 1,
                 "grid": 5,

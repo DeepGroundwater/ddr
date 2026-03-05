@@ -18,7 +18,7 @@ def create_mock_nn() -> kan:
             "mean.elevation",
             "mean.smcmax_soil_layers_stag=1",
         ],
-        learnable_parameters=["q_spatial", "p_spatial", "n"],
+        learnable_parameters=["n", "q_spatial", "p_spatial"],
         hidden_size=11,
         num_hidden_layers=1,
         grid=3,
@@ -57,7 +57,6 @@ def create_mock_config() -> Config:
             "input_var_names": [
                 "mock",
             ],
-            "learnable_parameters": ["q_spatial", "n"],
         },
         "s3_region": "us-east-1",
         "device": "cpu",
@@ -175,7 +174,7 @@ def create_mock_streamflow(num_timesteps: int, num_reaches: int, device: str = "
 
 
 def create_mock_spatial_parameters(num_reaches: int, device: str = "cpu") -> dict[str, torch.Tensor]:
-    """Create mock spatial parameters for testing (from KAN).
+    """Create mock spatial parameters for testing.
 
     Parameters
     ----------
@@ -189,11 +188,10 @@ def create_mock_spatial_parameters(num_reaches: int, device: str = "cpu") -> dic
     Dict[str, torch.Tensor]
         Mock spatial parameters (normalized values between 0 and 1)
     """
-    params: dict[str, torch.Tensor] = {
-        "q_spatial": torch.rand(num_reaches, device=device),  # Normalized q_spatial
+    return {
         "n": torch.rand(num_reaches, device=device),  # Normalized Manning's n
+        "q_spatial": torch.rand(num_reaches, device=device),  # Normalized q_spatial
     }
-    return params
 
 
 def assert_tensor_properties(

@@ -16,34 +16,22 @@ from torch.utils.data import DataLoader, SequentialSampler
 
 from ddr import dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.routing.utils import aggregate_neighbor_attributes, select_columns
 from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
 from ddr.validation import Config, validate_config
 
 log = logging.getLogger(__name__)
 
 
-def route_trained_model(
-    cfg: Config,
-    flow: streamflow,
-    routing_model: dmc,
-    nn: kan,
-) -> None:
+def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     """Route a trained model over a specific amount of defined catchments"""
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(
-            nn,
-            cfg.experiment.checkpoint,
-            torch.device(cfg.device),
-            routing_model=routing_model if cfg.kan.use_node_processor else None,
-        )
+        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
     else:
         log.warning("Creating new spatial model for evaluation.")
 
     nn = nn.eval()
-    routing_model.eval()
     sampler = SequentialSampler(
         data_source=dataset,
     )
@@ -62,16 +50,15 @@ def route_trained_model(
     end_time = datetime.strptime(cfg.experiment.end_time, date_time_format).strftime("%Y-%m-%d")
 
     assert dataset.routing_dataclass is not None, "Routing dataclass not defined in dataset"
+    assert dataset.routing_dataclass.outflow_idx is not None, "Routing dataclass output_idx not defined"
     assert dataset.routing_dataclass.adjacency_matrix is not None, (
         "Routing dataclass adjacency_matrix not defined"
     )
 
     if cfg.data_sources.target_catchments is not None:
-        assert dataset.routing_dataclass.outflow_idx is not None, "Routing dataclass outflow_idx not defined"
         num_outputs = len(dataset.routing_dataclass.outflow_idx)
         log.info(f"Routing for {num_outputs} target catchments")
     elif cfg.data_sources.gages is not None and cfg.data_sources.gages_adjacency is not None:
-        assert dataset.routing_dataclass.outflow_idx is not None, "Routing dataclass outflow_idx not defined"
         num_outputs = len(dataset.routing_dataclass.outflow_idx)
         log.info(f"Routing for {num_outputs} gages")
     else:
@@ -88,25 +75,13 @@ def route_trained_model(
             streamflow_predictions = flow(
                 routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
             )
-            attr_names = routing_dataclass.attribute_names
-            normalized_attrs = routing_dataclass.normalized_spatial_attributes.to(cfg.device)
-            kan_attrs = select_columns(normalized_attrs, list(cfg.kan.input_var_names), attr_names)
-            if cfg.kan.use_graph_context:
-                adjacency = routing_dataclass.adjacency_matrix.to(cfg.device)
-                neighbor_attrs = aggregate_neighbor_attributes(kan_attrs, adjacency)
-                kan_attrs = torch.cat([kan_attrs, neighbor_attrs], dim=1)
-            kan_out = nn(inputs=kan_attrs)
-
+            spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
             dmc_kwargs = {
                 "routing_dataclass": routing_dataclass,
+                "spatial_parameters": spatial_params,
                 "streamflow": streamflow_predictions,
                 "carry_state": i > 0,
             }
-            if cfg.kan.use_node_processor:
-                dmc_kwargs["node_embeddings"] = kan_out
-            else:
-                dmc_kwargs["spatial_parameters"] = kan_out
-
             dmc_output = routing_model(**dmc_kwargs)
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
@@ -165,19 +140,10 @@ def main(cfg: DictConfig) -> None:
             k=config.kan.k,
             seed=config.seed,
             device=config.device,
-            gate_parameters=config.kan.gate_parameters,
-            off_parameters=config.kan.off_parameters,
-            use_graph_context=config.kan.use_graph_context,
-            output_embedding=config.kan.use_node_processor,
         )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        route_trained_model(
-            cfg=config,
-            flow=flow,
-            routing_model=routing_model,
-            nn=nn,
-        )
+        route_trained_model(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

@@ -1,7 +1,6 @@
 """A file to handle all reading from data sources"""
 
 import logging
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -224,29 +223,34 @@ def filter_gages_by_da_valid(
 
 def filter_headwater_gages(
     gage_ids: np.ndarray,
-    gages_adjacency: Any,
+    gages_adjacency: dict,
 ) -> tuple[np.ndarray, int]:
     """Filter out headwater gages that have no upstream connectivity.
 
-    Headwater gages have an empty ``indices_0`` array in the
-    gages_adjacency store, meaning they are single-reach catchments
-    with no routing edges.
+    Headwater gages are single-reach catchments with an empty upstream
+    adjacency (``indices_0`` is length 0). These are excluded because
+    Muskingum-Cunge routing is trivial for them (no routing edges).
 
     Parameters
     ----------
     gage_ids : np.ndarray
-        Array of STAID strings.
-    gages_adjacency
-        Opened zarr store (from ``read_zarr``) keyed by gage ID.
+        Array of gage ID strings
+    gages_adjacency : dict
+        Loaded gages adjacency zarr store
 
     Returns
     -------
     tuple[np.ndarray, int]
-        Filtered gage IDs and count of removed gages.
+        Filtered gage IDs and count of removed headwater gages
     """
-    keep_mask = np.array(
-        [gid in gages_adjacency and len(gages_adjacency[gid]["indices_0"][:]) > 0 for gid in gage_ids]
-    )
+    keep_mask = np.ones(len(gage_ids), dtype=bool)
+    for idx, gage_id in enumerate(gage_ids):
+        if gage_id not in gages_adjacency:
+            keep_mask[idx] = False
+            continue
+        if len(gages_adjacency[gage_id]["indices_0"][:]) == 0:
+            keep_mask[idx] = False
+
     filtered = gage_ids[keep_mask]
     n_removed = len(gage_ids) - len(filtered)
     return filtered, n_removed
@@ -529,96 +533,6 @@ class IcechunkUSGSReader:
         padded_gage_ids = [str(gage_id).zfill(8) for gage_id in self.gage_dict["STAID"]]
         ds_ = self.ds.sel(gage_id=padded_gage_ids).isel(time=dates.numerical_time_range)
         return ds_
-
-
-class ForcingsReader(torch.nn.Module):
-    """A class to read meteorological forcings (P, PET, Temp) from an icechunk store."""
-
-    def __init__(self, cfg: Config) -> None:
-        super().__init__()
-        self.cfg = cfg
-        assert cfg.data_sources.forcings is not None, "data_sources.forcings must be set"
-        assert cfg.cuda_lstm is not None, "cuda_lstm config required for ForcingsReader"
-        self.ds = read_ic(cfg.data_sources.forcings, region=cfg.s3_region)
-        self.forcing_var_names = list(cfg.cuda_lstm.forcing_var_names)
-        # Index Lookup Dictionary
-        self.divide_id_to_index = {divide_id: idx for idx, divide_id in enumerate(self.ds.divide_id.values)}
-        # Compute time offset: forcings store may not start at 1980-01-01 (the Dates origin)
-        first_time = pd.Timestamp(self.ds.time.values[0])
-        origin = pd.Timestamp("1980-01-01")
-        self._time_offset = (first_time - origin).days
-
-        # Load or compute forcing statistics for z-score normalization
-        from ddr.io.statistics import set_forcing_statistics
-
-        forcing_stats = set_forcing_statistics(cfg, self.ds)
-        self.forcing_means = torch.tensor(
-            [forcing_stats[var]["mean"] for var in self.forcing_var_names],
-            dtype=torch.float32,
-        )
-        self.forcing_stds = torch.tensor(
-            [forcing_stats[var]["std"] for var in self.forcing_var_names],
-            dtype=torch.float32,
-        )
-
-    def forward(self, **kwargs: Any) -> torch.Tensor:
-        """Read forcing variables for the given routing dataclass.
-
-        Returns
-        -------
-        torch.Tensor
-            Forcing data with shape (T_daily, N, num_forcing_vars), dtype float32.
-        """
-        routing_dataclass = kwargs["routing_dataclass"]
-        device = kwargs.get("device", "cpu")
-        dtype = kwargs.get("dtype", torch.float32)
-
-        valid_divide_indices = []
-        divide_idx_mask: list[int] = []
-        missing_count = 0
-
-        for i, divide_id in enumerate(routing_dataclass.divide_ids):
-            if divide_id in self.divide_id_to_index:
-                valid_divide_indices.append(self.divide_id_to_index[divide_id])
-                divide_idx_mask.append(i)
-            else:
-                missing_count += 1
-
-        if missing_count > 0:
-            total = len(routing_dataclass.divide_ids)
-            log.info(f"{missing_count}/{total} divide IDs missing from forcings (zero-filled)")
-
-        assert len(valid_divide_indices) != 0, "No valid divide IDs found in forcings store"
-
-        # Convert Dates numerical_time_range (days from 1980-01-01) to forcings store indices
-        forcings_indices = routing_dataclass.dates.numerical_time_range - self._time_offset
-
-        N = len(routing_dataclass.divide_ids)
-        T = len(forcings_indices)
-        num_vars = len(self.forcing_var_names)
-
-        # Read each forcing variable and stack
-        var_tensors = []
-        for var_name in self.forcing_var_names:
-            _ds = self.ds[var_name].isel(time=forcings_indices, divide_id=valid_divide_indices)
-            data = _ds.compute().values.astype(np.float32).T  # (T, num_valid)
-            # Fill NaN with per-basin temporal mean; if entire basin is NaN, fall back to 0.0
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=RuntimeWarning)
-                basin_means = np.nanmean(data, axis=0, keepdims=True)  # (1, num_valid)
-            nan_mask = np.isnan(data)
-            data = np.where(nan_mask, basin_means, data)
-            data = np.nan_to_num(data, nan=0.0)
-            var_tensor = torch.full((T, N), 0.0, dtype=dtype)
-            var_tensor[:, divide_idx_mask] = torch.tensor(data, dtype=dtype)
-            var_tensors.append(var_tensor)
-
-        # Stack: [T, N, num_vars]
-        output = torch.stack(var_tensors, dim=-1).to(device)
-        assert output.shape == (T, N, num_vars)
-        # Z-score normalize: (x - mean) / std
-        output = (output - self.forcing_means.to(device)) / self.forcing_stds.to(device)
-        return output
 
 
 class AttributesReader(torch.nn.Module):

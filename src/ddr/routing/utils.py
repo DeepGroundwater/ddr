@@ -1,5 +1,4 @@
 import logging
-import os
 import warnings
 from collections.abc import Callable
 from typing import Any
@@ -10,17 +9,6 @@ import torch
 from scipy.sparse.linalg import spsolve_triangular
 
 log = logging.getLogger(__name__)
-
-# Point CuPy's NVRTC at the pip-installed CUDA runtime headers so it doesn't
-# pick up incompatible system headers (e.g. CUDA 13.1 headers with a 13.0 NVRTC).
-try:
-    import nvidia.cuda_runtime as _nv_rt
-
-    _bundled = os.path.dirname(_nv_rt.__file__)
-    if os.path.isdir(os.path.join(_bundled, "include")):
-        os.environ.setdefault("CUDA_PATH", _bundled)
-except ImportError:
-    pass
 
 try:
     import cupy as cp
@@ -173,31 +161,6 @@ def get_network_idx(mapper: PatternMapper) -> tuple[torch.Tensor, torch.Tensor]:
         rows.extend(these_rows)
         cols.extend(these_cols)
     return torch.tensor(rows), torch.tensor(cols)
-
-
-def select_columns(
-    attributes: torch.Tensor,
-    var_names: list[str],
-    all_var_names: list[str],
-) -> torch.Tensor:
-    """Select attribute columns by name from the full union tensor.
-
-    Parameters
-    ----------
-    attributes : torch.Tensor
-        Full attribute tensor, shape (num_reaches, num_all_vars).
-    var_names : list[str]
-        Variable names to select (subset of all_var_names).
-    all_var_names : list[str]
-        All variable names corresponding to columns in attributes.
-
-    Returns
-    -------
-    torch.Tensor
-        Selected columns, shape (num_reaches, len(var_names)).
-    """
-    indices = [all_var_names.index(v) for v in var_names]
-    return attributes[:, indices]
 
 
 def denormalize(value: torch.Tensor, bounds: list[float], log_space: bool = False) -> torch.Tensor:
@@ -730,45 +693,3 @@ class TriangularSparseSolver(torch.autograd.Function):
 
 
 triangular_sparse_solve = TriangularSparseSolver.apply
-
-
-def aggregate_neighbor_attributes(
-    attributes: torch.Tensor,
-    adjacency: torch.Tensor,
-) -> torch.Tensor:
-    """Compute mean of upstream neighbor attributes for each reach.
-
-    Uses the adjacency matrix N where N[i,j]=1 if reach j flows into reach i.
-    For headwater reaches (no upstream neighbors), returns the reach's own
-    attributes as a self-loop fallback.
-
-    Parameters
-    ----------
-    attributes : torch.Tensor
-        Catchment attributes, shape (N, D).
-    adjacency : torch.Tensor
-        Sparse CSR adjacency matrix, shape (N, N).
-
-    Returns
-    -------
-    torch.Tensor
-        Aggregated neighbor attributes, shape (N, D).
-    """
-    # N @ attrs gives sum of upstream neighbor attributes per reach
-    agg = torch.matmul(adjacency, attributes)  # [N, D]
-
-    # Count upstream neighbors per reach (row sum of adjacency)
-    ones = torch.ones(adjacency.shape[1], 1, dtype=attributes.dtype, device=attributes.device)
-    neighbor_count = torch.matmul(adjacency, ones).squeeze(1)  # [N]
-
-    # Headwater mask: reaches with no upstream neighbors
-    headwater_mask = neighbor_count == 0.0
-
-    # Mean aggregation (clamp to avoid div-by-zero for headwaters)
-    neighbor_count = torch.clamp(neighbor_count, min=1.0)
-    agg = agg / neighbor_count.unsqueeze(1)
-
-    # Self-loop fallback: headwater reaches use their own attributes
-    agg = torch.where(headwater_mask.unsqueeze(1), attributes, agg)
-
-    return agg

@@ -207,7 +207,6 @@ class TestdmcForwardPass:
                 streamflow=streamflow,
                 spatial_parameters=spatial_params,
                 carry_state=False,
-                node_embeddings=None,
             )
 
     def test_forward_compatibility_attributes_update(
@@ -282,7 +281,7 @@ class TestdmcStateDict:
     """Test state dictionary functionality."""
 
     def test_state_dict(self) -> None:
-        """Test state_dict contains only nn.Module parameters (no metadata)."""
+        """Test state_dict method."""
         cfg = create_mock_config()
         model = dmc(cfg, device="cpu")
 
@@ -290,15 +289,16 @@ class TestdmcStateDict:
 
         state = model.state_dict()
 
-        # Non-tensor metadata should NOT be in state_dict (PyTorch convention)
-        assert "cfg" not in state
-        assert "device_num" not in state
-        assert "epoch" not in state
-        assert "mini_batch" not in state
+        # Check that custom attributes are included
+        assert "cfg" in state
+        assert "device_num" in state
+        assert "epoch" in state
+        assert "mini_batch" in state
 
-        # But instance attributes should still be accessible
-        assert model.epoch == 3
-        assert model.mini_batch == 7
+        assert state["cfg"] == cfg
+        assert state["device_num"] == "cpu"
+        assert state["epoch"] == 3
+        assert state["mini_batch"] == 7
 
     def test_load_state_dict(self) -> None:
         """Test load_state_dict method."""
@@ -373,10 +373,10 @@ class TestdmcPyTorchIntegration:
         routing_dataclass = create_mock_routing_dataclass(num_reaches=5)
         streamflow = create_mock_streamflow(num_timesteps=12, num_reaches=5)
 
-        # Create spatial parameters that require gradients (n now from KAN)
+        # Create spatial parameters that require gradients
         spatial_params = {
-            "q_spatial": torch.rand(5, requires_grad=True),
             "n": torch.rand(5, requires_grad=True),
+            "q_spatial": torch.rand(5, requires_grad=True),
         }
 
         model.set_progress_info(1, 0)
@@ -499,15 +499,12 @@ class TestdmcIntegration:
             assert "runoff" in output
             assert_tensor_properties(output["runoff"], (2, 36))
 
-        # Test that progress info is tracked on instance (not in state_dict)
-        assert model.epoch == 2
-        assert model.mini_batch == 5
-
-        # Test round-trip via load_state_dict with metadata passed separately
+        # Test state dict functionality
         state = model.state_dict()
-        state["cfg"] = cfg
-        state["epoch"] = 2
-        state["mini_batch"] = 5
+        assert "epoch" in state
+        assert state["epoch"] == 2
+
+        # Create new model and load state
         new_model = dmc(cfg, device="cpu")
         new_model.load_state_dict(state, strict=False)
         assert new_model.epoch == 2

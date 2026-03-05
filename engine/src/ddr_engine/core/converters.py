@@ -4,7 +4,7 @@ Each engine (MERIT, Lynker) has its own ID format. These converters handle the
 translation between domain IDs and the integer format used in zarr storage.
 """
 
-from typing import Protocol, cast
+from typing import Any, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -42,7 +42,7 @@ class MeritOrderConverter:
         """
         return np.array(comids, dtype=np.int32)
 
-    def from_zarr(self, order: NDArray[np.int32]) -> list[int]:
+    def from_zarr(self, order: NDArray[np.int32]) -> Any:
         """Convert zarr order array back to COMID list.
 
         Parameters
@@ -52,10 +52,10 @@ class MeritOrderConverter:
 
         Returns
         -------
-        list[int]
+        Any
             List of COMID integers.
         """
-        return cast(list[int], order.tolist())
+        return order.tolist()
 
 
 class LynkerOrderConverter:

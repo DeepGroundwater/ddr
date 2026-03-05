@@ -552,16 +552,12 @@ def run_ddr_routing(sandbox_zarr_path: Path, sandbox_hourly_qprime: torch.Tensor
     # Get spatial params from mock KAN
     spatial_params = mock_kan()
 
-    # No LSTM params needed — n is now static from KAN, no leakance in tests
-    lstm_params: dict[str, torch.Tensor] = {}
-
     # Run DDR routing
     routing_model.set_progress_info(epoch=0, mini_batch=0)
     dmc_kwargs = {
         "routing_dataclass": routing_dataclass,
         "spatial_parameters": spatial_params,
         "streamflow": qprime,
-        "lstm_params": lstm_params,
     }
     ddr_output = routing_model(**dmc_kwargs)
     ddr_discharge_topo = ddr_output["runoff"].detach().numpy()  # (reaches, timesteps) in topo order

@@ -2,7 +2,6 @@
 
 from ddr_benchmarks.benchmark import (
     benchmark,
-    build_headwater_mask,
     load_summed_q_prime,
     reorder_to_diffroute,
     reorder_to_topo,
@@ -33,7 +32,6 @@ __all__ = [
     "zarr_to_networkx",
     # Benchmark functions
     "benchmark",
-    "build_headwater_mask",
     "load_summed_q_prime",
     "reorder_to_diffroute",
     "reorder_to_topo",

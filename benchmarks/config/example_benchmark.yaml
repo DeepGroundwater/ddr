@@ -102,11 +102,6 @@ experiment:
   # This is REQUIRED - without it the model uses random weights.
   checkpoint: /path/to/trained_model.pt
 
-  # TensorBoard logging (optional, requires: uv sync --group tb).
-  # When enabled, scalars are written to <save_path>/tensorboard/.
-  # Compare runs:  tensorboard --logdir output/
-  log_tensorboard: false
-
 # --- KAN (spatial parameter network) ---
 # Must match the architecture used during training.
 kan:

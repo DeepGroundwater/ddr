@@ -46,10 +46,6 @@ def load_checkpoint(
     nn: torch.nn.Module,
     checkpoint_path: str | Path,
     device: str | torch.device,
-    lstm_nn: torch.nn.Module | None = None,
-    kan_optimizer: torch.optim.Optimizer | None = None,
-    lstm_optimizer: torch.optim.Optimizer | None = None,
-    routing_model: torch.nn.Module | None = None,
 ) -> dict:
     """Load DDR checkpoint, apply state_dict to model. Returns full state dict.
 
@@ -61,14 +57,6 @@ def load_checkpoint(
         Path to the .pt checkpoint file.
     device : str | torch.device
         Device to map tensors to.
-    lstm_nn : torch.nn.Module | None, optional
-        The CudaLSTM model to load weights into, by default None.
-    kan_optimizer : torch.optim.Optimizer | None, optional
-        The KAN optimizer to restore state into, by default None.
-    lstm_optimizer : torch.optim.Optimizer | None, optional
-        The LSTM optimizer to restore state into, by default None.
-    routing_model : torch.nn.Module | None, optional
-        The routing model (dmc) to load GNN submodule weights into, by default None.
 
     Returns
     -------
@@ -82,41 +70,6 @@ def load_checkpoint(
     for key in state_dict.keys():
         state_dict[key] = state_dict[key].to(device)
     nn.load_state_dict(state_dict)
-
-    if lstm_nn is not None and "lstm_nn_state_dict" in state:
-        log.info("Loading lstm_nn from checkpoint")
-        lstm_state = state["lstm_nn_state_dict"]
-        for key in lstm_state.keys():
-            lstm_state[key] = lstm_state[key].to(device)
-        lstm_nn.load_state_dict(lstm_state)
-
-    if routing_model is not None and "routing_model_state_dict" in state:
-        log.info("Loading routing model (GNN submodules) from checkpoint")
-        routing_state = state["routing_model_state_dict"]
-        for key in routing_state.keys():
-            if torch.is_tensor(routing_state[key]):
-                routing_state[key] = routing_state[key].to(device)
-        routing_model.load_state_dict(routing_state, strict=False)
-    elif routing_model is not None and list(routing_model.parameters()):
-        log.warning(
-            "Routing model has learnable parameters but checkpoint has no "
-            "routing_model_state_dict. GNN submodules will use initial weights."
-        )
-
-    if kan_optimizer is not None:
-        if "kan_optimizer_state_dict" in state:
-            kan_optimizer.load_state_dict(state["kan_optimizer_state_dict"])
-        elif "optimizer_state_dict" in state:
-            # Old checkpoints used a single Adam over KAN+LSTM params combined.
-            # Param count won't match the new KAN-only optimizer, so skip.
-            log.warning(
-                "Old checkpoint has combined optimizer_state_dict (KAN+LSTM). "
-                "Skipping optimizer restore — both optimizers will start fresh."
-            )
-
-    if lstm_optimizer is not None and "lstm_optimizer_state_dict" in state:
-        lstm_optimizer.load_state_dict(state["lstm_optimizer_state_dict"])
-
     return state
 
 
@@ -124,27 +77,24 @@ def resolve_learning_rate(
     learning_rate_schedule: dict[int, float],
     epoch: int,
 ) -> float:
-    """Resolve the learning rate for a given epoch from the schedule.
-
-    Finds the largest epoch key <= the current epoch. Falls back to the
-    smallest key if no key matches.
+    """Resolve LR for epoch from schedule dict. Falls back to first entry.
 
     Parameters
     ----------
     learning_rate_schedule : dict[int, float]
-        Mapping of epoch numbers to learning rates.
+        Mapping of epoch number → learning rate.
     epoch : int
-        Current epoch number.
+        Current epoch.
 
     Returns
     -------
     float
-        The learning rate to use.
+        Learning rate for the given epoch.
     """
-    applicable = {k: v for k, v in learning_rate_schedule.items() if k <= epoch}
-    if applicable:
-        return float(applicable[max(applicable)])
-    return float(learning_rate_schedule[min(learning_rate_schedule)])
+    if epoch in learning_rate_schedule:
+        return float(learning_rate_schedule[epoch])
+    key_list = list(learning_rate_schedule.keys())
+    return float(learning_rate_schedule[key_list[0]])
 
 
 def safe_percentile(arr: np.ndarray, percentile: float) -> float:

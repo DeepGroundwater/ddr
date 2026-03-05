@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
+from ddr.io.readers import ForcingsReader
 from ddr.nn import TemporalPhiKAN
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
@@ -29,6 +30,7 @@ def train(
     nn: kan,
     phi_kan: TemporalPhiKAN | None = None,
     q_prime_stats: dict[str, dict[str, float]] | None = None,
+    forcings_reader: ForcingsReader | None = None,
 ) -> None:
     """Do model training."""
     data_generator = torch.Generator()
@@ -97,9 +99,15 @@ def train(
                         device=cfg.device,
                         dtype=torch.float32,
                     )
+                    forcing_tensor = None
+                    if forcings_reader is not None:
+                        forcing_tensor = forcings_reader(
+                            routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+                        )
                     streamflow_predictions = phi_kan(
                         streamflow_predictions,
                         month=month,
+                        forcing=forcing_tensor,
                         q_prime_mean=q_mean,
                         q_prime_std=q_std,
                     )
@@ -253,10 +261,15 @@ def main(cfg: DictConfig) -> None:
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
 
+        forcings_reader = None
         if config.bias.enabled:
             from ddr.io.statistics import set_streamflow_statistics
+            from ddr.validation.enums import PhiInputs
 
             q_prime_stats = set_streamflow_statistics(config, flow.ds)
+            if config.bias.phi_inputs == PhiInputs.FORCING:
+                assert config.bias.forcing_var is not None
+                forcings_reader = ForcingsReader(config, forcing_var_names=[config.bias.forcing_var])
 
         train(
             cfg=config,
@@ -265,6 +278,7 @@ def main(cfg: DictConfig) -> None:
             nn=nn,
             phi_kan=phi_kan,
             q_prime_stats=q_prime_stats,
+            forcings_reader=forcings_reader,
         )
 
     except KeyboardInterrupt:

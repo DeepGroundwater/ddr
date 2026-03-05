@@ -1,11 +1,18 @@
 """Temporal φ-KAN for bias correction of lateral inflows.
 
-A small KAN that corrects Q' using flow magnitude and seasonal context.
-By Kolmogorov-Arnold theory, the correction decomposes as:
+A small KAN that learns an additive correction δ to Q' via a residual connection:
 
-  φ(Q', sin_m, cos_m) = Σ_q Φ_q( ψ_{q,Q'}(Q') + ψ_{q,sin}(sin_m) + ψ_{q,cos}(cos_m) )
+  Q'_corrected = Q' + δ(z, ...)      where z = (Q' - μ) / σ  (z-score)
+
+By Kolmogorov-Arnold theory, δ decomposes as:
+
+  δ(z, sin_m, cos_m) = Σ_q Φ_q( ψ_{q,z}(z) + ψ_{q,sin}(sin_m) + ψ_{q,cos}(cos_m) )
 
 Each ψ is a plottable 1D B-spline curve — fully interpretable.
+
+The residual design ensures:
+  - At initialization (KAN ≈ 0), output ≈ Q' (identity pass-through)
+  - After training, the KAN learns only the bias correction, not the full signal
 """
 
 import logging
@@ -124,20 +131,22 @@ class TemporalPhiKAN(nn.Module):
         phi_input_flat = phi_input.reshape(T * N, self.input_dim)
         if T * N > self.chunk_size:
             chunks = phi_input_flat.split(self.chunk_size, dim=0)
-            q_corrected_norm = torch.cat(
+            delta = torch.cat(
                 [checkpoint(self.phi_kan, c, use_reentrant=False) for c in chunks], dim=0
             ).reshape(T, N)
         else:
-            q_corrected_norm = self.phi_kan(phi_input_flat).reshape(T, N)  # (T, N)
+            delta = self.phi_kan(phi_input_flat).reshape(T, N)  # (T, N)
 
         # Clear pykan internal caches that hold autograd graph references
         self.phi_kan.cache_data = None
         self.phi_kan.acts = []
 
-        # Denormalize back to physical units
+        # Residual connection: corrected = original + learned correction
+        # In z-score space: q_corrected_z = q_norm + δ
+        # Denormalized: q_corrected = (q_norm + δ) * σ + μ = q_prime + δ * σ
         if q_prime_mean is not None and q_prime_std is not None:
-            q_corrected = q_corrected_norm * (q_prime_std + 1e-8) + q_prime_mean
+            q_corrected = (q_norm + delta) * (q_prime_std + 1e-8) + q_prime_mean
         else:
-            q_corrected = q_corrected_norm
+            q_corrected = q_prime + delta
 
         return torch.clamp(q_corrected, min=1e-6)

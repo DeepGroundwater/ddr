@@ -71,6 +71,10 @@ class DataSources(BaseModel):
     target_catchments: list[str] | None = Field(
         default=None, description="Optional list of specific catchment IDs to route to (overrides gages)"
     )
+    forcings: str | None = Field(
+        default=None,
+        description="Path to icechunk store with meteorological forcings (P, PET, Temp)",
+    )
 
 
 class Params(BaseModel):

@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
+from tqdm import tqdm
 
 from ddr.validation.configs import Config
 
@@ -95,7 +96,8 @@ def set_streamflow_statistics(cfg: Config, ds: xr.Dataset) -> dict[str, dict[str
     chunk_size = 1000
     result: dict[str, dict[str, float]] = {}
 
-    for start in range(0, num_divides, chunk_size):
+    chunks = range(0, num_divides, chunk_size)
+    for start in tqdm(chunks, total=len(chunks), desc="Computing Q' statistics", ncols=140, ascii=True):
         end = min(start + chunk_size, num_divides)
         chunk = ds["Qr"].isel(divide_id=slice(start, end)).values  # (time, chunk_size)
         chunk_ids = divide_ids[start:end]
@@ -108,10 +110,59 @@ def set_streamflow_statistics(cfg: Config, ds: xr.Dataset) -> dict[str, dict[str
             std_val = float(stds[i]) if not np.isnan(stds[i]) and stds[i] > 0 else 1e-8
             result[str(did)] = {"mean": mean_val, "std": std_val}
 
-        log.info(f"  Processed {end}/{num_divides} divide_ids")
-
     with open(stats_file, "w") as f:
         json.dump(result, f)
     log.info(f"Saved streamflow statistics to {stats_file.name}")
+
+    return result
+
+
+def set_forcing_statistics(
+    cfg: Config, ds: xr.Dataset, forcing_var_names: list[str]
+) -> dict[str, dict[str, float]]:
+    """Compute or load normalization statistics for forcing variables.
+
+    Parameters
+    ----------
+    cfg : Config
+        The configuration object.
+    ds : xr.Dataset
+        The forcings xarray dataset (dims: divide_id x time).
+    forcing_var_names : list[str]
+        Names of forcing variables to compute statistics for.
+
+    Returns
+    -------
+    dict[str, dict[str, float]]
+        Mapping of variable name -> {"min", "max", "mean", "std", "p10", "p90"}.
+    """
+    assert cfg.data_sources.forcings is not None, "data_sources.forcings must be set"
+    forcing_store_name = Path(cfg.data_sources.forcings).name
+    statistics_path = Path(cfg.data_sources.statistics)
+    statistics_path.mkdir(exist_ok=True)
+    stats_file = statistics_path / f"{cfg.geodataset.value}_forcing_statistics_{forcing_store_name}.json"
+
+    if stats_file.exists():
+        log.info(f"Reading Forcing Statistics from file: {stats_file.name}")
+        with open(stats_file) as f:
+            loaded: dict[str, dict[str, float]] = json.load(f)
+            return loaded
+
+    log.info(f"Computing forcing statistics for {forcing_store_name}")
+    result: dict[str, dict[str, float]] = {}
+    for var in forcing_var_names:
+        data = ds[var].values  # (divide_id, time)
+        result[var] = {
+            "min": float(np.nanmin(data)),
+            "max": float(np.nanmax(data)),
+            "mean": float(np.nanmean(data)),
+            "std": float(np.nanstd(data)),
+            "p10": float(np.nanpercentile(data, 10)),
+            "p90": float(np.nanpercentile(data, 90)),
+        }
+
+    with open(stats_file, "w") as f:
+        json.dump(result, f, indent=2)
+    log.info(f"Saved forcing statistics to {stats_file.name}")
 
     return result

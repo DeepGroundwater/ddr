@@ -25,6 +25,7 @@ from torch.utils.data import DataLoader, SequentialSampler
 
 from ddr import dmc, kan, streamflow
 from ddr._version import __version__
+from ddr.io.readers import ForcingsReader
 from ddr.nn import TemporalPhiKAN
 from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
 from ddr.validation import Config, Metrics, utils, validate_config
@@ -40,6 +41,7 @@ def _test(
     nn: kan,
     phi_kan: TemporalPhiKAN | None = None,
     q_prime_stats: dict[str, dict[str, float]] | None = None,
+    forcings_reader: ForcingsReader | None = None,
 ) -> None:
     """Do model evaluation and get performance metrics."""
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
@@ -98,9 +100,15 @@ def _test(
                     device=cfg.device,
                     dtype=torch.float32,
                 )
+                forcing_tensor = None
+                if forcings_reader is not None:
+                    forcing_tensor = forcings_reader(
+                        routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+                    )
                 streamflow_predictions = phi_kan(
                     streamflow_predictions,
                     month=month,
+                    forcing=forcing_tensor,
                     q_prime_mean=q_mean,
                     q_prime_std=q_std,
                 )
@@ -199,10 +207,15 @@ def main(cfg: DictConfig) -> None:
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
 
+        forcings_reader = None
         if config.bias.enabled:
             from ddr.io.statistics import set_streamflow_statistics
+            from ddr.validation.enums import PhiInputs
 
             q_prime_stats = set_streamflow_statistics(config, flow.ds)
+            if config.bias.phi_inputs == PhiInputs.FORCING:
+                assert config.bias.forcing_var is not None
+                forcings_reader = ForcingsReader(config, forcing_var_names=[config.bias.forcing_var])
 
         train(
             cfg=config,
@@ -211,6 +224,7 @@ def main(cfg: DictConfig) -> None:
             nn=nn_model,
             phi_kan=phi_kan,
             q_prime_stats=q_prime_stats,
+            forcings_reader=forcings_reader,
         )
 
         train_elapsed = time.perf_counter() - start_time
@@ -265,6 +279,7 @@ def main(cfg: DictConfig) -> None:
             nn=nn_model,
             phi_kan=phi_kan,
             q_prime_stats=q_prime_stats,
+            forcings_reader=forcings_reader,
         )
 
     except KeyboardInterrupt:

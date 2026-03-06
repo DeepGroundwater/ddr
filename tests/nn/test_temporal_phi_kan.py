@@ -90,22 +90,23 @@ class TestTemporalPhiKAN:
 
         assert torch.equal(out1, out2)
 
-    def test_with_grid_bounds(self) -> None:
+    def test_with_q_prime_stats(self) -> None:
         model = self._make_phi_kan(PhiInputs.MONTHLY)
         T, N = 12, 5
         q_prime = torch.rand(T, N) * 100
         month = torch.full((T,), 6.0)
-        grid_bounds = torch.tensor([[0.0, 100.0]] * N)
+        q_prime_mean = torch.full((N,), 50.0)
+        q_prime_std = torch.full((N,), 25.0)
 
-        output = model(q_prime, month=month, grid_bounds=grid_bounds)
+        output = model(q_prime, month=month, q_prime_mean=q_prime_mean, q_prime_std=q_prime_std)
         assert output.shape == (T, N)
 
-    def test_without_grid_bounds(self) -> None:
+    def test_without_q_prime_stats(self) -> None:
         model = self._make_phi_kan(PhiInputs.STATIC)
         T, N = 12, 5
         q_prime = torch.rand(T, N)
 
-        output = model(q_prime, grid_bounds=None)
+        output = model(q_prime, q_prime_mean=None, q_prime_std=None)
         assert output.shape == (T, N)
 
     def test_monotonicity(self) -> None:

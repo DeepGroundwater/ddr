@@ -38,6 +38,7 @@ class kan(torch.nn.Module):
                     grid=grid,
                     seed=seed,
                     device=device,
+                    grid_range=[-4, 4],
                 )
             )
         self.output = torch.nn.Linear(self.hidden_size, self.output_size, bias=True, device=device)
@@ -54,9 +55,12 @@ class kan(torch.nn.Module):
         _x = self.input(_x)
         for layer in self.layers:
             _x = layer(_x)
-        _x = self.output(_x)
-        _x = F.sigmoid(_x)
-        x_transpose = _x.transpose(0, 1)
+
+        # Routing parameters
+        _params = self.output(_x)
+        _params = F.sigmoid(_params)
+        x_transpose = _params.transpose(0, 1)
         for idx, key in enumerate(self.learnable_parameters):
             outputs[key] = x_transpose[idx]
+
         return outputs

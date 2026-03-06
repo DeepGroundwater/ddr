@@ -2,6 +2,7 @@
 
 mass_balance_loss: gives φ-KAN direct gradients (bypasses MC routing).
 kge_loss: Kling-Gupta Efficiency loss that flows through MC routing.
+huber_loss: robust regression loss (quadratic near zero, linear for outliers).
 """
 
 import torch
@@ -10,12 +11,16 @@ import torch
 def mass_balance_loss(
     q_corrected: torch.Tensor,
     target: torch.Tensor,
-    eps: float = 1e-6,
 ) -> torch.Tensor:
-    """Mass balance (ρ) loss — gives φ direct gradients bypassing MC.
+    """Mass balance loss — MAE between predicted and observed total volumes.
 
-    MC conserves mass, so total volume at gauge equals total injected volume
-    upstream. ρ_g = AUC_pred_g / AUC_obs_g. Loss = mean((ρ - 1)²).
+    Gives φ-KAN direct gradients bypassing MC routing. MC conserves mass,
+    so total volume at gauge equals total injected volume upstream.
+
+    Loss = mean_over_gauges(|sum(pred) - sum(obs)|)
+
+    This is in the same units as the prediction (m³/s·timesteps), so it
+    naturally competes at a similar magnitude to pointwise losses like Huber.
 
     Parameters
     ----------
@@ -23,8 +28,6 @@ def mass_balance_loss(
         Bias-corrected discharge at gauge locations.
     target : (G, T)
         Observed discharge at gauge locations.
-    eps : float
-        Small constant to prevent division by zero.
 
     Returns
     -------
@@ -32,8 +35,7 @@ def mass_balance_loss(
     """
     auc_pred = q_corrected.sum(dim=1)  # (G,)
     auc_obs = target.sum(dim=1)  # (G,)
-    rho = auc_pred / (auc_obs + eps)
-    return ((rho - 1.0) ** 2).mean()
+    return (auc_pred - auc_obs).abs().mean()
 
 
 def kge_loss(
@@ -82,3 +84,30 @@ def kge_loss(
     # Euclidean distance from ideal (1, 1, 1)
     ed = torch.sqrt((r - 1) ** 2 + (alpha - 1) ** 2 + (beta - 1) ** 2 + eps)  # (G,)
     return ed.mean()
+
+
+def huber_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    delta: float = 1.0,
+) -> torch.Tensor:
+    """Huber loss averaged across gauges and time.
+
+    Quadratic for errors < delta, linear for errors >= delta.
+    Provides stronger raw-magnitude gradients than KGE while being
+    robust to outlier flood events.
+
+    Parameters
+    ----------
+    pred : (G, T)
+        Predicted discharge at gauge locations.
+    target : (G, T)
+        Observed discharge at gauge locations.
+    delta : float
+        Threshold where loss transitions from quadratic to linear.
+
+    Returns
+    -------
+    loss : scalar tensor
+    """
+    return torch.nn.functional.huber_loss(pred, target, delta=delta)

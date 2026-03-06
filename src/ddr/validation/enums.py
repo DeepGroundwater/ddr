@@ -23,6 +23,14 @@ class PhiInputs(StrEnum):
     RANDOM = "random"
 
 
+class BiasLossFn(StrEnum):
+    """Loss function for bias correction training"""
+
+    HUBER = "huber"
+    KGE = "kge"
+    MSE = "mse"
+
+
 class GeoDataset(StrEnum):
     """The geospatial dataset used for predictions and routing"""
 

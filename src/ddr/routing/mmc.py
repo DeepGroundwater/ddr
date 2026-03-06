@@ -71,19 +71,39 @@ def _log_base_q(x: torch.Tensor, q: float) -> torch.Tensor:
     return torch.log(x) / torch.log(torch.tensor(q, dtype=x.dtype))
 
 
+def _apply_data_override(derived: torch.Tensor, data: torch.Tensor | None) -> torch.Tensor:
+    """Override derived values with observed data where available.
+
+    Three cases:
+    1. data is None or empty → return derived (MERIT without SWOT)
+    2. data has no NaN → return data (Lynker full coverage)
+    3. data has NaN → blend: data where valid, derived where NaN (SWOT partial)
+    """
+    if data is None or data.numel() == 0:
+        return derived
+    nan_mask = torch.isnan(data)
+    if not nan_mask.any():
+        return data
+    return torch.where(~nan_mask, data, derived)
+
+
 def _get_trapezoid_velocity(
     q_t: torch.Tensor,
     _n: torch.Tensor,
-    top_width: torch.Tensor,
-    side_slope: torch.Tensor,
     _s0: torch.Tensor,
     p_spatial: torch.Tensor,
     _q_spatial: torch.Tensor,
+    data_top_width: torch.Tensor | None,
+    data_side_slope: torch.Tensor | None,
     velocity_lb: torch.Tensor,
     depth_lb: torch.Tensor,
     _btm_width_lb: torch.Tensor,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Calculate flow velocity using Manning's equation for trapezoidal channels.
+
+    Derives top_width and side_slope from the at-a-station hydraulic geometry
+    power law w = p * d^q (Leopold & Maddock, 1953). Observed SWOT/Lynker
+    data overrides the derived values where available.
 
     Parameters
     ----------
@@ -91,16 +111,16 @@ def _get_trapezoid_velocity(
         Discharge at time t
     _n : torch.Tensor
         Manning's roughness coefficient
-    top_width : torch.Tensor
-        Top width of channel
-    side_slope : torch.Tensor
-        Side slope of channel (z:1, z horizontal : 1 vertical)
     _s0 : torch.Tensor
         Channel slope
     p_spatial : torch.Tensor
-        Spatial parameter p
+        Width coefficient in w = p * d^q (learned or default)
     _q_spatial : torch.Tensor
-        Spatial parameter q
+        Width-depth exponent in w = p * d^q (0=rectangular, 1=triangular)
+    data_top_width : torch.Tensor or None
+        Observed top width from SWOT/Lynker (NaN where no data), or None
+    data_side_slope : torch.Tensor or None
+        Observed side slope from SWOT/Lynker (NaN where no data), or None
     velocity_lb : torch.Tensor
         Lower bound for velocity
     depth_lb : torch.Tensor
@@ -110,8 +130,8 @@ def _get_trapezoid_velocity(
 
     Returns
     -------
-    torch.Tensor
-        Flow velocity
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+        (celerity, top_width, side_slope)
     """
     numerator = q_t * _n * (_q_spatial + 1)
     denominator = p_spatial * torch.pow(_s0, 0.5)
@@ -123,24 +143,28 @@ def _get_trapezoid_velocity(
         min=depth_lb,
     )
 
-    # For z:1 side slopes (z horizontal : 1 vertical)
+    # Derive top_width from power law: w = p * d^q
+    # Epsilon on q prevents zero gradient when q_spatial=0
+    q_eps = _q_spatial + 1e-6
+    top_width = p_spatial * torch.pow(depth, q_eps)
+    top_width = _apply_data_override(top_width, data_top_width)
+
+    # Derive side_slope from power law derivative: dw/dd / 2 = p*q*d^(q-1) / 2 = tw*q/(2d)
+    side_slope = torch.clamp(top_width * q_eps / (2 * depth), min=0.5, max=50.0)
+    side_slope = _apply_data_override(side_slope, data_side_slope)
+
+    # Trapezoid geometry
     _bottom_width = top_width - (2 * side_slope * depth)
     bottom_width = torch.clamp(_bottom_width, min=_btm_width_lb)
 
-    # Area = (top_width + bottom_width)*depth/2
     area = (top_width + bottom_width) * depth / 2
-
-    # Side length = sqrt(1 + z^2) * depth
-    # Since for every 1 unit vertical, we go z units horizontal
     wetted_p = bottom_width + 2 * depth * torch.sqrt(1 + side_slope**2)
-
-    # Calculate hydraulic radius
     R = area / wetted_p
 
     v = torch.div(1, _n) * torch.pow(R, (2 / 3)) * torch.pow(_s0, (1 / 2))
     c_ = torch.clamp(v, min=velocity_lb, max=torch.tensor(15.0, device=v.device))
     c = c_ * 5 / 3
-    return c
+    return c, top_width, side_slope
 
 
 class MuskingumCunge:
@@ -261,13 +285,27 @@ class MuskingumCunge:
         )
         self.x_storage = routing_dataclass.x.to(self.device).to(torch.float32)
 
+        # Store SWOT/Lynker geometry data for override in velocity function
+        rd_tw = routing_dataclass.top_width
+        rd_ss = routing_dataclass.side_slope
+        self._data_top_width: torch.Tensor | None = (
+            rd_tw.to(self.device).to(torch.float32) if rd_tw is not None and rd_tw.numel() > 0 else None
+        )
+        self._data_side_slope: torch.Tensor | None = (
+            rd_ss.to(self.device).to(torch.float32) if rd_ss is not None and rd_ss.numel() > 0 else None
+        )
+
         self.q_prime = streamflow.to(self.device)
 
         if routing_dataclass.flow_scale is not None:
             self.q_prime = self.q_prime * routing_dataclass.flow_scale.unsqueeze(0).to(self.device)
 
     def _denormalize_spatial_parameters(self, spatial_parameters: dict[str, torch.Tensor]) -> None:
-        """Denormalize NN [0,1] outputs to physical parameter bounds with log-space handling."""
+        """Denormalize NN [0,1] outputs to physical parameter bounds with log-space handling.
+
+        top_width and side_slope are derived from p_spatial and q_spatial
+        inside _get_trapezoid_velocity, not denormalized here.
+        """
         self.spatial_parameters = spatial_parameters
         log_space_params = self.cfg.params.log_space_parameters
 
@@ -282,23 +320,13 @@ class MuskingumCunge:
             log_space="q_spatial" in log_space_params,
         )
 
-        routing_dataclass = self.routing_dataclass
-        if routing_dataclass.top_width.numel() == 0:
-            self.top_width = denormalize(
-                value=spatial_parameters["top_width"],
-                bounds=self.parameter_bounds["top_width"],
-                log_space="top_width" in log_space_params,
+        # p_spatial: denormalize from KAN if learned, else use default from __init__
+        if "p_spatial" in spatial_parameters:
+            self.p_spatial = denormalize(
+                value=spatial_parameters["p_spatial"],
+                bounds=self.parameter_bounds["p_spatial"],
+                log_space="p_spatial" in log_space_params,
             )
-        else:
-            self.top_width = routing_dataclass.top_width.to(self.device).to(torch.float32)
-        if routing_dataclass.side_slope.numel() == 0:
-            self.side_slope = denormalize(
-                value=spatial_parameters["side_slope"],
-                bounds=self.parameter_bounds["side_slope"],
-                log_space="side_slope" in log_space_params,
-            )
-        else:
-            self.side_slope = routing_dataclass.side_slope.to(self.device).to(torch.float32)
 
     def _init_discharge_state(self, carry_state: bool) -> None:
         """Cold-start via topological accumulation, or carry from previous batch."""
@@ -480,8 +508,6 @@ class MuskingumCunge:
         if (
             self._discharge_t is None
             or self.n is None
-            or self.top_width is None
-            or self.side_slope is None
             or self.slope is None
             or self.q_spatial is None
             or self.length is None
@@ -490,15 +516,15 @@ class MuskingumCunge:
         ):
             raise ValueError("Required attributes not set. Call setup_inputs() first.")
 
-        # Calculate velocity using internal routing_dataclass data
-        velocity = _get_trapezoid_velocity(
+        # Calculate velocity and derive top_width/side_slope from power law
+        velocity, self.top_width, self.side_slope = _get_trapezoid_velocity(
             q_t=self._discharge_t,
             _n=self.n,
-            top_width=self.top_width,
-            side_slope=self.side_slope,
             _s0=self.slope,
             p_spatial=self.p_spatial,
             _q_spatial=self.q_spatial,
+            data_top_width=self._data_top_width,
+            data_side_slope=self._data_side_slope,
             velocity_lb=self.velocity_lb,
             depth_lb=self.depth_lb,
             _btm_width_lb=self.bottom_width_lb,

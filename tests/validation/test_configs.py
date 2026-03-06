@@ -136,12 +136,11 @@ class TestParamsDefaults:
         p = Params()
         assert "n" in p.parameter_ranges
         assert "q_spatial" in p.parameter_ranges
-        assert "top_width" in p.parameter_ranges
-        assert "side_slope" in p.parameter_ranges
+        assert "p_spatial" in p.parameter_ranges
 
     def test_log_space_parameters_default(self) -> None:
         p = Params()
-        assert p.log_space_parameters == ["top_width", "side_slope"]
+        assert p.log_space_parameters == ["p_spatial"]
 
 
 class TestSetSeed:

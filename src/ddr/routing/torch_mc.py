@@ -54,8 +54,8 @@ class dmc(torch.nn.Module):
         self.network: torch.Tensor = torch.empty(0)
         self.n: torch.Tensor = torch.empty(0)
         self.q_spatial: torch.Tensor = torch.empty(0)
-        self.top_width: torch.Tensor = torch.empty(0)
-        self.side_slope: torch.Tensor = torch.empty(0)
+        self.top_width: torch.Tensor | None = None
+        self.side_slope: torch.Tensor | None = None
 
         self.epoch = 0
         self.mini_batch = 0
@@ -180,21 +180,24 @@ class dmc(torch.nn.Module):
         self.network = self.routing_engine.network
         self.n = self.routing_engine.n
         self.q_spatial = self.routing_engine.q_spatial
-        self.top_width = self.routing_engine.top_width
-        self.side_slope = self.routing_engine.side_slope
+        self.p_spatial = self.routing_engine.p_spatial
         self._discharge_t = self.routing_engine._discharge_t
 
         # Perform routing
         output = self.routing_engine.forward()
 
-        # Update discharge state for compatibility
+        # Update compatibility attributes after routing (top_width/side_slope set per timestep)
         self._discharge_t = self.routing_engine._discharge_t
+        self.top_width = self.routing_engine.top_width
+        self.side_slope = self.routing_engine.side_slope
 
         if kwargs.get("retain_grads", False):
             if self.n is not None:
                 self.n.retain_grad()
             if self.q_spatial is not None:
                 self.q_spatial.retain_grad()
+            if self.routing_engine.p_spatial is not None and self.routing_engine.p_spatial.requires_grad:
+                self.routing_engine.p_spatial.retain_grad()
             if self._discharge_t is not None:
                 self._discharge_t.retain_grad()
 
@@ -205,10 +208,6 @@ class dmc(torch.nn.Module):
                     spatial_params["n"].retain_grad()
                 if "q_spatial" in spatial_params:
                     spatial_params["q_spatial"].retain_grad()
-                if "top_width" in spatial_params:
-                    spatial_params["top_width"].retain_grad()
-                if "side_slope" in spatial_params:
-                    spatial_params["side_slope"].retain_grad()
                 if "p_spatial" in spatial_params:
                     spatial_params["p_spatial"].retain_grad()
 

@@ -60,14 +60,11 @@ class TestMuskingumCungeInputSetup:
         # Check spatial attributes
         assert mc.length is not None
         assert mc.slope is not None
-        assert mc.top_width is not None
-        assert mc.side_slope is not None
         assert mc.x_storage is not None
         assert_tensor_properties(mc.length, (10,))
         assert_tensor_properties(mc.slope, (10,))
-        assert_tensor_properties(mc.top_width, (10,))
-        assert_tensor_properties(mc.side_slope, (10,))
         assert_tensor_properties(mc.x_storage, (10,))
+        # top_width and side_slope are derived per timestep in route_timestep
 
         # Check parameter denormalization
         assert mc.n is not None
@@ -115,16 +112,13 @@ class TestMuskingumCungeInputSetup:
         # Check that all tensors are on correct device
         assert mc.length is not None
         assert mc.slope is not None
-        assert mc.top_width is not None
-        assert mc.side_slope is not None
         assert mc.x_storage is not None
         assert mc.q_prime is not None
         assert mc.length.device.type == "cpu"
         assert mc.slope.device.type == "cpu"
-        assert mc.top_width.device.type == "cpu"
-        assert mc.side_slope.device.type == "cpu"
         assert mc.x_storage.device.type == "cpu"
         assert mc.q_prime.device.type == "cpu"
+        # top_width and side_slope are derived per timestep in route_timestep
 
 
 class TestMuskingumCungeSparseOperations:

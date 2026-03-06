@@ -79,6 +79,11 @@ class Merit(BaseGeoDataset):
             dtype=torch.float32,
         ).unsqueeze(1)
 
+        # Load SWOT geometry if configured
+        self.swot_geometry: dict[int, tuple[float, float]] | None = None
+        if cfg.data_sources.swot_geometry is not None:
+            self._load_swot_geometry(cfg.data_sources.swot_geometry)
+
         # Load adjacency data
         self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
         self.merit_ids = self.conus_adjacency["order"][:]
@@ -92,6 +97,26 @@ class Merit(BaseGeoDataset):
     def _load_attributes(self) -> xr.Dataset:
         """Load attributes from NetCDF/Zarr files."""
         return xr.open_mfdataset(self.cfg.data_sources.attributes)
+
+    def _load_swot_geometry(self, swot_path: Path) -> None:
+        """Load SWOT satellite geometry from preprocessed NetCDF.
+
+        Builds a lookup dict {COMID: (top_width, side_slope)} for non-NaN entries.
+        """
+        ds = xr.open_dataset(swot_path)
+        comids = ds["COMID"].values
+        top_widths = ds["top_width"].values
+        side_slopes = ds["side_slope"].values
+        ds.close()
+
+        self.swot_geometry = {}
+        for i, comid in enumerate(comids):
+            tw = float(top_widths[i])
+            ss = float(side_slopes[i])
+            if not (np.isnan(tw) or np.isnan(ss)):
+                self.swot_geometry[int(comid)] = (tw, ss)
+
+        log.info(f"Loaded SWOT geometry for {len(self.swot_geometry)} reaches from {swot_path}")
 
     def _get_attributes(
         self,
@@ -320,8 +345,24 @@ class Merit(BaseGeoDataset):
         flowpath_tensors["x"] = torch.full_like(
             flowpath_tensors["length"], fill_value=0.3, dtype=torch.float32
         )
-        flowpath_tensors["top_width"] = torch.empty(0)
-        flowpath_tensors["side_slope"] = torch.empty(0)
+
+        if self.swot_geometry is not None:
+            n_segments = len(catchment_ids)
+            tw_vals = torch.full((n_segments,), float("nan"), dtype=torch.float32)
+            ss_vals = torch.full((n_segments,), float("nan"), dtype=torch.float32)
+            n_matched = 0
+            for i, comid in enumerate(catchment_ids):
+                geom = self.swot_geometry.get(int(comid))
+                if geom is not None:
+                    tw_vals[i] = geom[0]
+                    ss_vals[i] = geom[1]
+                    n_matched += 1
+            log.debug(f"SWOT geometry: {n_matched}/{n_segments} reaches covered")
+            flowpath_tensors["top_width"] = tw_vals
+            flowpath_tensors["side_slope"] = ss_vals
+        else:
+            flowpath_tensors["top_width"] = torch.empty(0)
+            flowpath_tensors["side_slope"] = torch.empty(0)
 
         return adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors
 

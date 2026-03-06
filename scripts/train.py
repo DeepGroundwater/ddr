@@ -193,6 +193,7 @@ def train(
                 param_map = {
                     "n": routing_model.n,
                     "q_spatial": routing_model.q_spatial,
+                    "p_spatial": routing_model.p_spatial,
                     "top_width": routing_model.top_width,
                     "side_slope": routing_model.side_slope,
                 }

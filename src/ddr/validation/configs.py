@@ -206,7 +206,10 @@ class BiasCorrection(BaseModel):
         default=None,
         description="Forcing variable name (required when phi_inputs='forcing')",
     )
-    phi_hidden_size: int = Field(default=5, description="Hidden layer size for the phi-KAN")
+    phi_hidden_size: int | None = Field(
+        default=None,
+        description="Hidden layer size for the phi-KAN. Defaults to 2n+1 (Kolmogorov-Arnold theorem minimum) based on phi_inputs mode.",
+    )
     phi_grid: int = Field(default=8, description="Grid size for phi-KAN B-spline basis")
     phi_k: int = Field(default=3, description="B-spline order for phi-KAN layers")
     lambda_mass: float = Field(
@@ -223,10 +226,20 @@ class BiasCorrection(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_forcing_var(self) -> "BiasCorrection":
-        """Validate that forcing_var is set when phi_inputs is 'forcing'"""
+    def validate_and_resolve(self) -> "BiasCorrection":
+        """Validate forcing_var and auto-size phi_hidden_size from 2n+1."""
         if self.phi_inputs == PhiInputs.FORCING and self.forcing_var is None:
             raise ValueError("forcing_var must be set when phi_inputs='forcing'")
+
+        if self.phi_hidden_size is None:
+            input_dims = {
+                PhiInputs.STATIC: 1,
+                PhiInputs.MONTHLY: 3,
+                PhiInputs.FORCING: 2,
+                PhiInputs.RANDOM: 3,
+            }
+            n = input_dims[self.phi_inputs]
+            self.phi_hidden_size = 2 * n + 1
         return self
 
 

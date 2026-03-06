@@ -599,14 +599,13 @@ class ForcingsReader(torch.nn.Module):
         forcings_indices = routing_dataclass.dates.numerical_time_range - self._time_offset
 
         N = len(routing_dataclass.divide_ids)
-        T = len(forcings_indices)
         num_vars = len(self.forcing_var_names)
 
-        # Read each forcing variable and stack
+        # Read each forcing variable and stack (daily resolution)
         var_tensors = []
         for var_name in self.forcing_var_names:
             _ds = self.ds[var_name].isel(time=forcings_indices, divide_id=valid_divide_indices)
-            data = _ds.compute().values.astype(np.float32).T  # (T, num_valid)
+            data = _ds.compute().values.astype(np.float32).T  # (T_daily, num_valid)
             # Fill NaN with per-basin temporal mean; if entire basin is NaN, fall back to 0.0
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -614,13 +613,13 @@ class ForcingsReader(torch.nn.Module):
             nan_mask = np.isnan(data)
             data = np.where(nan_mask, basin_means, data)
             data = np.nan_to_num(data, nan=0.0)
-            var_tensor = torch.full((T, N), 0.0, dtype=dtype)
+            T_daily = data.shape[0]
+            var_tensor = torch.full((T_daily, N), 0.0, dtype=dtype)
             var_tensor[:, divide_idx_mask] = torch.tensor(data, dtype=dtype)
             var_tensors.append(var_tensor)
 
-        # Stack: [T, N, num_vars]
+        # Stack: [T_out, N, num_vars]
         output = torch.stack(var_tensors, dim=-1).to(device)
-        assert output.shape == (T, N, num_vars)
         # Z-score normalize: (x - mean) / std
         output = (output - self.forcing_means.to(device)) / self.forcing_stds.to(device)
 

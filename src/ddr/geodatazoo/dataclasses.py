@@ -195,6 +195,11 @@ class Dates(BaseModel):
         """Month values [1-12] for each hourly timestep in current batch."""
         return torch.tensor(self.batch_hourly_time_range.month.values, dtype=torch.float32)
 
+    @property
+    def batch_month_tensor_daily(self) -> torch.Tensor:
+        """Month values [1-12] for each daily timestep in current batch."""
+        return torch.tensor(self.batch_daily_time_range.month.values, dtype=torch.float32)
+
     def create_time_windows(self) -> np.ndarray:
         """Creates the time slices, or windows, for testing the model"""
         if self.rho is None:

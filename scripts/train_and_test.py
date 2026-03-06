@@ -81,14 +81,17 @@ def _test(
         for i, routing_dataclass in enumerate(dataloader, start=0):
             routing_model.set_progress_info(epoch=0, mini_batch=i)
 
-            streamflow_predictions = flow(
-                routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-            )
             spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
 
             if phi_kan is not None:
                 assert q_prime_stats is not None
-                month = dataset.dates.batch_month_tensor.to(cfg.device)
+                # Get daily Q' for phi-KAN (24x less memory than hourly)
+                q_prime_daily = flow(
+                    routing_dataclass=routing_dataclass,
+                    device=cfg.device,
+                    dtype=torch.float32,
+                    use_hourly=True,
+                )
                 divide_ids = routing_dataclass.divide_ids
                 q_mean = torch.tensor(
                     [q_prime_stats.get(str(did), {}).get("mean", 1e-6) for did in divide_ids],
@@ -105,12 +108,21 @@ def _test(
                     forcing_tensor = forcings_reader(
                         routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
                     )
-                streamflow_predictions = phi_kan(
-                    streamflow_predictions,
+                # Bias-correct at daily resolution
+                month = dataset.dates.batch_month_tensor_daily.to(cfg.device)
+                q_prime_corrected = phi_kan(
+                    q_prime_daily,
                     month=month,
                     forcing=forcing_tensor,
                     q_prime_mean=q_mean,
                     q_prime_std=q_std,
+                )
+                # Interpolate corrected daily → hourly for MC routing
+                T_hourly = len(routing_dataclass.dates.batch_hourly_time_range)
+                streamflow_predictions = q_prime_corrected.repeat_interleave(24, dim=0)[:T_hourly]
+            else:
+                streamflow_predictions = flow(
+                    routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
                 )
 
             dmc_kwargs = {

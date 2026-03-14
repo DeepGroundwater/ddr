@@ -50,10 +50,60 @@ def train(
         start_mini_batch = 0
         lr = cfg.experiment.learning_rate[start_epoch]
 
-    params_to_optimize = list(nn.parameters())
-    if phi_kan is not None:
-        params_to_optimize += list(phi_kan.parameters())
-    optimizer = torch.optim.Adam(params=params_to_optimize, lr=lr)
+    # 3-stage training configuration
+    warmup = cfg.bias.warmup_spatial_epochs  # Stage 0: spatial-only epochs
+    _staged = phi_kan is not None and cfg.bias.freeze_spatial_after is not None
+    _freeze_epoch = (warmup or 0) + (cfg.bias.freeze_spatial_after or 0)  # absolute epoch to freeze
+
+    def _build_optimizer(
+        spatial_params: list[torch.nn.Parameter],
+        phi_params: list[torch.nn.Parameter] | None = None,
+        base_lr: float | None = None,
+    ) -> torch.optim.Adam:
+        """Build Adam optimizer, optionally with separate LR for spatial KAN."""
+        _lr = base_lr or lr
+        if phi_params and cfg.bias.spatial_lr_scale != 1.0:
+            return torch.optim.Adam(
+                [
+                    {"params": spatial_params, "lr": _lr * cfg.bias.spatial_lr_scale},
+                    {"params": phi_params, "lr": _lr},
+                ]
+            )
+        all_params = list(spatial_params) + (list(phi_params) if phi_params else [])
+        return torch.optim.Adam(params=all_params, lr=_lr)
+
+    # Determine which stage we're resuming into
+    _in_warmup = warmup is not None and start_epoch <= warmup
+    _in_frozen = _staged and start_epoch > _freeze_epoch
+
+    if _in_warmup:
+        # Stage 0: spatial KAN only
+        if phi_kan is not None:
+            phi_kan.requires_grad_(False)
+        params_to_optimize = list(nn.parameters())
+        optimizer = _build_optimizer(params_to_optimize)
+        log.info(f"STAGE 0 (warmup): Training spatial KAN only, epochs 1-{warmup}")
+    elif _in_frozen:
+        # Stage 2: spatial frozen, φ-KAN only
+        assert phi_kan is not None  # guaranteed by _staged requiring phi_kan
+        nn.requires_grad_(False)
+        nn.eval()
+        params_to_optimize = list(phi_kan.parameters())
+        optimizer = _build_optimizer(params_to_optimize)
+        log.info("Resuming in STAGE 2: spatial KAN frozen, training φ-KAN only")
+    else:
+        # Stage 1 (joint) or no staging
+        params_to_optimize = list(nn.parameters())
+        if phi_kan is not None:
+            optimizer = _build_optimizer(nn.parameters(), phi_kan.parameters())
+            params_to_optimize += list(phi_kan.parameters())
+        else:
+            optimizer = _build_optimizer(params_to_optimize)
+        if warmup is not None:
+            log.info(f"Resuming in STAGE 1 (joint): both KANs training, epochs {warmup + 1}-{_freeze_epoch}")
+        else:
+            log.info("Training all parameters jointly")
+
     sampler = RandomSampler(
         data_source=dataset,
         generator=data_generator,
@@ -68,10 +118,38 @@ def train(
     )
 
     for epoch in range(start_epoch, cfg.experiment.epochs + 1):
+        # Stage 0 → Stage 1 transition: enable φ-KAN for joint training
+        if warmup is not None and epoch == warmup + 1 and phi_kan is not None:
+            phi_kan.requires_grad_(True)
+            phi_kan.train()
+            lr = cfg.experiment.learning_rate.get(epoch, lr)
+            params_to_optimize = list(nn.parameters()) + list(phi_kan.parameters())
+            optimizer = _build_optimizer(nn.parameters(), phi_kan.parameters(), base_lr=lr)
+            log.info(f"STAGE 1 (joint): φ-KAN enabled at epoch {epoch}. Training both KANs.")
+
+        # Stage 1 → Stage 2 transition: freeze spatial KAN
+        if _staged and epoch == _freeze_epoch + 1:
+            assert phi_kan is not None  # guaranteed by _staged
+            nn.requires_grad_(False)
+            nn.eval()
+            params_to_optimize = list(phi_kan.parameters())
+            lr = cfg.experiment.learning_rate.get(epoch, lr)
+            optimizer = _build_optimizer(params_to_optimize, base_lr=lr)
+            log.info(f"STAGE 2: Spatial KAN frozen at epoch {epoch}. Training φ-KAN only.")
+
         if epoch in cfg.experiment.learning_rate.keys():
-            log.info(f"Setting learning rate: {cfg.experiment.learning_rate[epoch]}")
+            _base_lr = cfg.experiment.learning_rate[epoch]
+            log.info(f"Setting learning rate: {_base_lr}")
             for param_group in optimizer.param_groups:
-                param_group["lr"] = cfg.experiment.learning_rate[epoch]
+                # Preserve spatial_lr_scale ratio for parameter groups
+                if cfg.bias.spatial_lr_scale != 1.0 and len(optimizer.param_groups) > 1:
+                    # First group is spatial KAN (scaled), rest are base LR
+                    if param_group is optimizer.param_groups[0]:
+                        param_group["lr"] = _base_lr * cfg.bias.spatial_lr_scale
+                    else:
+                        param_group["lr"] = _base_lr
+                else:
+                    param_group["lr"] = _base_lr
 
         for i, routing_dataclass in enumerate(dataloader, start=0):
             if i < start_mini_batch:
@@ -82,8 +160,11 @@ def train(
 
                 spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
 
-                if phi_kan is not None:
-                    assert q_prime_stats is not None
+                # φ-KAN is active only outside of warmup stage
+                _phi_active = phi_kan is not None and (warmup is None or epoch > warmup)
+
+                if _phi_active:
+                    assert phi_kan is not None and q_prime_stats is not None
                     # Get daily Q' for phi-KAN (24x less memory than hourly)
                     q_prime_daily = flow(
                         routing_dataclass=routing_dataclass,
@@ -147,7 +228,7 @@ def train(
 
                 filtered_predictions = daily_runoff[~np_nan_mask]
 
-                if phi_kan is not None:
+                if _phi_active:
                     pred_gt = filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :]
                     obs_gt = filtered_observations.transpose(0, 1)[cfg.experiment.warmup :]
                     mb_loss = mass_balance_loss(pred_gt, obs_gt)
@@ -167,6 +248,20 @@ def train(
                 log.info("Running backpropagation")
 
                 loss.backward()
+
+                # Diagnostic: log per-component gradient norms before clipping
+                if cfg.bias.log_gradient_norms:
+                    _sp_gnorm = (
+                        sum(p.grad.norm().item() ** 2 for p in nn.parameters() if p.grad is not None) ** 0.5
+                    )
+                    log.info(f"Grad norms | spatial_kan: {_sp_gnorm:.6f}")
+                    if _phi_active and phi_kan is not None:
+                        _phi_gnorm = (
+                            sum(p.grad.norm().item() ** 2 for p in phi_kan.parameters() if p.grad is not None)
+                            ** 0.5
+                        )
+                        log.info(f"Grad norms | phi_kan: {_phi_gnorm:.6f}")
+
                 torch.nn.utils.clip_grad_norm_(params_to_optimize, max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad()
@@ -181,7 +276,7 @@ def train(
                 rmse = metrics.rmse
                 kge_metric = metrics.kge
                 utils.log_metrics(nse, rmse, kge_metric, epoch=epoch, mini_batch=i)
-                if phi_kan is not None:
+                if _phi_active:
                     log.info(
                         f"Loss: {loss.item():.6f} (mass_balance: {mb_loss.item():.6f}, "
                         f"{cfg.bias.loss_fn.value}: {routing_loss.item():.6f})"

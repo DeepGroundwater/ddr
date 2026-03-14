@@ -226,6 +226,28 @@ class BiasCorrection(BaseModel):
         default=BiasLossFn.HUBER,
         description="Loss function for bias correction training: 'huber', 'kge', or 'mse'",
     )
+    freeze_spatial_after: int | None = Field(
+        default=None,
+        description="Freeze spatial KAN after this many epochs of joint training. "
+        "When warmup_spatial_epochs is set, this counts from the end of warmup. "
+        "Example: warmup=5, freeze=5 → ep 1-5 spatial-only, ep 6-10 joint, ep 11+ frozen. "
+        "None disables staged training (current joint behavior).",
+    )
+    warmup_spatial_epochs: int | None = Field(
+        default=None,
+        description="Number of initial epochs where ONLY the spatial KAN trains (φ-KAN disabled). "
+        "After these epochs, φ-KAN is enabled for joint or staged training. "
+        "None disables warmup (current behavior).",
+    )
+    spatial_lr_scale: float = Field(
+        default=1.0,
+        description="Learning rate multiplier for spatial KAN during joint training. "
+        "Values > 1.0 compensate for weak gradients through the routing chain.",
+    )
+    log_gradient_norms: bool = Field(
+        default=False,
+        description="Log per-component gradient norms after each backward pass (diagnostic).",
+    )
 
     @model_validator(mode="after")
     def validate_and_resolve(self) -> "BiasCorrection":

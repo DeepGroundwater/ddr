@@ -99,9 +99,12 @@ class Merit(BaseGeoDataset):
         return xr.open_mfdataset(self.cfg.data_sources.attributes)
 
     def _load_swot_geometry(self, swot_path: Path) -> None:
-        """Load SWOT satellite geometry from preprocessed NetCDF.
+        """Load SWOT/SWORD geometry from preprocessed NetCDF.
 
-        Builds a lookup dict {COMID: (top_width, side_slope)} for non-NaN entries.
+        Builds a lookup dict {COMID: (top_width, side_slope)} where either
+        field may be NaN. A COMID is included if it has at least one non-NaN
+        value; the routing engine's _apply_data_override handles per-field
+        NaN blending so the KAN learns parameters for uncovered fields.
         """
         ds = xr.open_dataset(swot_path)
         comids = ds["COMID"].values
@@ -110,13 +113,22 @@ class Merit(BaseGeoDataset):
         ds.close()
 
         self.swot_geometry = {}
+        n_tw = 0
+        n_ss = 0
         for i, comid in enumerate(comids):
             tw = float(top_widths[i])
             ss = float(side_slopes[i])
-            if not (np.isnan(tw) or np.isnan(ss)):
+            has_tw = not np.isnan(tw)
+            has_ss = not np.isnan(ss)
+            if has_tw or has_ss:
                 self.swot_geometry[int(comid)] = (tw, ss)
+                n_tw += has_tw
+                n_ss += has_ss
 
-        log.info(f"Loaded SWOT geometry for {len(self.swot_geometry)} reaches from {swot_path}")
+        log.info(
+            f"Loaded SWOT geometry: {len(self.swot_geometry)} reaches "
+            f"({n_tw} top_width, {n_ss} side_slope) from {swot_path}"
+        )
 
     def _get_attributes(
         self,

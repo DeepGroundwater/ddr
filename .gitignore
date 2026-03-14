@@ -204,6 +204,9 @@ examples/scratch
 # claude (keep .claude/ private, commit project-level CLAUDE.md)
 .claude/
 
+# built docs
+site/
+
 # misc
 .qodo/
 .ruff_cache/

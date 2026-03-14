@@ -1,7 +1,7 @@
 # DDR Example Configuration
 #
 # Copy this file and customize paths before running:
-#   python scripts/train.py --config-name=<your_config>
+#   ddr train --config-name=<your_config>
 #
 # Set DDR_DATA_DIR to your local data directory, or edit paths below.
 # See config/templates/ for dataset-specific templates.

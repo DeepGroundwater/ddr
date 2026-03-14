@@ -44,7 +44,17 @@ def main() -> None:
 
     os.environ.setdefault("DDR_VERSION", __version__)
 
-    module = importlib.import_module(subcommands[cmd])
+    try:
+        module = importlib.import_module(subcommands[cmd])
+    except ModuleNotFoundError as e:
+        if "scripts" in str(e):
+            print(
+                "Error: Could not import 'scripts' module.\n"
+                "The ddr CLI must be run from the repository root directory.\n"
+                "  cd /path/to/ddr && ddr " + cmd
+            )
+            sys.exit(1)
+        raise
     module.main()
 
 

@@ -10,12 +10,12 @@ np_seed: 42
 s3_region: us-east-2
 
 data_sources:
-  attributes: ${oc.env:DDR_ATTRIBUTES_STORE,/path/to/hydrofabric_v2.2_attributes}
+  attributes: ${oc.env:DDR_ATTRIBUTES_STORE,s3://mhpi-spatial/hydrofabric_v2.2_attributes/}
   geospatial_fabric_gpkg: ${oc.env:DDR_DATA_DIR,./../../data}/patched_conus_nextgen.gpkg
   conus_adjacency: ${oc.env:DDR_DATA_DIR,./../../data}/hydrofabric_v2.2_conus_adjacency.zarr
   statistics: ${oc.env:DDR_DATA_DIR,./../../data}/statistics
-  streamflow: ${oc.env:DDR_STREAMFLOW_STORE,/path/to/hydrofabric_v2.2_dhbv_retrospective}
-  observations: ${oc.env:DDR_OBS_STORE,/path/to/usgs_daily_observations}
+  streamflow: ${oc.env:DDR_STREAMFLOW_STORE,s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective}
+  observations: ${oc.env:DDR_OBS_STORE,s3://mhpi-spatial/usgs_streamflow_observations/}
 
 params:
   save_path: ./

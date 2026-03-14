@@ -15,7 +15,7 @@ data_sources:
   conus_adjacency: ${oc.env:DDR_DATA_DIR,./../../data}/merit_conus_adjacency.zarr
   statistics: ${oc.env:DDR_DATA_DIR,./../../data}/statistics
   streamflow: ${oc.env:DDR_DATA_DIR,./../../data}/merit_dhbv2_UH_retrospective
-  observations: ${oc.env:DDR_OBS_STORE,/path/to/usgs_daily_observations}
+  observations: ${oc.env:DDR_OBS_STORE,s3://mhpi-spatial/usgs_streamflow_observations/}
 
 params:
   save_path: ./

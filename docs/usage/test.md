@@ -12,7 +12,7 @@ Model testing evaluates a trained DDR model on a different time period than trai
 
 1. Load trained model checkpoint
 2. Run forward pass on test period data
-3. Compute metrics (NSE, KGE, RMSE) against observations
+3. Compare predictions against observations
 4. Generate evaluation outputs
 
 ## Quick Start
@@ -33,7 +33,7 @@ experiment:
   batch_size: 64
   start_time: 1995/10/01        # Test period start
   end_time: 2010/09/30          # Test period end
-  warmup: 3                     # Warmup days excluded from metrics
+  warmup: 3                     # Days excluded from evaluation during spin-up
   checkpoint: /path/to/trained_model.pt  # Required!
 ```
 
@@ -64,22 +64,17 @@ with torch.no_grad():
         predictions[:, indices] = dmc_output["runoff"].cpu().numpy()
 ```
 
-### 3. Compute Metrics
+### 3. Evaluate Predictions
 
-DDR computes standard hydrologic metrics:
-
-| Metric | Description | Ideal Value |
-|--------|-------------|-------------|
-| **NSE** | Nash-Sutcliffe Efficiency | 1.0 |
-| **KGE** | Kling-Gupta Efficiency | 1.0 |
-| **RMSE** | Root Mean Square Error | 0.0 |
+Use the `Metrics` class from `ddr.validation` to compare predictions against observations:
 
 ```python
+from ddr.validation.metrics import Metrics
+
 metrics = Metrics(pred=daily_runoff[:, warmup:], target=observations[:, warmup:])
-print(f"NSE: {metrics.nse.mean():.4f}")
-print(f"KGE: {metrics.kge.mean():.4f}")
-print(f"RMSE: {metrics.rmse.mean():.4f}")
 ```
+
+See the `Metrics` class for available evaluation attributes.
 
 ## Output
 
@@ -105,23 +100,6 @@ print(ds)
 #     predictions   (gage_ids, time) float64
 #     observations  (gage_ids, time) float64
 ```
-
-## Interpreting Results
-
-### NSE Guidelines
-
-| NSE Range | Interpretation |
-|-----------|----------------|
-| > 0.75 | Very good |
-| 0.65 - 0.75 | Good |
-| 0.50 - 0.65 | Satisfactory |
-| < 0.50 | Unsatisfactory |
-
-### Common Issues
-
-1. **Poor performance on large basins**: May need more training data or different architecture
-2. **Negative NSE**: Model predictions worse than mean - check data alignment
-3. **Good NSE but poor KGE**: Timing/bias issues - inspect hydrographs
 
 ## Next Steps
 

@@ -57,4 +57,4 @@ Each `example_config.yaml` uses `${oc.env:DDR_DATA_DIR,./../../data}` so paths r
 
 ## Model Evaluation
 
-The `examples/eval/evaluate.ipynb` notebook demonstrates how to evaluate the performance of a trained model and compare routed predictions against the summed Q' baseline.
+The `examples/eval/evaluate.ipynb` notebook demonstrates how to compare routed predictions against observations and the summed Q' baseline.

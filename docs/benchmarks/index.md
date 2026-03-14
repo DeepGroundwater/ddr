@@ -14,7 +14,7 @@ The `ddr-benchmarks` package provides tools for comparing DDR against other rout
 Benchmarking routing models requires:
 
 1. **Identical input data** - Same lateral inflows (Q'), network topology, and time period
-2. **Consistent evaluation** - Same metrics (NSE, KGE, RMSE) computed on same observations
+2. **Consistent evaluation** - Same evaluation criteria applied to the same observations
 3. **Fair comparison** - Account for differences in model formulations and parameters
 
 The benchmarks package addresses all three by reusing DDR's existing data infrastructure while providing adapters for other routing models.
@@ -88,17 +88,6 @@ The benchmark produces publication-quality plots and console diagnostics:
 | `gauge_map_sqp_NSE.png` | Map of gauges colored by summed Q' NSE (if enabled) |
 | `hydrographs/*.png` | Per-gage time series with all models overlaid |
 
-### Console Output
-
-Mass balance accumulation comparison is logged for each model:
-
-```
-=== Mass Balance Accumulation Comparison ===
-DDR vs Obs       — Mean rel. error: 0.1234, Median: 0.0567
-DiffRoute vs Obs — Mean rel. error: 0.2345, Median: 0.1234
-DDR vs summed Q' — Mean rel. error: 0.0456, Median: 0.0234
-```
-
 ### Results (saved to `output/<run>/benchmark_results.zarr`)
 
 ```python
@@ -146,9 +135,8 @@ The main benchmark script follows the same pattern as `scripts/test.py`:
 3. **Phase 1**: Run DDR on time-batched DataLoader, accumulate predictions
 4. **Phase 2**: Run DiffRoute per-gage using zarr subgroup graphs
 5. Optionally load summed Q' predictions for baseline comparison
-6. Compute metrics using DDR's `Metrics` class
-7. Log mass balance accumulation comparison
-8. Generate comparison plots (CDF, boxplots, gauge maps, hydrographs)
+6. Evaluate predictions using DDR's `Metrics` class
+7. Generate comparison plots (CDF, boxplots, gauge maps, hydrographs)
 9. Save results to zarr
 
 ### DiffRoute Adapter (`diffroute_adapter.py`)

@@ -124,38 +124,6 @@ uv run python scripts/benchmark.py diffroute.enabled=false
 
 The benchmark produces:
 
-### Metrics (logged)
-
-```
-=== DDR Metrics ===
-----------------------------------------
-Metric     |         Mean |       Median
-----------------------------------------
-NSE        |       0.7234 |       0.7891
-RMSE       |      12.3456 |       8.7654
-KGE        |       0.6543 |       0.7012
-----------------------------------------
-
-=== DiffRoute Metrics ===
-----------------------------------------
-Metric     |         Mean |       Median
-----------------------------------------
-NSE        |       0.6891 |       0.7456
-...
-
-=== Summed Q' Metrics ===
-...
-```
-
-### Mass Balance (logged)
-
-```
-=== Mass Balance Accumulation Comparison ===
-DDR vs Obs       — Mean rel. error: 0.1234, Median: 0.0567
-DiffRoute vs Obs — Mean rel. error: 0.2345, Median: 0.1234
-DDR vs summed Q' — Mean rel. error: 0.0456, Median: 0.0234
-```
-
 ### Plots (saved to `output/<run>/plots/`)
 
 | File | Description |

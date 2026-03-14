@@ -8,7 +8,6 @@ import numpy as np
 import torch
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
-from torch.nn.functional import mse_loss
 from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import ddr_functions, dmc, kan, streamflow
@@ -92,7 +91,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
 
                 filtered_predictions = daily_runoff[~np_nan_mask]
 
-                loss = mse_loss(
+                loss = torch.nn.functional.l1_loss(
                     input=filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
                     target=filtered_observations.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
                 )
@@ -120,8 +119,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                 param_map = {
                     "n": routing_model.n,
                     "q_spatial": routing_model.q_spatial,
-                    "top_width": routing_model.top_width,
-                    "side_slope": routing_model.side_slope,
+                    "p_spatial": routing_model.p_spatial,
                 }
                 for param_name in cfg.kan.learnable_parameters:
                     param_tensor = param_map.get(param_name)
@@ -154,6 +152,13 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
                 )
+
+                # Free autograd graph and routing engine tensors to prevent OOM
+                del dmc_output, daily_runoff, streamflow_predictions, loss
+                del filtered_predictions, filtered_observations
+                routing_model.routing_engine.q_prime = None
+                routing_model.routing_engine._discharge_t = None
+                torch.cuda.empty_cache()
 
 
 @hydra.main(

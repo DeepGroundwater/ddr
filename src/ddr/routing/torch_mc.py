@@ -180,12 +180,15 @@ class dmc(torch.nn.Module):
         self.network = self.routing_engine.network
         self.n = self.routing_engine.n
         self.q_spatial = self.routing_engine.q_spatial
-        self.top_width = self.routing_engine.top_width
-        self.side_slope = self.routing_engine.side_slope
+        self.p_spatial = self.routing_engine.p_spatial
         self._discharge_t = self.routing_engine._discharge_t
 
         # Perform routing
         output = self.routing_engine.forward()
+
+        # Read back per-timestep derived geometry from the engine
+        self.top_width = self.routing_engine.top_width
+        self.side_slope = self.routing_engine.side_slope
 
         # Update discharge state for compatibility
         self._discharge_t = self.routing_engine._discharge_t
@@ -195,6 +198,8 @@ class dmc(torch.nn.Module):
                 self.n.retain_grad()
             if self.q_spatial is not None:
                 self.q_spatial.retain_grad()
+            if self.p_spatial is not None and self.p_spatial.requires_grad:
+                self.p_spatial.retain_grad()
             if self._discharge_t is not None:
                 self._discharge_t.retain_grad()
 
@@ -205,10 +210,6 @@ class dmc(torch.nn.Module):
                     spatial_params["n"].retain_grad()
                 if "q_spatial" in spatial_params:
                     spatial_params["q_spatial"].retain_grad()
-                if "top_width" in spatial_params:
-                    spatial_params["top_width"].retain_grad()
-                if "side_slope" in spatial_params:
-                    spatial_params["side_slope"].retain_grad()
                 if "p_spatial" in spatial_params:
                     spatial_params["p_spatial"].retain_grad()
 

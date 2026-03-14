@@ -42,7 +42,7 @@ def create_mock_config() -> Config:
             "gages": "mock.csv",
         },
         "params": {
-            "parameter_ranges": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9]},
+            "parameter_ranges": {"n": [0.01, 0.1], "q_spatial": [0.1, 0.9], "p_spatial": [1.0, 200.0]},
             "defaults": {"p_spatial": 1.0},
             "attribute_minimums": {
                 "velocity": 0.1,

@@ -9,6 +9,7 @@ Usage:
     uv run python scripts/train_and_test.py --config-name=merit_training_config
 """
 
+import gc
 import logging
 import os
 import time
@@ -87,6 +88,12 @@ def _test(
             dmc_output = routing_model(**dmc_kwargs)
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
+            # Free routing engine tensors to prevent OOM between test batches
+            del streamflow_predictions, spatial_params, dmc_output
+            routing_model.routing_engine.q_prime = None
+            routing_model.routing_engine._discharge_t = None
+            torch.cuda.empty_cache()
+
     daily_runoff = compute_daily_runoff(torch.tensor(predictions), cfg.params.tau)
     daily_obs = observations[:, 1:-1]
     time_range = dataset.dates.daily_time_range[1:-1]
@@ -164,6 +171,11 @@ def main(cfg: DictConfig) -> None:
 
         train(cfg=config, flow=flow, routing_model=routing_model, nn=nn_model)
 
+        # Free training-phase GPU memory before test phase
+        del routing_model, flow, nn_model
+        gc.collect()
+        torch.cuda.empty_cache()
+
         train_elapsed = time.perf_counter() - start_time
         log.info(f"Training complete in {train_elapsed / 60:.2f} minutes")
 
@@ -178,7 +190,7 @@ def main(cfg: DictConfig) -> None:
                     update={
                         "start_time": "1995/10/01",
                         "end_time": "2010/09/30",
-                        "batch_size": 182,
+                        "batch_size": 15,
                         "rho": None,
                         "checkpoint": checkpoint,
                         "epochs": 1,

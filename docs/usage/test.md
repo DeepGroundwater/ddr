@@ -18,7 +18,7 @@ Model testing evaluates a trained DDR model on a different time period than trai
 ## Quick Start
 
 ```bash
-python scripts/test.py --config-name your_test_config.yaml
+ddr test --config-name your_test_config
 ```
 
 ## Configuration

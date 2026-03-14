@@ -23,7 +23,7 @@ This is useful for:
 ## Quick Start
 
 ```bash
-python scripts/router.py --config-name your_routing_config.yaml
+ddr route --config-name your_routing_config
 ```
 
 ## Configuration
@@ -115,7 +115,7 @@ ds.to_zarr(output_path / "router_output.zarr")
 
 ```
 output/<run_name>/
-├── router_output.zarr/
+├── chrout.zarr/
 │   ├── predictions/          # (segments, time) discharge values
 │   └── .zattrs               # Metadata
 └── .hydra/config.yaml
@@ -126,7 +126,7 @@ output/<run_name>/
 ```python
 import xarray as xr
 
-ds = xr.open_zarr("output/<run>/router_output.zarr")
+ds = xr.open_zarr("output/<run>/chrout.zarr")
 predictions = ds.predictions  # (segments, time) DataArray
 ```
 

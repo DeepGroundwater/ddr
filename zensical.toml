@@ -12,6 +12,7 @@ nav = [
   {"Home" = [
     "index.md",
     "startup.md",
+    "config_reference.md",
     "datasets.md",
     "gpu.md",
     "references.md",

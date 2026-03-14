@@ -36,7 +36,6 @@ Below are publications which were directly used to build DDR.
 tex.ids= song2024highresolution},
 	keywords = {*CIROH Cooperative Institute for Research to Operations in Hydrology (CIROH) through the NOAA Cooperative Agreement (grant no. NA22NWS4320003), *CIROH subaward A23-0271-S001 from Cooperative Institute for Research to Operations in Hydrology (CIROH) through the NOAA Cooperative Agreement (grant no. NA22NWS4320003), *DoE DE-SC0016605 (HyperFacets), *CA DWR 4600014294 (California Department of Water Resources Atmospheric River Program Phase III), *CIROH subaward A23-0252-S002 from Cooperative Institute for Research to Operations in Hydrology (CIROH) through the NOAA Cooperative Agreement (grant no. NA22NWS4320003), *DoE NERSC award ERCAP0024296},
 	pages = {e2024WR038928},
-	file = {Full Text PDF:/Users/taddbindas/Zotero/storage/TWJMPMM9/Song et al. - High-resolution national-scale water modeling is enhanced by multiscale differentiable physics-infor.pdf:application/pdf;Full Text PDF:/Users/taddbindas/Zotero/storage/46ZGUIZ5/Song et al. - 2025 - High-Resolution National-Scale Water Modeling Is E.pdf:application/pdf;Full Text PDF:/Users/taddbindas/Zotero/storage/JX2MD99P/Song et al. - 2025 - High-Resolution National-Scale Water Modeling Is Enhanced by Multiscale Differentiable Physics-Informed Machine Learning.pdf:application/pdf},
 }
 
 ```

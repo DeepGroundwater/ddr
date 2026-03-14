@@ -50,6 +50,9 @@ dependencies = [
   "zarr",
 ]
 
+[project.scripts]
+ddr = "ddr.cli:main"
+
 [dependency-groups]
 cuda12 = [
   "cupy-cuda12x>=13.6.0",

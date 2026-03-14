@@ -1,4 +1,11 @@
-# This is an example config file meant to serve as a start for you to generate your own
+# DDR Example Configuration
+#
+# Copy this file and customize paths before running:
+#   ddr train --config-name=<your_config>
+#
+# Set DDR_DATA_DIR to your local data directory, or edit paths below.
+# See config/templates/ for dataset-specific templates.
+
 defaults:
   - _self_
   - hydra: settings
@@ -6,20 +13,21 @@ defaults:
 mode: training
 geodataset: lynker_hydrofabric
 name: ddr-v${oc.env:DDR_VERSION,dev}-${geodataset}-${mode}
-np_seed: 1
-seed: 0
-device: 7
+seed: 42
+np_seed: 42
+device: 0
 s3_region: us-east-2
 
 data_sources:
-  attributes: /projects/mhpi/data/icechunk/hydrofabric_v2.2_attributes
-  geospatial_fabric_gpkg: "DOWNLOAD THE FILE FROM https://www.lynker-spatial.com/data/hydrofabric/v2.2/conus/"
-  conus_adjacency: ./../data/hydrofabric_v2.2_conus_adjacency.zarr
-  gages_adjacency: ./../data/hydrofabric_v2.2_gages_conus_adjacency.zarr
-  statistics: ./../data/statistics
-  streamflow: /path/to/icechunk/hydrofabric_v2.2_dhbv_retrospective
-  observations: /path/to/icechunk/usgs/observations
-  gages: ./../streamflow_datasets/gage_info/dhbv2_gages.csv
+  # Download hydrofabric from https://www.lynker-spatial.com/data/hydrofabric/v2.2/conus/
+  attributes: ${oc.env:DDR_ATTRIBUTES_STORE,/path/to/hydrofabric_v2.2_attributes}
+  geospatial_fabric_gpkg: ${oc.env:DDR_DATA_DIR,./data}/patched_conus_nextgen.gpkg
+  conus_adjacency: ${oc.env:DDR_DATA_DIR,./data}/hydrofabric_v2.2_conus_adjacency.zarr
+  gages_adjacency: ${oc.env:DDR_DATA_DIR,./data}/hydrofabric_v2.2_gages_conus_adjacency.zarr
+  statistics: ${oc.env:DDR_DATA_DIR,./data}/statistics
+  streamflow: ${oc.env:DDR_STREAMFLOW_STORE,/path/to/hydrofabric_v2.2_dhbv_retrospective}
+  observations: ${oc.env:DDR_OBS_STORE,/path/to/usgs_daily_observations}
+  gages: ${oc.env:DDR_DATA_DIR,./data}/../references/gage_info/dhbv2_gages.csv
 
 params:
   save_path: ./
@@ -29,25 +37,31 @@ experiment:
   start_time: 1981/10/01
   end_time: 1995/09/30
   epochs: 5
-  learning_rate: {
-      1: 0.005,
-      3: 0.001
-  }
-  rho: 365
+  rho: 90
   shuffle: true
-  warmup: 3
+  warmup: 5
+  learning_rate:
+    1: 0.001
+    3: 0.0005
+  checkpoint: null
 
 kan:
-  hidden_size: 11
+  hidden_size: 21
   input_var_names:
-    - glaciers
+    - SoilGrids1km_clay
     - aridity
     - meanelevation
     - meanP
+    - NDVI
+    - meanslope
     - log_uparea
-  num_hidden_layers: 1
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
+  num_hidden_layers: 2
   learnable_parameters:
-  - n
-  - q_spatial
-  grid: 3
-  k: 3
+    - n
+    - q_spatial
+    - p_spatial
+  grid: 50
+  k: 2

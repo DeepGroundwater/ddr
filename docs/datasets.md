@@ -148,17 +148,46 @@ uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py \
 
 The neural network requires catchment attributes to predict routing parameters.
 
-### Default Attribute Set (Hydrofabric v2.2)
+### Default Attribute Set (v0.5.2)
 
-```yaml
-input_var_names:
-  - aridity               # Aridity index
-  - meanelevation         # Mean elevation (m)
-  - log_uparea            # Log10 of the upstream area for a catchment (m)
-  - meanP                 # Mean Annual Precipitation (mm)
-```
+The current architecture uses 10 catchment attributes:
 
-These attributes can be either calculated by hand, or provided for you through `s3://mhpi-spatial/hydrofabric_v2.2_attributes/` for the lynker hydrofabric. Catchment attributes are geodataset specific
+=== "Lynker Hydrofabric"
+
+    ```yaml
+    input_var_names:
+      - SoilGrids1km_clay    # Clay content (%)
+      - aridity              # Aridity index
+      - meanelevation        # Mean elevation (m)
+      - meanP                # Mean Annual Precipitation (mm)
+      - NDVI                 # Normalized Difference Vegetation Index
+      - meanslope            # Mean slope (m/km)
+      - log_uparea           # Natural log of upstream area (km²)
+      - SoilGrids1km_sand    # Sand content (%)
+      - ETPOT_Hargr          # Potential evapotranspiration (Hargreaves)
+      - Porosity             # Soil porosity
+    ```
+
+=== "MERIT"
+
+    ```yaml
+    input_var_names:
+      - SoilGrids1km_clay
+      - aridity
+      - meanelevation
+      - meanP
+      - NDVI
+      - meanslope
+      - log10_uparea         # Log10 of upstream area (note: different from Lynker)
+      - SoilGrids1km_sand
+      - ETPOT_Hargr
+      - Porosity
+    ```
+
+These attributes can be either calculated by hand, or provided for you through `s3://mhpi-spatial/hydrofabric_v2.2_attributes/` for the Lynker Hydrofabric. Catchment attributes are geodataset specific.
+
+!!! note
+    MERIT uses `log10_uparea` while Lynker Hydrofabric uses `log_uparea`. These are different transformations of upstream drainage area.
 
 ### Attribute Storage
 

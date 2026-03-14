@@ -21,7 +21,7 @@ DDR's routing algorithm involves solving sparse triangular linear systems at eac
 
 ```bash
 # Install with GPU support
-uv sync --all-packages --group cuda
+uv sync --all-packages --group cuda12  # or --group cuda13 for CUDA 13.0
 ```
 
 This installs:

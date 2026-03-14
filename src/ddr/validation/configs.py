@@ -9,7 +9,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from ddr.validation.enums import BiasLossFn, GeoDataset, Mode, PhiInputs
+from ddr.validation.enums import GeoDataset, Mode
 
 log = logging.getLogger(__name__)
 
@@ -70,10 +70,6 @@ class DataSources(BaseModel):
     )
     target_catchments: list[str] | None = Field(
         default=None, description="Optional list of specific catchment IDs to route to (overrides gages)"
-    )
-    forcings: str | None = Field(
-        default=None,
-        description="Path to icechunk store with meteorological forcings (P, PET, Temp)",
     )
 
 
@@ -192,57 +188,6 @@ class ExperimentConfig(BaseModel):
         return check_path(str(v))
 
 
-class BiasCorrection(BaseModel):
-    """Configuration for KAN-based bias correction of lateral inflows"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool = Field(default=False, description="Whether to enable bias correction")
-    phi_inputs: PhiInputs = Field(
-        default=PhiInputs.MONTHLY,
-        description="Input type for the temporal phi-KAN",
-    )
-    forcing_var: str | None = Field(
-        default=None,
-        description="Forcing variable name (required when phi_inputs='forcing')",
-    )
-    phi_hidden_size: int | None = Field(
-        default=None,
-        description="Hidden layer size for the phi-KAN. Defaults to 2n+1 (Kolmogorov-Arnold theorem minimum) based on phi_inputs mode.",
-    )
-    phi_grid: int = Field(default=8, description="Grid size for phi-KAN B-spline basis")
-    phi_k: int = Field(default=3, description="B-spline order for phi-KAN layers")
-    lambda_mass: float = Field(
-        default=0.5,
-        description="Weight for mass balance loss relative to KGE loss",
-    )
-    lambda_anneal: bool = Field(
-        default=False,
-        description="Whether to anneal lambda_mass over training epochs",
-    )
-    loss_fn: BiasLossFn = Field(
-        default=BiasLossFn.HUBER,
-        description="Loss function for bias correction training: 'huber', 'kge', or 'mse'",
-    )
-
-    @model_validator(mode="after")
-    def validate_and_resolve(self) -> "BiasCorrection":
-        """Validate forcing_var and auto-size phi_hidden_size from 2n+1."""
-        if self.phi_inputs == PhiInputs.FORCING and self.forcing_var is None:
-            raise ValueError("forcing_var must be set when phi_inputs='forcing'")
-
-        if self.phi_hidden_size is None:
-            input_dims = {
-                PhiInputs.STATIC: 1,
-                PhiInputs.MONTHLY: 3,
-                PhiInputs.FORCING: 2,
-                PhiInputs.RANDOM: 3,
-            }
-            n = input_dims[self.phi_inputs]
-            self.phi_hidden_size = 2 * n + 1
-        return self
-
-
 class Config(BaseModel):
     """The base level configuration for the dMC (differentiable Muskingum-Cunge) model"""
 
@@ -260,10 +205,6 @@ class Config(BaseModel):
     mode: Mode = Field(description="Operating mode: training, testing, or routing")
     params: Params = Field(description="Physical and numerical parameters for the routing model")
     kan: Kan = Field(description="Architecture and configuration settings for the Kolmogorov-Arnold Network")
-    bias: BiasCorrection = Field(
-        default_factory=BiasCorrection,
-        description="Configuration for KAN-based bias correction of lateral inflows",
-    )
     np_seed: int = Field(default=1, description="Random seed for NumPy operations to ensure reproducibility")
     seed: int = Field(default=0, description="Random seed for PyTorch operations to ensure reproducibility")
     device: int | str = Field(

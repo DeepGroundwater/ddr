@@ -13,32 +13,20 @@ from torch.utils.data import DataLoader, RandomSampler
 
 from ddr import ddr_functions, dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.io.readers import ForcingsReader
-from ddr.nn import TemporalPhiKAN
 from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
-from ddr.validation.enums import BiasLossFn
-from ddr.validation.losses import huber_loss, kge_loss, mass_balance_loss
 
 log = logging.getLogger(__name__)
 
 
-def train(
-    cfg: Config,
-    flow: streamflow,
-    routing_model: dmc,
-    nn: kan,
-    phi_kan: TemporalPhiKAN | None = None,
-    q_prime_stats: dict[str, dict[str, float]] | None = None,
-    forcings_reader: ForcingsReader | None = None,
-) -> None:
+def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
     """Do model training."""
     data_generator = torch.Generator()
     data_generator.manual_seed(cfg.seed)
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        state = load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), phi_kan=phi_kan)
+        state = load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
         start_epoch = state["epoch"]
         start_mini_batch = (
             0 if state["mini_batch"] == 0 else state["mini_batch"] + 1
@@ -50,10 +38,7 @@ def train(
         start_mini_batch = 0
         lr = cfg.experiment.learning_rate[start_epoch]
 
-    params_to_optimize = list(nn.parameters())
-    if phi_kan is not None:
-        params_to_optimize += list(phi_kan.parameters())
-    optimizer = torch.optim.Adam(params=params_to_optimize, lr=lr)
+    optimizer = torch.optim.Adam(params=nn.parameters(), lr=lr)
     sampler = RandomSampler(
         data_source=dataset,
         generator=data_generator,
@@ -80,50 +65,10 @@ def train(
                 start_mini_batch = 0
                 routing_model.set_progress_info(epoch=epoch, mini_batch=i)
 
+                streamflow_predictions = flow(
+                    routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+                )
                 spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
-
-                if phi_kan is not None:
-                    assert q_prime_stats is not None
-                    # Get daily Q' for phi-KAN (24x less memory than hourly)
-                    q_prime_daily = flow(
-                        routing_dataclass=routing_dataclass,
-                        device=cfg.device,
-                        dtype=torch.float32,
-                        use_hourly=True,
-                    )
-                    divide_ids = routing_dataclass.divide_ids
-                    q_mean = torch.tensor(
-                        [q_prime_stats.get(str(did), {}).get("mean", 1e-6) for did in divide_ids],
-                        device=cfg.device,
-                        dtype=torch.float32,
-                    )
-                    q_std = torch.tensor(
-                        [q_prime_stats.get(str(did), {}).get("std", 1e-8) for did in divide_ids],
-                        device=cfg.device,
-                        dtype=torch.float32,
-                    )
-                    forcing_tensor = None
-                    if forcings_reader is not None:
-                        forcing_tensor = forcings_reader(
-                            routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-                        )
-                    # Bias-correct at daily resolution
-                    month = dataset.dates.batch_month_tensor_daily.to(cfg.device)
-                    q_prime_corrected = phi_kan(
-                        q_prime_daily,
-                        month=month,
-                        forcing=forcing_tensor,
-                        q_prime_mean=q_mean,
-                        q_prime_std=q_std,
-                    )
-                    # Interpolate corrected daily → hourly for MC routing
-                    T_hourly = len(routing_dataclass.dates.batch_hourly_time_range)
-                    streamflow_predictions = q_prime_corrected.repeat_interleave(24, dim=0)[:T_hourly]
-                else:
-                    streamflow_predictions = flow(
-                        routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-                    )
-
                 dmc_kwargs = {
                     "routing_dataclass": routing_dataclass,
                     "spatial_parameters": spatial_params,
@@ -147,27 +92,15 @@ def train(
 
                 filtered_predictions = daily_runoff[~np_nan_mask]
 
-                if phi_kan is not None:
-                    pred_gt = filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :]
-                    obs_gt = filtered_observations.transpose(0, 1)[cfg.experiment.warmup :]
-                    mb_loss = mass_balance_loss(pred_gt, obs_gt)
-                    if cfg.bias.loss_fn == BiasLossFn.HUBER:
-                        routing_loss = huber_loss(pred_gt, obs_gt)
-                    elif cfg.bias.loss_fn == BiasLossFn.KGE:
-                        routing_loss = kge_loss(pred_gt, obs_gt)
-                    else:
-                        routing_loss = mse_loss(pred_gt, obs_gt)
-                    loss = cfg.bias.lambda_mass * mb_loss + (1 - cfg.bias.lambda_mass) * routing_loss
-                else:
-                    loss = huber_loss(
-                        filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :],
-                        filtered_observations.transpose(0, 1)[cfg.experiment.warmup :],
-                    )
+                loss = mse_loss(
+                    input=filtered_predictions.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
+                    target=filtered_observations.transpose(0, 1)[cfg.experiment.warmup :].unsqueeze(2),
+                )
 
                 log.info("Running backpropagation")
 
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(params_to_optimize, max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad()
 
@@ -179,15 +112,9 @@ def train(
                 _nse = metrics.nse
                 nse = _nse[~np.isinf(_nse) & ~np.isnan(_nse)]
                 rmse = metrics.rmse
-                kge_metric = metrics.kge
-                utils.log_metrics(nse, rmse, kge_metric, epoch=epoch, mini_batch=i)
-                if phi_kan is not None:
-                    log.info(
-                        f"Loss: {loss.item():.6f} (mass_balance: {mb_loss.item():.6f}, "
-                        f"{cfg.bias.loss_fn.value}: {routing_loss.item():.6f})"
-                    )
-                else:
-                    log.info(f"Loss: {loss.item()}")
+                kge = metrics.kge
+                utils.log_metrics(nse, rmse, kge, epoch=epoch, mini_batch=i)
+                log.info(f"Loss: {loss.item()}")
 
                 # Log parameter ranges for all learnable routing parameters
                 param_map = {
@@ -226,16 +153,7 @@ def train(
                     optimizer=optimizer,
                     name=cfg.name,
                     saved_model_path=cfg.params.save_path / "saved_models",
-                    phi_kan=phi_kan,
                 )
-
-                # Free autograd graph from this mini-batch so the next
-                # iteration doesn't OOM during the phi_kan forward pass.
-                del dmc_output, daily_runoff, streamflow_predictions, loss
-                del filtered_predictions, filtered_observations
-                routing_model.routing_engine.q_prime = None
-                routing_model.routing_engine._discharge_t = None
-                torch.cuda.empty_cache()
 
 
 @hydra.main(
@@ -260,38 +178,9 @@ def main(cfg: DictConfig) -> None:
             seed=config.seed,
             device=config.device,
         )
-
-        phi_kan = None
-        q_prime_stats = None
-        if config.bias.enabled:
-            phi_kan = TemporalPhiKAN(
-                cfg=config.bias,
-                seed=config.seed,
-                device=config.device,
-            )
-
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-
-        forcings_reader = None
-        if config.bias.enabled:
-            from ddr.io.statistics import set_streamflow_statistics
-            from ddr.validation.enums import PhiInputs
-
-            q_prime_stats = set_streamflow_statistics(config, flow.ds)
-            if config.bias.phi_inputs == PhiInputs.FORCING:
-                assert config.bias.forcing_var is not None
-                forcings_reader = ForcingsReader(config, forcing_var_names=[config.bias.forcing_var])
-
-        train(
-            cfg=config,
-            flow=flow,
-            routing_model=routing_model,
-            nn=nn,
-            phi_kan=phi_kan,
-            q_prime_stats=q_prime_stats,
-            forcings_reader=forcings_reader,
-        )
+        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

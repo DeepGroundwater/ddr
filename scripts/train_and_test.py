@@ -25,8 +25,6 @@ from torch.utils.data import DataLoader, SequentialSampler
 
 from ddr import dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.io.readers import ForcingsReader
-from ddr.nn import TemporalPhiKAN
 from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
 from ddr.validation import Config, Metrics, utils, validate_config
 from scripts.train import train
@@ -39,21 +37,16 @@ def _test(
     flow: streamflow,
     routing_model: dmc,
     nn: kan,
-    phi_kan: TemporalPhiKAN | None = None,
-    q_prime_stats: dict[str, dict[str, float]] | None = None,
-    forcings_reader: ForcingsReader | None = None,
 ) -> None:
     """Do model evaluation and get performance metrics."""
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
-        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device), phi_kan=phi_kan)
+        load_checkpoint(nn, cfg.experiment.checkpoint, torch.device(cfg.device))
     else:
         log.warning("Creating new spatial model for evaluation.")
 
     nn = nn.eval()
-    if phi_kan is not None:
-        phi_kan = phi_kan.eval()
     sampler = SequentialSampler(
         data_source=dataset,
     )
@@ -81,50 +74,10 @@ def _test(
         for i, routing_dataclass in enumerate(dataloader, start=0):
             routing_model.set_progress_info(epoch=0, mini_batch=i)
 
+            streamflow_predictions = flow(
+                routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
+            )
             spatial_params = nn(inputs=routing_dataclass.normalized_spatial_attributes.to(cfg.device))
-
-            if phi_kan is not None:
-                assert q_prime_stats is not None
-                # Get daily Q' for phi-KAN (24x less memory than hourly)
-                q_prime_daily = flow(
-                    routing_dataclass=routing_dataclass,
-                    device=cfg.device,
-                    dtype=torch.float32,
-                    use_hourly=True,
-                )
-                divide_ids = routing_dataclass.divide_ids
-                q_mean = torch.tensor(
-                    [q_prime_stats.get(str(did), {}).get("mean", 1e-6) for did in divide_ids],
-                    device=cfg.device,
-                    dtype=torch.float32,
-                )
-                q_std = torch.tensor(
-                    [q_prime_stats.get(str(did), {}).get("std", 1e-8) for did in divide_ids],
-                    device=cfg.device,
-                    dtype=torch.float32,
-                )
-                forcing_tensor = None
-                if forcings_reader is not None:
-                    forcing_tensor = forcings_reader(
-                        routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-                    )
-                # Bias-correct at daily resolution
-                month = dataset.dates.batch_month_tensor_daily.to(cfg.device)
-                q_prime_corrected = phi_kan(
-                    q_prime_daily,
-                    month=month,
-                    forcing=forcing_tensor,
-                    q_prime_mean=q_mean,
-                    q_prime_std=q_std,
-                )
-                # Interpolate corrected daily → hourly for MC routing
-                T_hourly = len(routing_dataclass.dates.batch_hourly_time_range)
-                streamflow_predictions = q_prime_corrected.repeat_interleave(24, dim=0)[:T_hourly]
-            else:
-                streamflow_predictions = flow(
-                    routing_dataclass=routing_dataclass, device=cfg.device, dtype=torch.float32
-                )
-
             dmc_kwargs = {
                 "routing_dataclass": routing_dataclass,
                 "spatial_parameters": spatial_params,
@@ -206,38 +159,10 @@ def main(cfg: DictConfig) -> None:
             seed=config.seed,
             device=config.device,
         )
-
-        phi_kan = None
-        q_prime_stats = None
-        if config.bias.enabled:
-            phi_kan = TemporalPhiKAN(
-                cfg=config.bias,
-                seed=config.seed,
-                device=config.device,
-            )
-
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
 
-        forcings_reader = None
-        if config.bias.enabled:
-            from ddr.io.statistics import set_streamflow_statistics
-            from ddr.validation.enums import PhiInputs
-
-            q_prime_stats = set_streamflow_statistics(config, flow.ds)
-            if config.bias.phi_inputs == PhiInputs.FORCING:
-                assert config.bias.forcing_var is not None
-                forcings_reader = ForcingsReader(config, forcing_var_names=[config.bias.forcing_var])
-
-        train(
-            cfg=config,
-            flow=flow,
-            routing_model=routing_model,
-            nn=nn_model,
-            phi_kan=phi_kan,
-            q_prime_stats=q_prime_stats,
-            forcings_reader=forcings_reader,
-        )
+        train(cfg=config, flow=flow, routing_model=routing_model, nn=nn_model)
 
         train_elapsed = time.perf_counter() - start_time
         log.info(f"Training complete in {train_elapsed / 60:.2f} minutes")
@@ -272,27 +197,10 @@ def main(cfg: DictConfig) -> None:
             seed=test_config.seed,
             device=test_config.device,
         )
-
-        phi_kan = None
-        if test_config.bias.enabled:
-            phi_kan = TemporalPhiKAN(
-                cfg=test_config.bias,
-                seed=test_config.seed,
-                device=test_config.device,
-            )
-
         routing_model = dmc(cfg=test_config, device=test_config.device)
         flow = streamflow(test_config)
 
-        _test(
-            cfg=test_config,
-            flow=flow,
-            routing_model=routing_model,
-            nn=nn_model,
-            phi_kan=phi_kan,
-            q_prime_stats=q_prime_stats,
-            forcings_reader=forcings_reader,
-        )
+        _test(cfg=test_config, flow=flow, routing_model=routing_model, nn=nn_model)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")

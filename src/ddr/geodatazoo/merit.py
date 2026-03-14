@@ -40,7 +40,7 @@ class Merit(BaseGeoDataset):
 
     def __init__(self, cfg: "Config") -> None:
         self.cfg = cfg
-        self.dates = Dates(**self.cfg.experiment.model_dump(), seed=self.cfg.seed)
+        self.dates = Dates(**self.cfg.experiment.model_dump())
         self.gage_ids: np.ndarray | None = None
         self.routing_dataclass: RoutingDataclass | None = None
         self.network_graph: rx.PyDiGraph | None = None

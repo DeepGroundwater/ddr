@@ -76,7 +76,6 @@ class Dates(BaseModel):
     start_time: str
     end_time: str
     rho: int | None = None
-    seed: int = 42
     batch_daily_time_range: pd.DatetimeIndex = pd.DatetimeIndex([], dtype="datetime64[ns]")
     batch_hourly_time_range: pd.DatetimeIndex = pd.DatetimeIndex([], dtype="datetime64[ns]")
     daily_time_range: pd.DatetimeIndex = pd.DatetimeIndex([], dtype="datetime64[ns]")
@@ -84,18 +83,13 @@ class Dates(BaseModel):
     hourly_time_range: pd.DatetimeIndex = pd.DatetimeIndex([], dtype="datetime64[ns]")
     hourly_indices: torch.Tensor = torch.empty(0)
     numerical_time_range: np.ndarray = np.empty(0)
-    _rng: torch.Generator | None = None
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(
             start_time=kwargs["start_time"],
             end_time=kwargs["end_time"],
             rho=kwargs.get("rho"),
-            seed=kwargs.get("seed", 42),
         )
-        # Dedicated RNG for time window sampling — isolated from model operations
-        self._rng = torch.Generator()
-        self._rng.manual_seed(self.seed)
 
     @model_validator(mode="after")
     @classmethod
@@ -164,17 +158,10 @@ class Dates(BaseModel):
         self.daily_indices = np.array([self.daily_time_range.get_loc(time) for time in common_elements])
 
     def calculate_time_period(self) -> None:
-        """Calculates the time period for the dataset using rho.
-
-        Uses a dedicated RNG (seeded at init) so that the sequence of time
-        windows is identical across experiments regardless of model operations
-        that advance the global torch RNG.
-        """
+        """Calculates the time period for the dataset using rho"""
         if self.rho is not None:
             sample_size = len(self.daily_time_range)
-            random_start_tensor = torch.randint(
-                low=0, high=sample_size - self.rho, size=(1, 1), generator=self._rng
-            )
+            random_start_tensor = torch.randint(low=0, high=sample_size - self.rho, size=(1, 1))
             random_start = int(random_start_tensor[0][0].item())
             self.batch_daily_time_range = self.daily_time_range[random_start : (random_start + self.rho)]
             self.set_batch_time(self.batch_daily_time_range)
@@ -189,16 +176,6 @@ class Dates(BaseModel):
         """
         self.batch_daily_time_range = self.daily_time_range[chunk]
         self.set_batch_time(self.batch_daily_time_range)
-
-    @property
-    def batch_month_tensor(self) -> torch.Tensor:
-        """Month values [1-12] for each hourly timestep in current batch."""
-        return torch.tensor(self.batch_hourly_time_range.month.values, dtype=torch.float32)
-
-    @property
-    def batch_month_tensor_daily(self) -> torch.Tensor:
-        """Month values [1-12] for each daily timestep in current batch."""
-        return torch.tensor(self.batch_daily_time_range.month.values, dtype=torch.float32)
 
     def create_time_windows(self) -> np.ndarray:
         """Creates the time slices, or windows, for testing the model"""

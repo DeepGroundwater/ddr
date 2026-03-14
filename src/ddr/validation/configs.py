@@ -92,15 +92,13 @@ class Params(BaseModel):
         default_factory=lambda: {
             "n": [0.015, 0.25],  # (m⁻¹/³s)
             "q_spatial": [0.0, 1.0],  # 0 = rectangular, 1 = triangular
-            "top_width": [1.0, 5000.0],  # Log-space (m)
-            "side_slope": [0.5, 50.0],  # H:V ratio Log-space (-)
+            "p_spatial": [1.0, 200.0],  # Leopold & Maddock width coefficient, Log-space (m)
         },
         description="The parameter space bounds [min, max] to project learned physical values to",
     )
     log_space_parameters: list[str] = Field(
         default_factory=lambda: [
-            "top_width",
-            "side_slope",
+            "p_spatial",
         ],
         description="Parameters to denormalize in log-space for right-skewed distributions",
     )

@@ -23,7 +23,7 @@ This is useful for:
 ## Quick Start
 
 ```bash
-python scripts/router.py --config-name your_routing_config.yaml
+ddr route --config-name your_routing_config
 ```
 
 ## Configuration

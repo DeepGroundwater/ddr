@@ -50,7 +50,14 @@ Choose the appropriate installation based on your needs:
 
     ```bash
     # Full workspace with GPU support (adds CuPy for sparse GPU solves)
-    uv sync --all-packages --group cuda
+    uv sync --all-packages --group cuda12
+    ```
+
+=== "GPU (CUDA 13.0)"
+
+    ```bash
+    # Full workspace with GPU support (CUDA 13.0)
+    uv sync --all-packages --group cuda13
     ```
 
 === "Core Only"
@@ -64,7 +71,13 @@ The full workspace is recommended for development and paper verification. Use co
 
 ### Verify Installation
 
+```bash
+# Check the CLI entry point
+ddr --help
+```
+
 ```python
+# Or verify from Python
 import ddr
 print(ddr.__version__)
 ```
@@ -174,7 +187,7 @@ data_sources:
 | `kan.hidden_size` | KAN hidden layer size (recommend 2n+1 where n=input features) | `21` |
 | `device` | GPU ID or `"cpu"` | `0` |
 
-#### Testing/Rouing (Inference)
+#### Testing/Routing (Inference)
 
 | Option | Description | Default |
 |--------|-------------|---------|
@@ -192,21 +205,38 @@ __NOTE:__ More geodataset support is coming soon
 
 ### Quick Start
 
+DDR provides a CLI entry point after installation. Copy a config template and customize it for your data:
+
 ```bash
-# Training
-python scripts/train.py --config-name example_config.yaml
-
-# Testing
-python scripts/test.py --config-name example_config.yaml
-
-# Routing a trained model over specified catchments / the whole dataset
-python scripts/router.py --config-name example_config.yaml
-
-# Checking the baseline unit catchment metrics
-python scripts/summed_q_prime.py --config-name example_config.yaml
+# Copy a template and edit paths
+cp config/templates/merit_training.yaml config/my_training.yaml
 ```
 
-__NOTE:__ Please change the example config to match what mode/geodataset/method you need to work with. The config in the example is for structure only
+Then run using the `ddr` CLI:
+
+```bash
+# Training
+ddr train --config-name my_training
+
+# Testing
+ddr test --config-name my_testing
+
+# Routing a trained model over specified catchments / the whole dataset
+ddr route --config-name my_routing
+
+# Checking the baseline unit catchment metrics
+ddr summed-q-prime --config-name my_config
+```
+
+You can also call scripts directly:
+
+```bash
+uv run python scripts/train.py --config-name my_training
+```
+
+Config templates are available in `config/templates/` for both MERIT and Lynker Hydrofabric datasets, covering training and routing modes.
+
+__NOTE:__ Please change the config to match what mode/geodataset/method you need to work with. Templates use `${oc.env:DDR_DATA_DIR,./data}` so you can set the `DDR_DATA_DIR` environment variable or edit paths directly.
 
 ### Monitoring
 

@@ -19,7 +19,7 @@ DDR training optimizes a neural network (KAN) to predict physical routing parame
 ## Quick Start
 
 ```bash
-python scripts/train.py --config-name your_config.yaml
+ddr train --config-name your_config
 ```
 
 ## Configuration
@@ -56,9 +56,8 @@ kan:
     # ... more attributes
   learnable_parameters:        # Parameters to learn
     - n                        # Manning's roughness
-    - q_spatial                # Shape factor
-    - top_width                # Channel width
-    - side_slope               # Channel side slope
+    - q_spatial                # Leopold & Maddock shape exponent
+    - p_spatial                # Leopold & Maddock width coefficient
   grid: 50                     # KAN grid size
   k: 2                         # KAN spline order
 ```
@@ -100,14 +99,17 @@ dmc_output = routing_model(
 
 ### 3. Loss Computation
 
-Loss is computed on daily-averaged discharge after warmup:
+Loss is computed on daily-averaged discharge after warmup using MAE (L1) loss:
 
 ```python
 # Downsample to daily
 daily_runoff = ddr_functions.downsample(dmc_output["runoff"], rho=num_days)
 
-# Compute MSE loss (excluding warmup period)
-loss = mse_loss(daily_runoff[:, warmup:], observations[:, warmup:])
+# Compute MAE loss (excluding warmup period)
+loss = torch.nn.functional.l1_loss(
+    input=daily_runoff[:, warmup:],
+    target=observations[:, warmup:],
+)
 ```
 
 ### 4. Checkpointing

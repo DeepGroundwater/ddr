@@ -189,8 +189,11 @@ output/
 # Pykan model state
 model/
 
-# config classes
+# config classes (track templates and hydra settings)
 config/
+!config/example_config.yaml
+!config/templates/
+!config/hydra/
 
 # eval example data
 examples/eval/*.zarr
@@ -198,8 +201,7 @@ examples/eval/*.zarr
 # scratch notebooks
 examples/scratch
 
-# claude
-Claude.md
+# claude (keep .claude/ private, commit project-level CLAUDE.md)
 .claude/
 
 # misc

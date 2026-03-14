@@ -1,0 +1,49 @@
+# MERIT-Hydro Example Configuration
+# Used by plot_parameter_map.ipynb to visualize learned spatial parameters.
+# Set DDR_DATA_DIR to your data directory, or edit paths below.
+name: ddr-v0.5.2-merit-example
+mode: routing
+geodataset: merit
+device: 0
+seed: 42
+np_seed: 42
+s3_region: us-east-2
+
+data_sources:
+  attributes: ${oc.env:DDR_DATA_DIR,./../../data}/merit_global_attributes_v2.nc
+  geospatial_fabric_gpkg: ${oc.env:DDR_DATA_DIR,./../../data}/merit/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp
+  conus_adjacency: ${oc.env:DDR_DATA_DIR,./../../data}/merit_conus_adjacency.zarr
+  statistics: ${oc.env:DDR_DATA_DIR,./../../data}/statistics
+  streamflow: ${oc.env:DDR_DATA_DIR,./../../data}/merit_dhbv2_UH_retrospective
+  observations: ${oc.env:DDR_OBS_STORE,/path/to/usgs_daily_observations}
+
+params:
+  save_path: ./
+
+experiment:
+  checkpoint: ./ddr-v0.5.2_merit_trained_weights.pt
+  batch_size: 365
+  start_time: 1995/10/01
+  end_time: 1996/09/30
+  warmup: 3
+
+kan:
+  hidden_size: 21
+  input_var_names:
+    - SoilGrids1km_clay
+    - aridity
+    - meanelevation
+    - meanP
+    - NDVI
+    - meanslope
+    - log10_uparea
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
+  num_hidden_layers: 2
+  learnable_parameters:
+    - n
+    - q_spatial
+    - p_spatial
+  grid: 50
+  k: 2

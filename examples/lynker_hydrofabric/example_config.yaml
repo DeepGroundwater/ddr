@@ -1,0 +1,49 @@
+# Lynker Hydrofabric Example Configuration
+# Used by plot_parameter_map.ipynb to visualize learned spatial parameters.
+# Set DDR_DATA_DIR to your data directory, or edit paths below.
+name: ddr-v0.5.2-lynker-example
+mode: routing
+geodataset: lynker_hydrofabric
+device: 0
+seed: 42
+np_seed: 42
+s3_region: us-east-2
+
+data_sources:
+  attributes: ${oc.env:DDR_ATTRIBUTES_STORE,/path/to/hydrofabric_v2.2_attributes}
+  geospatial_fabric_gpkg: ${oc.env:DDR_DATA_DIR,./../../data}/patched_conus_nextgen.gpkg
+  conus_adjacency: ${oc.env:DDR_DATA_DIR,./../../data}/hydrofabric_v2.2_conus_adjacency.zarr
+  statistics: ${oc.env:DDR_DATA_DIR,./../../data}/statistics
+  streamflow: ${oc.env:DDR_STREAMFLOW_STORE,/path/to/hydrofabric_v2.2_dhbv_retrospective}
+  observations: ${oc.env:DDR_OBS_STORE,/path/to/usgs_daily_observations}
+
+params:
+  save_path: ./
+
+experiment:
+  checkpoint: ./ddr-v0.5.2.lynker_hydrofabric_trained_weights.pt
+  batch_size: 7
+  start_time: 1995/10/01
+  end_time: 1995/10/10
+  warmup: 3
+
+kan:
+  hidden_size: 21
+  input_var_names:
+    - SoilGrids1km_clay
+    - aridity
+    - meanelevation
+    - meanP
+    - NDVI
+    - meanslope
+    - log_uparea
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
+  num_hidden_layers: 2
+  learnable_parameters:
+    - n
+    - q_spatial
+    - p_spatial
+  grid: 50
+  k: 2

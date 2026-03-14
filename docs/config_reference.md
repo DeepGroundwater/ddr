@@ -20,7 +20,7 @@ The base level configuration for the dMC (differentiable Muskingum-Cunge) model
 | `kan` | `Kan` | — | yes | Architecture and configuration settings for the Kolmogorov-Arnold Network |
 | `np_seed` | `integer` | `1` |  | Random seed for NumPy operations to ensure reproducibility |
 | `seed` | `integer` | `0` |  | Random seed for PyTorch operations to ensure reproducibility |
-| `device` | `integer` | `string` | `0` |  | Compute device specification (GPU index number, 'cpu', or 'cuda', or 'mps') |
+| `device` | `integer` \| `string` | `0` |  | Compute device specification (GPU index number, 'cpu', or 'cuda', or 'mps') |
 | `s3_region` | `string` | `us-east-2` |  | AWS S3 region for accessing cloud-stored datasets |
 
 ## DataSources
@@ -35,9 +35,9 @@ Represents the data path sources for the model
 | `statistics` | `string` | `data` |  | Path to the folder where normalization statistics files are saved |
 | `streamflow` | `string` | `s3://mhpi-spatial/hydrofabric_v2.2_dh...` |  | Path to the icechunk store containing modeled streamflow data |
 | `observations` | `string` | `s3://mhpi-spatial/usgs_streamflow_obs...` |  | Path to the USGS streamflow observations for model validation |
-| `gages` | `string` | None | — |  | Path to CSV file containing gauge metadata, or None to use all segments |
-| `gages_adjacency` | `string` | None | — |  | Path to the gages adjacency matrix (required if gages is provided) |
-| `target_catchments` | `array` | None | — |  | Optional list of specific catchment IDs to route to (overrides gages) |
+| `gages` | `string` \| None | — |  | Path to CSV file containing gauge metadata, or None to use all segments |
+| `gages_adjacency` | `string` \| None | — |  | Path to the gages adjacency matrix (required if gages is provided) |
+| `target_catchments` | `array` \| None | — |  | Optional list of specific catchment IDs to route to (overrides gages) |
 
 ## Params
 
@@ -61,13 +61,13 @@ Experiment configuration for training and testing
 | `batch_size` | `integer` | `1` |  | Number of gauge catchments processed simultaneously in each batch |
 | `start_time` | `string` | `1981/10/01` |  | Start date for time period selection in YYYY/MM/DD format |
 | `end_time` | `string` | `1995/09/30` |  | End date for time period selection in YYYY/MM/DD format |
-| `checkpoint` | `string` | None | — |  | Path to checkpoint file (.pt) for resuming model from previous state |
+| `checkpoint` | `string` \| None | — |  | Path to checkpoint file (.pt) for resuming model from previous state |
 | `epochs` | `integer` | `1` |  | Number of complete passes through the training dataset |
 | `learning_rate` | `dict` | — |  | Learning rate schedule mapping epoch numbers to learning rate values |
-| `rho` | `integer` | None | — |  | Number of consecutive days selected in each training batch |
+| `rho` | `integer` \| None | — |  | Number of consecutive days selected in each training batch |
 | `shuffle` | `boolean` | `True` |  | Whether to randomize the order of samples in the dataloader |
 | `warmup` | `integer` | `3` |  | Number of days excluded from loss calculation as routing starts from dry conditions |
-| `max_area_diff_sqkm` | `number` | None | `50` |  | Maximum absolute drainage area difference (km²) between USGS gage and COMID. Gages exceeding this threshold are excluded from training/evaluation. None disables filtering. For MERIT geodataset, the DA_VALID column in gage CSVs is preferred. |
+| `max_area_diff_sqkm` | `number` \| None | `50` |  | Maximum absolute drainage area difference (km²) between USGS gage and COMID. Gages exceeding this threshold are excluded from training/evaluation. None disables filtering. For MERIT geodataset, the DA_VALID column in gage CSVs is preferred. |
 
 ## Kan
 

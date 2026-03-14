@@ -8,9 +8,9 @@ An implementation of differentiable river routing methods for the NextGen Framew
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-### Dependencies
+### Installation
 
-The following commands will allow you to install all required dependencies for DDR
+DDR uses [uv](https://docs.astral.sh/uv/) for dependency management. From the repo root:
 
 ```sh
 # Full workspace — CPU (includes ddr, ddr-engine, and ddr-benchmarks)
@@ -26,39 +26,60 @@ uv sync --all-packages --group cuda12
 uv sync --all-packages --group cuda13
 ```
 
+This installs the `ddr` CLI entry point. Verify with `ddr --help`.
+
+### Quick Start
+
+1. **Copy a config template** from `config/templates/` and customize paths:
+   ```sh
+   cp config/templates/merit_training.yaml config/my_training.yaml
+   # Edit config/my_training.yaml — set data_sources paths to your data
+   ```
+
+   Templates use `${oc.env:DDR_DATA_DIR,./data}` so you can set the
+   `DDR_DATA_DIR` environment variable or edit the paths directly.
+
+2. **Train a model** using the `ddr` CLI:
+   ```sh
+   ddr train --config-name=my_training
+   ```
+
+3. **Evaluate** the trained model:
+   ```sh
+   ddr test --config-name=my_testing
+   ```
+
+Available subcommands: `train`, `test`, `route`, `train-and-test`, `summed-q-prime`.
+
+You can also call scripts directly if preferred:
+```sh
+uv run python scripts/train.py --config-name=my_training
+```
+
 ### Data Engine
 
-Next, you need to create the necessary data files for running a routing across your domain.
-- The example below is for the NOAA-OWP Hydrofabric v2.2 (Dataset is not included in the repo)
-- This requires the `ddr-engine` local package to be installed (which is done automatically through the above `uv sync`)
+Before training, you need to create adjacency matrices for your domain:
+- Requires the `ddr-engine` local package (installed automatically by `uv sync --all-packages`)
 - The gauges.csv can be found [here](https://github.com/DeepGroundwater/references/tree/master/mhpi/dHBV2.0UH)
 
 ```sh
 uv run python engine/scripts/build_hydrofabric_v2.2_matrices.py <PATH/TO/conus_nextgen.gpkg> data/ --gages references/mhpi/dHBV2.0UH/training_gauges.csv
 ```
 
-This will create two files used for routing
-- `hydrofabric_v2.2_conus_adjacency.zarr`
-  - a sparse COO matrix containing the whole river network for Hydrofabric v2.2 across CONUS
-- `hydrofabric_v2.2_gages_conus_adjacency.zarr`
-  - a zarr.Group of sparse coo matrices for river networks upstream of USGS Gauges
+This creates two files used for routing:
+- `hydrofabric_v2.2_conus_adjacency.zarr` — sparse COO matrix of the full CONUS river network
+- `hydrofabric_v2.2_gages_conus_adjacency.zarr` — zarr.Group of sparse COO matrices for networks upstream of USGS gauges
 
-### Model Train
+### Pre-trained Examples
 
-All that's left is to train a routing model
-```sh
-# Train a model using the MHPI S3 defaults
-python scripts/train.py --config-name example_config.yaml
+The `examples/` directory contains pre-trained weights and notebooks for both
+MERIT and Lynker Hydrofabric datasets. See [`examples/README.md`](examples/README.md).
 
-#Test the model
-python scripts/test.py --config-name example_test_config.yaml
-```
+### Documentation
 
-### How to build docs locally
-The zensical documentation can be built/verified locally through installing the optional `docs` dependencies and serving through localhost:
+Build and serve the docs locally:
 
 ```sh
-uv pip install -e ".[docs]"
 uv run zensical serve
 ```
 

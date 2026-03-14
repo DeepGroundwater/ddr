@@ -28,10 +28,10 @@ def _resolve_type(prop: dict[str, Any], defs: dict[str, Any]) -> str:
                 types.append("None")
             else:
                 types.append(f"`{item.get('type', '?')}`")
-        return " | ".join(types)
+        return " \\| ".join(types)
     if "allOf" in prop:
         refs = [item["$ref"].split("/")[-1] for item in prop["allOf"] if "$ref" in item]
-        return " & ".join(f"`{r}`" for r in refs) if refs else "?"
+        return " \\& ".join(f"`{r}`" for r in refs) if refs else "?"
     if prop.get("type") == "array":
         item_type = _resolve_type(prop.get("items", {}), defs)
         return f"list[{item_type}]"

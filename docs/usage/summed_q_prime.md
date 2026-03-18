@@ -10,11 +10,7 @@ The summed lateral flow (Summed Q') baseline computes streamflow at gauge locati
 
 Routing redistributes flow in time — it delays and attenuates flood waves as they travel downstream. The Summed Q' baseline skips this step entirely, giving you a direct measure of how much your unit catchment predictions (from dHBV, NWM, or any lumped model) contribute to the total signal vs. how much routing improves it.
 
-Comparing DDR against Summed Q' tells you:
-
-- **How well your lateral inflows capture total volume** (bias, FLV)
-- **How much timing improvement routing adds** (NSE, KGE, correlation)
-- **Whether routing is worth the compute cost** for your application
+Comparing DDR against Summed Q' quantifies the effect of routing on the predicted hydrograph relative to a simple summation baseline.
 
 ## Quick Start
 
@@ -67,20 +63,6 @@ output/<run_name>/
 ├── metrics_summary_<timestamp>.json    # Aggregate statistics
 └── detailed_metrics_<timestamp>.csv    # Per-gauge metrics
 ```
-
-### Metrics
-
-The script reports the following metrics for all valid gauges:
-
-| Metric | Description | Ideal |
-|--------|-------------|-------|
-| **NSE** | Nash-Sutcliffe Efficiency | 1.0 |
-| **KGE** | Kling-Gupta Efficiency | 1.0 |
-| **Bias** | Mean bias ratio | 1.0 |
-| **FLV** | Low flow volume error (%) | 0.0 |
-| **FHV** | High flow volume error (%) | 0.0 |
-| **MAE** | Mean Absolute Error | 0.0 |
-| **RMSE** | Root Mean Square Error | 0.0 |
 
 ### Loading Results
 

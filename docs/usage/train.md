@@ -136,12 +136,7 @@ The training will resume from the saved epoch and mini-batch.
 
 ## Monitoring
 
-Training logs include:
-
-- Loss values per mini-batch
-- NSE, RMSE, KGE metrics periodically
-- Learning rate changes
-- Parameter statistics
+Training progress is logged to the output directory. See the log file for details on loss values, learning rate changes, and parameter statistics.
 
 ## Tips
 

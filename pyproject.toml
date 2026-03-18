@@ -27,6 +27,7 @@ maintainers = [
 ]
 
 dependencies = [
+  "bmipy>=2.0",
   "botocore>=1.42.5",
   "colormaps",
   "cubed",
@@ -170,6 +171,7 @@ convention = "numpy"
 "mkdocs.yml" = ["I"]
 "tests/*" = ["D"]
 "*/__init__.py" = ["F401"]
+"src/ddr/bmi/ddr_bmi.py" = ["D102"]  # BMI interface methods are self-documenting (bmipy.Bmi)
 "*.ipynb" = ["E402", "E501", "F401", "F811", "F841", "T201"]  # Common notebook exceptions
 
 [tool.ruff.format]

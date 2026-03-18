@@ -240,13 +240,7 @@ __NOTE:__ Please change the config to match what mode/geodataset/method you need
 
 ### Monitoring
 
-DDR logs progress including:
-
-- Loss values per epoch and mini-batch
-- NSE, RMSE, and KGE metrics
-- Parameter statistics
-
-Model checkpoints are saved to the `params.save_path` directory.
+Training progress is logged to the output directory. Model checkpoints are saved to the `params.save_path` directory.
 
 ### Expected Model outputs
 

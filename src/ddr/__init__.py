@@ -5,4 +5,9 @@ from .io.readers import StreamflowReader as streamflow
 from .nn import kan
 from .routing.torch_mc import dmc
 
-__all__ = ["__version__", "dmc", "streamflow", "ddr_functions", "kan", "validation"]
+try:
+    from . import bmi
+except ImportError:
+    bmi = None  # type: ignore[assignment]
+
+__all__ = ["__version__", "dmc", "streamflow", "ddr_functions", "kan", "validation", "bmi"]

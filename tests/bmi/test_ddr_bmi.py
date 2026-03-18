@@ -8,7 +8,7 @@ real data on HPC.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -725,15 +725,19 @@ class TestColdStart:
 
     def test_cold_start_triggers_on_first_update(self, stepping_bmi):
         stepping_bmi._cold_started = False
-        stepping_bmi.update_until(3600.0)
+        hotstart_return = torch.tensor([1.0, 2.0, 3.0])
+        with patch("ddr.bmi.ddr_bmi.compute_hotstart_discharge", return_value=hotstart_return):
+            stepping_bmi.update_until(3600.0)
         assert stepping_bmi._cold_started is True
 
     def test_cold_start_does_not_retrigger(self, stepping_bmi):
         """After first update, cold_started stays True through subsequent updates."""
         stepping_bmi._cold_started = False
-        stepping_bmi.update_until(3600.0)
-        stepping_bmi._lateral_inflow = np.array([5.0, 10.0, 15.0])
-        stepping_bmi.update_until(7200.0)
+        hotstart_return = torch.tensor([1.0, 2.0, 3.0])
+        with patch("ddr.bmi.ddr_bmi.compute_hotstart_discharge", return_value=hotstart_return):
+            stepping_bmi.update_until(3600.0)
+            stepping_bmi._lateral_inflow = np.array([5.0, 10.0, 15.0])
+            stepping_bmi.update_until(7200.0)
         assert stepping_bmi._cold_started is True
 
 

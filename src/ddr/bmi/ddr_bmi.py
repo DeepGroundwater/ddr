@@ -23,6 +23,7 @@ Example ngen realization config::
 from __future__ import annotations
 
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,11 @@ class DdrBmi(Bmi):
     static spatial parameters (Manning's n, q_spatial). All subsequent
     ``update_until()`` calls perform inference-only MC routing with
     ``torch.no_grad()`` to avoid memory leaks from graph accumulation.
+
+    Output arrays (discharge, velocity, depth) are stored as persistent
+    numpy arrays and updated in-place after each ``route_timestep()`` call,
+    following the NGWPC/lstm BMI pattern. This ensures ``get_value_ptr``
+    returns stable references that reflect the latest state.
     """
 
     def __init__(self) -> None:
@@ -119,7 +125,8 @@ class DdrBmi(Bmi):
         self._ngen_dt: int = 3600
         self._interpolation: str = "constant"
 
-        # Cached output arrays (avoid re-allocation per get_value call)
+        # Persistent output arrays (mutated in-place, safe for get_value_ptr)
+        self._discharge: np.ndarray = np.empty(0, dtype=np.float32)
         self._velocity: np.ndarray = np.empty(0, dtype=np.float32)
         self._depth: np.ndarray = np.empty(0, dtype=np.float32)
 
@@ -162,7 +169,7 @@ class DdrBmi(Bmi):
         # Extract segment IDs for output
         if routing_dc.divide_ids is not None:
             raw_ids = routing_dc.divide_ids
-            # Convert cat-{id} strings to integer IDs
+            # Convert cat-{id} / wb-{id} strings to integer IDs
             self._segment_ids = np.array(
                 [int(str(s).replace("cat-", "").replace("wb-", "")) for s in raw_ids],
                 dtype=np.int64,
@@ -170,14 +177,9 @@ class DdrBmi(Bmi):
         else:
             self._segment_ids = np.arange(self._num_segments, dtype=np.int64)
 
-        # Build nexus→segment index mapping
-        # Nexus nex-{id} feeds into segment cat-{id} (downstream flowpath)
-        self._nexus_to_seg_idx = {}
-        for idx, seg_id in enumerate(self._segment_ids):
-            # In ngen, nex-{id} flows into the downstream cat-{id}
-            # t-route uses downstream_flowpath_dict for this mapping
-            # For now, assume nexus ID == segment ID (common in NextGen hydrofabric)
-            self._nexus_to_seg_idx[int(seg_id)] = idx
+        # Build nexus→segment index mapping from hydrofabric GeoPackage
+        gpkg_path = Path(self._cfg.data_sources.geospatial_fabric_gpkg)
+        self._nexus_to_seg_idx = self._build_nexus_mapping(gpkg_path, routing_dc.divide_ids)
 
         # 4. Load KAN and run inference once for static spatial parameters
         nn_model = kan(
@@ -216,11 +218,12 @@ class DdrBmi(Bmi):
         # Cache the PatternMapper (immutable for the network topology)
         self._mapper, _, _ = self._mc.create_pattern_mapper()
 
-        # 6. Initialize per-timestep arrays
+        # 6. Initialize persistent output and state arrays (in-place mutation)
         self._lateral_inflow = np.zeros(self._num_segments, dtype=np.float64)
         self._prev_lateral_inflow = np.zeros(self._num_segments, dtype=np.float64)
         self._has_prev_inflow = False
         self._nexus_ids = np.empty(0, dtype=np.int32)
+        self._discharge = np.zeros(self._num_segments, dtype=np.float32)
         self._velocity = np.zeros(self._num_segments, dtype=np.float32)
         self._depth = np.zeros(self._num_segments, dtype=np.float32)
         self._current_time = 0.0
@@ -228,8 +231,9 @@ class DdrBmi(Bmi):
         self._initialized = True
 
         log.info(
-            "DdrBmi initialized: %d segments, device=%s, dt=%.0fs, interpolation=%s",
+            "DdrBmi initialized: %d segments, %d nexus mappings, device=%s, dt=%.0fs, interpolation=%s",
             self._num_segments,
+            len(self._nexus_to_seg_idx),
             self._device,
             self._timestep,
             self._interpolation,
@@ -258,6 +262,8 @@ class DdrBmi(Bmi):
 
         # Compute number of sub-steps for this coupling interval
         remaining = time - self._current_time
+        if remaining <= 0.0:
+            return  # No-op: don't consume inflows or update state
         n_steps = max(1, round(remaining / self._timestep))
         use_linear = self._interpolation == "linear" and self._has_prev_inflow and n_steps > 1
 
@@ -300,6 +306,9 @@ class DdrBmi(Bmi):
             # Update state
             self._mc._discharge_t = q_t1
             self._current_time += self._timestep
+
+        # Cache outputs into persistent arrays (in-place for get_value_ptr stability)
+        self._update_output_cache()
 
         # Store current inflows as previous for next linear interpolation
         self._prev_lateral_inflow[:] = self._lateral_inflow
@@ -349,7 +358,7 @@ class DdrBmi(Bmi):
         return int(dtype.itemsize)
 
     def get_var_nbytes(self, name: str) -> int:
-        return self.get_var_itemsize(name) * self._num_segments
+        raise NotImplementedError
 
     def get_var_location(self, name: str) -> str:
         return "node"
@@ -378,50 +387,31 @@ class DdrBmi(Bmi):
     # -----------------------------------------------------------------------
 
     def get_value(self, name: str, dest: np.ndarray) -> np.ndarray:
-        """Get a BMI output variable value."""
-        if self._mc is None:
-            msg = "Model not initialized"
-            raise RuntimeError(msg)
-
-        if name == "channel_exit_water_x-section__volume_flow_rate":
-            discharge = self._mc._discharge_t
-            if discharge is not None:
-                dest[:] = discharge.cpu().numpy().astype(np.float32)[: len(dest)]
-        elif name == "channel_water__id":
-            dest[:] = self._segment_ids[: len(dest)]
-        elif name == "channel_water_flow__speed":
-            # Velocity is derived from the last route_timestep call
-            # _get_trapezoid_velocity stores celerity, not raw velocity
-            # We approximate: v ≈ celerity * 3/5
-            if self._mc.top_width is not None and self._mc._discharge_t is not None:
-                # Re-derive velocity from Manning's equation
-                v = self._compute_velocity()
-                dest[:] = v[: len(dest)]
-            else:
-                dest[:] = 0.0
-        elif name == "channel_water__mean_depth":
-            depth = self._compute_depth()
-            dest[:] = depth[: len(dest)]
-        else:
-            msg = f"Unknown output variable: {name}"
-            raise ValueError(msg)
+        """Copy a BMI output variable into ``dest`` (follows NGWPC/lstm pattern)."""
+        dest[:] = self.get_value_ptr(name)[: len(dest)]
         return dest
 
     def get_value_ptr(self, name: str) -> np.ndarray:
-        """Get a reference to a BMI variable's data."""
+        """Return a reference to a variable's persistent numpy array.
+
+        Arrays are updated in-place after each ``update_until()`` call,
+        so pointers remain stable across the simulation lifetime
+        (same contract as NGWPC/lstm's ``get_value_ptr``).
+        """
         if name == "channel_exit_water_x-section__volume_flow_rate":
-            if self._mc is not None and self._mc._discharge_t is not None:
-                return self._mc._discharge_t.cpu().numpy().astype(np.float32)
-        elif name == "channel_water__id":
+            return self._discharge
+        if name == "channel_water__id":
             return self._segment_ids
-        msg = f"get_value_ptr not supported for: {name}"
-        raise NotImplementedError(msg)
+        if name == "channel_water_flow__speed":
+            return self._velocity
+        if name == "channel_water__mean_depth":
+            return self._depth
+        msg = f"Unknown output variable: {name}"
+        raise ValueError(msg)
 
     def get_value_at_indices(self, name: str, dest: np.ndarray, inds: np.ndarray) -> np.ndarray:
         """Get values at specific indices."""
-        full = np.empty(self._num_segments, dtype=np.dtype(self.get_var_type(name)))
-        self.get_value(name, full)
-        dest[:] = full[inds]
+        dest[:] = self.get_value_ptr(name)[inds]
         return dest
 
     def set_value(self, name: str, src: np.ndarray) -> None:
@@ -515,50 +505,126 @@ class DdrBmi(Bmi):
     # Internal helpers
     # -----------------------------------------------------------------------
 
-    def _compute_velocity(self) -> np.ndarray:
-        """Derive flow velocity from current state using Manning's equation."""
-        if self._mc is None or self._mc._discharge_t is None:
-            return np.zeros(self._num_segments, dtype=np.float32)
-        with torch.no_grad():
-            n = self._mc.n
-            s0 = self._mc.slope
-            if n is None or s0 is None:
-                return np.zeros(self._num_segments, dtype=np.float32)
-            R_approx = self._compute_hydraulic_radius()
-            v = (1.0 / n) * torch.pow(R_approx, 2.0 / 3.0) * torch.pow(s0, 0.5)
-            v = torch.clamp(v, min=0.0, max=15.0)
-        return v.cpu().numpy().astype(np.float32)
+    def _build_nexus_mapping(
+        self,
+        gpkg_path: Path,
+        divide_ids: list[str] | np.ndarray | None,
+    ) -> dict[int, int]:
+        """Build nexus→segment-index mapping from the hydrofabric GeoPackage.
 
-    def _compute_depth(self) -> np.ndarray:
-        """Derive flow depth from current discharge and channel parameters."""
-        if self._mc is None or self._mc._discharge_t is None or self._mc.n is None or self._mc.slope is None:
-            return np.zeros(self._num_segments, dtype=np.float32)
-        with torch.no_grad():
-            q_t = self._mc._discharge_t
-            n = self._mc.n
-            s0 = self._mc.slope
-            q_eps = self._mc.q_spatial + 1e-6 if self._mc.q_spatial is not None else 1e-6
-            p = self._mc.p_spatial
-            num = q_t * n * (q_eps + 1)
-            den = p * torch.pow(s0, 0.5)
-            depth = torch.pow(
-                torch.div(num, den + 1e-8),
-                torch.div(3.0, 5.0 + 3.0 * q_eps),
+        Reads the ``flowpaths`` table (``id``, ``toid``) to find which nexus
+        each flowpath drains into, then inverts to get nexus→flowpath.
+        This mirrors the logic in ``engine/.../graph.py:preprocess_river_network``
+        but uses stdlib ``sqlite3`` to avoid a polars dependency at runtime.
+
+        Parameters
+        ----------
+        gpkg_path : Path
+            Path to the hydrofabric GeoPackage.
+        divide_ids : list or ndarray or None
+            Ordered divide IDs (cat-{id}) from the RoutingDataclass.
+
+        Returns
+        -------
+        dict[int, int]
+            Mapping from nexus integer ID to segment array index.
+        """
+        # Build a lookup: segment integer ID → array index
+        seg_id_to_idx: dict[int, int] = {}
+        if divide_ids is not None:
+            for idx, did in enumerate(divide_ids):
+                seg_int = int(str(did).replace("cat-", "").replace("wb-", ""))
+                seg_id_to_idx[seg_int] = idx
+        else:
+            for idx in range(self._num_segments):
+                seg_id_to_idx[idx] = idx
+
+        nexus_to_seg: dict[int, int] = {}
+        try:
+            con = sqlite3.connect(str(gpkg_path))
+            # flowpaths table: each flowpath wb-{id} has toid = nex-{nexus_id}
+            # Invert: nex-{nexus_id} → wb-{id} (the flowpath draining INTO that nexus)
+            rows = con.execute("SELECT id, toid FROM flowpaths WHERE toid LIKE 'nex-%'").fetchall()
+            con.close()
+
+            for fp_id, nex_id in rows:
+                # Extract integer IDs
+                fp_str = str(fp_id)
+                nex_str = str(nex_id)
+                if not (fp_str.startswith("wb-") or fp_str.startswith("cat-")):
+                    continue
+                fp_int = int(fp_str.replace("wb-", "").replace("cat-", ""))
+                nex_int = int(nex_str.replace("nex-", ""))
+                seg_idx = seg_id_to_idx.get(fp_int)
+                if seg_idx is not None:
+                    nexus_to_seg[nex_int] = seg_idx
+
+            log.info(
+                "Built nexus mapping from GeoPackage: %d nexus→segment entries from %s",
+                len(nexus_to_seg),
+                gpkg_path.name,
             )
-            depth = torch.clamp(depth, min=self._mc.depth_lb)
-        return depth.cpu().numpy().astype(np.float32)
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
+            log.warning(
+                "Could not read flowpaths table from %s; falling back to identity mapping",
+                gpkg_path,
+            )
+            # Fallback: assume nexus ID == segment ID
+            nexus_to_seg = {int(sid): idx for sid, idx in seg_id_to_idx.items()}
 
-    def _compute_hydraulic_radius(self) -> torch.Tensor:
-        """Approximate hydraulic radius from stored geometry."""
-        if self._mc is None or self._mc._discharge_t is None:
-            return torch.zeros(self._num_segments)
-        depth = torch.tensor(self._compute_depth(), dtype=torch.float32, device=self._device)
-        if self._mc.top_width is not None and self._mc.side_slope is not None:
-            tw = self._mc.top_width
-            z = self._mc.side_slope
-            bw = torch.clamp(tw - 2 * z * depth, min=self._mc.bottom_width_lb)
-            area = (tw + bw) * depth / 2
-            wp = bw + 2 * depth * torch.sqrt(1 + z**2)
-            return area / wp
-        # Fallback: wide channel approximation R ≈ depth
-        return depth
+        return nexus_to_seg
+
+    def _update_output_cache(self) -> None:
+        """Update persistent output arrays from current MC routing state.
+
+        Called after each ``update_until()`` to snapshot discharge, velocity,
+        and depth into the numpy arrays that ``get_value_ptr`` returns.
+        Uses in-place ``[:] =`` so pointers remain stable.
+        """
+        if self._mc is None:
+            return
+
+        # Discharge — direct copy from torch tensor
+        if self._mc._discharge_t is not None:
+            self._discharge[:] = self._mc._discharge_t.detach().cpu().numpy().astype(np.float32)
+
+        # Velocity and depth — derived from MC engine's stored geometry
+        # route_timestep already computed top_width/side_slope via Leopold & Maddock;
+        # reuse those cached values rather than re-deriving.
+        if (
+            self._mc._discharge_t is not None
+            and self._mc.n is not None
+            and self._mc.slope is not None
+            and self._mc.top_width is not None
+            and self._mc.side_slope is not None
+        ):
+            with torch.no_grad():
+                q_t = self._mc._discharge_t
+                n = self._mc.n
+                s0 = self._mc.slope
+                tw = self._mc.top_width
+                z = self._mc.side_slope
+                q_eps = self._mc.q_spatial + 1e-6 if self._mc.q_spatial is not None else 1e-6
+                p = self._mc.p_spatial
+
+                # Depth from Leopold & Maddock inversion (same as _get_trapezoid_velocity)
+                num = q_t * n * (q_eps + 1)
+                den = p * torch.pow(s0, 0.5)
+                depth = torch.pow(
+                    torch.div(num, den + 1e-8),
+                    torch.div(3.0, 5.0 + 3.0 * q_eps),
+                )
+                depth = torch.clamp(depth, min=self._mc.depth_lb)
+
+                # Hydraulic radius from trapezoidal cross-section
+                bw = torch.clamp(tw - 2 * z * depth, min=self._mc.bottom_width_lb)
+                area = (tw + bw) * depth / 2
+                wp = bw + 2 * depth * torch.sqrt(1 + z**2)
+                R = area / wp
+
+                # Manning's velocity
+                v = (1.0 / n) * torch.pow(R, 2.0 / 3.0) * torch.pow(s0, 0.5)
+                v = torch.clamp(v, min=0.0, max=15.0)
+
+            self._velocity[:] = v.detach().cpu().numpy().astype(np.float32)
+            self._depth[:] = depth.detach().cpu().numpy().astype(np.float32)

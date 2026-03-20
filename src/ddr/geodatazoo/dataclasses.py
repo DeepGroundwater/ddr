@@ -189,7 +189,64 @@ class Dates(BaseModel):
 
 @dataclass
 class RoutingDataclass:
-    """RoutingDataclass data class."""
+    """Container for one routing problem passed between the DataLoader and the MC engine.
+
+    All tensor shapes use N to denote the number of active stream segments in
+    the compressed subgraph for this batch.
+
+    Attributes
+    ----------
+    adjacency_matrix : torch.Tensor or None
+        Sparse CSR tensor, shape ``(N, N)``.  Encodes the directed flow
+        network: a non-zero entry at ``[i, j]`` means segment *j* drains into
+        segment *i*.
+    spatial_attributes : torch.Tensor or None
+        Shape ``(num_attributes, N)``.  Raw, un-normalised catchment
+        attributes in *attributes-first* layout.
+    length : torch.Tensor or None
+        Shape ``(N,)``.  Reach length in **metres**.
+    slope : torch.Tensor or None
+        Shape ``(N,)``.  Dimensionless channel slope (m m⁻¹).
+    side_slope : torch.Tensor or None
+        Shape ``(N,)``.  Trapezoid side slope *z* (horizontal : vertical).
+        Set to ``torch.empty(0)`` when the dataset uses Leopold & Maddock
+        power-law geometry instead of an explicit trapezoid (e.g. MERIT).
+    top_width : torch.Tensor or None
+        Shape ``(N,)``.  Bankfull top width in metres.  Set to
+        ``torch.empty(0)`` when using Leopold & Maddock geometry (e.g. MERIT).
+    x : torch.Tensor or None
+        Shape ``(N,)``.  Muskingum weighting factor (0 ≤ x ≤ 0.5); controls
+        the degree of diffusion in the MC scheme.
+    dates : Dates or None
+        Time metadata for the current batch, including the daily and hourly
+        time ranges and the integer indices into the streamflow store.
+    normalized_spatial_attributes : torch.Tensor or None
+        Shape ``(N, num_attributes)``.  Z-score normalised catchment
+        attributes in *catchments-first* layout — this is the tensor fed
+        directly into the KAN.  Note the transposition relative to
+        ``spatial_attributes``.
+    observations : xr.Dataset or None
+        USGS streamflow observations aligned to the gages in this batch and
+        the current time window.  Dims: ``(gage_id, time)``.  ``None`` during
+        pure routing (no observations available).
+    divide_ids : np.ndarray or None
+        Shape ``(N,)``.  Catchment identifiers in compressed-index order;
+        element *i* is the dataset ID (COMID, divide_id, etc.) of segment *i*.
+        Used by ``StreamflowReader`` to look up lateral inflows.
+    outflow_idx : list[np.ndarray] or None
+        Ragged list of length equal to the number of gages.  Element *i* is
+        an integer array of compressed column indices that drain into gage *i*,
+        used by the routing engine to accumulate discharge at each gage outlet.
+        Stored as ``list[np.ndarray]`` rather than a 2-D tensor because the
+        number of upstream segments differs per gage.
+    gage_catchment : list[str] or None
+        Gage IDs (zero-padded USGS STAIDs) that were successfully matched to
+        network segments, in the same order as ``outflow_idx``.
+    flow_scale : torch.Tensor or None
+        Shape ``(N,)``.  Per-segment scaling factors that correct for partial
+        drainage-area coverage at each gage outlet (ratio of gage drainage
+        area to model segment drainage area).
+    """
 
     adjacency_matrix: torch.Tensor | None = field(default=None)
     spatial_attributes: torch.Tensor | None = field(default=None)
@@ -204,6 +261,6 @@ class RoutingDataclass:
     divide_ids: np.ndarray | None = field(default=None)
     outflow_idx: list[np.ndarray] | None = field(
         default=None
-    )  # Has to be list[np.ndarray] since idx are ragged arrays
+    )  # list[np.ndarray] because upstream counts are ragged across gages
     gage_catchment: list[str] | None = field(default=None)
     flow_scale: torch.Tensor | None = field(default=None)

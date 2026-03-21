@@ -37,7 +37,12 @@ See [`gage_info/README.md`](gage_info/README.md) for column definitions and data
 
 ## `dhbv2_merit/`
 
-Jupyter notebooks for downloading dHBV2.0 unit-hydrograph retrospective lateral inflow data and converting it from NetCDF to Icechunk format.
+Jupyter notebooks for downloading dHBV2.0 unit-hydrograph retrospective lateral inflow data and converting it from NetCDF to Icechunk format. Run `download.ipynb` then `nc_to_icechunk.ipynb` in order.
+
+Requires the MERIT Hydro level-7 catchment shapefile — download from:
+https://drive.google.com/drive/folders/1pRnMGvRL94cXi4JhVUruj9JbbVTEHGIZ
+
+See [`dhbv2_merit/README.md`](dhbv2_merit/README.md) for full setup and usage instructions.
 
 ## Supported Geospatial Datasets
 

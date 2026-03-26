@@ -15,10 +15,93 @@ from .graph import find_origin, preprocess_river_network, subset
 from .io import coo_to_zarr, coo_to_zarr_group, create_coo, create_matrix
 
 
+def write_flowpath_attributes(gpkg_path: Path, out_path: Path) -> None:
+    """Extract flowpath physical attributes from a GeoPackage and write them to an existing zarr store.
+
+    Reads the ``flowpath-attributes-ml`` and ``flowpaths`` layers from the
+    GeoPackage and writes six new arrays to the zarr store, all aligned to the
+    existing ``order`` array:
+
+    - ``length_m`` (float32) — from column ``Length_m``
+    - ``slope`` (float32) — from column ``So``
+    - ``top_width`` (float32) — from column ``TopWdth``
+    - ``side_slope`` (float32) — from column ``ChSlp``
+    - ``muskingum_x`` (float32) — from column ``MusX``
+    - ``toid`` (str) — from the ``flowpaths`` layer column ``toid``
+
+    Parameters
+    ----------
+    gpkg_path : Path
+        Path to the Lynker Hydrofabric GeoPackage.
+    out_path : Path
+        Path to the existing adjacency zarr store (must already contain ``order``).
+    """
+    root = zarr.open_group(store=out_path, mode="r+")
+    order = root["order"][:]  # int32 array of numeric IDs
+
+    # --- flowpath-attributes-ml layer ---
+    conn = sqlite3.connect(gpkg_path)
+    attr_query = "SELECT id, Length_m, So, TopWdth, ChSlp, MusX FROM 'flowpath-attributes-ml'"
+    attr_df = pl.read_database(query=attr_query, connection=conn)
+
+    # Build lookup: wb-{id} -> row index in attr_df
+    attr_df = attr_df.with_columns(pl.col("id").str.replace("^wb-", "").cast(pl.Int32).alias("numeric_id"))
+    attr_lookup = {row["numeric_id"]: idx for idx, row in enumerate(attr_df.iter_rows(named=True))}
+
+    n = len(order)
+    length_m = np.full(n, np.nan, dtype=np.float32)
+    slope = np.full(n, np.nan, dtype=np.float32)
+    top_width = np.full(n, np.nan, dtype=np.float32)
+    side_slope = np.full(n, np.nan, dtype=np.float32)
+    muskingum_x = np.full(n, np.nan, dtype=np.float32)
+
+    attr_length_m = attr_df["Length_m"].to_numpy()
+    attr_so = attr_df["So"].to_numpy()
+    attr_topwdth = attr_df["TopWdth"].to_numpy()
+    attr_chslp = attr_df["ChSlp"].to_numpy()
+    attr_musx = attr_df["MusX"].to_numpy()
+
+    for i, seg_id in enumerate(order):
+        row_idx = attr_lookup.get(int(seg_id))
+        if row_idx is not None:
+            length_m[i] = attr_length_m[row_idx]
+            slope[i] = attr_so[row_idx]
+            top_width[i] = attr_topwdth[row_idx]
+            side_slope[i] = attr_chslp[row_idx]
+            muskingum_x[i] = attr_musx[row_idx]
+
+    # --- flowpaths layer (toid) ---
+    fp_query = "SELECT id, toid FROM flowpaths"
+    fp_df = pl.read_database(query=fp_query, connection=conn)
+    conn.close()
+
+    fp_df = fp_df.with_columns(pl.col("id").str.replace("^wb-", "").cast(pl.Int32).alias("numeric_id"))
+    fp_lookup = {row["numeric_id"]: row["toid"] for row in fp_df.iter_rows(named=True)}
+
+    toid_arr = np.array([fp_lookup.get(int(seg_id), "") or "" for seg_id in order], dtype=object)
+
+    # --- Write arrays to zarr ---
+    for name, data in [
+        ("length_m", length_m),
+        ("slope", slope),
+        ("top_width", top_width),
+        ("side_slope", side_slope),
+        ("muskingum_x", muskingum_x),
+    ]:
+        arr = root.create_array(name=name, shape=data.shape, dtype=data.dtype)
+        arr[:] = data
+
+    toid_z = root.create_array(name="toid", shape=toid_arr.shape, dtype="str")
+    toid_z[:] = toid_arr
+
+    print(f"Flowpath attributes written to zarr at {out_path}")
+
+
 def build_lynker_hydrofabric_adjacency(
     fp: pl.LazyFrame,
     network: pl.LazyFrame,
     out_path: Path,
+    gpkg_path: Path | None = None,
 ) -> None:
     """
     Build the large-scale CONUS adjacency matrix for the Lynker Hydrofabric.
@@ -31,6 +114,10 @@ def build_lynker_hydrofabric_adjacency(
         Network dataframe with 'id' and 'toid' columns.
     out_path : Path
         Path to save the zarr group.
+    gpkg_path : Path, optional
+        Path to the hydrofabric GeoPackage. When provided, flowpath physical
+        attributes are extracted and written into the zarr store alongside
+        the adjacency topology.
 
     Returns
     -------
@@ -38,6 +125,9 @@ def build_lynker_hydrofabric_adjacency(
     """
     matrix, ts_order = create_matrix(fp, network)
     coo_to_zarr(matrix, ts_order, out_path)
+
+    if gpkg_path is not None:
+        write_flowpath_attributes(gpkg_path, out_path)
 
 
 def build_lynker_hydrofabric_gages_adjacency(

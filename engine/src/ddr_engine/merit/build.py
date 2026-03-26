@@ -1,6 +1,7 @@
 """Build functions for adjacency matrices from MERIT flowpaths"""
 
 from pathlib import Path
+from typing import Any
 
 import geopandas as gpd
 import numpy as np
@@ -106,6 +107,60 @@ def create_adjacency_matrix(
     return matrix, id_order
 
 
+def write_merit_flowpath_attributes(fp: gpd.GeoDataFrame, out_path: Path) -> None:
+    """Extract flowpath physical attributes from a MERIT GeoDataFrame and write them to an existing zarr store.
+
+    Reads ``lengthkm`` and ``slope`` columns from the GeoDataFrame and writes
+    two new arrays to the zarr store, aligned to the existing ``order`` array:
+
+    - ``length_m`` (float32) — ``lengthkm`` converted to metres (* 1000)
+    - ``slope`` (float32) — from column ``slope``
+
+    Parameters
+    ----------
+    fp : gpd.GeoDataFrame
+        MERIT flowpaths GeoDataFrame (must contain ``COMID``, ``lengthkm``,
+        and ``slope`` columns).
+    out_path : Path
+        Path to the existing adjacency zarr store (must already contain ``order``).
+    """
+    root = zarr.open_group(store=out_path, mode="r+")
+    order = root["order"][:]  # int32 array of COMIDs
+
+    comid_to_idx: dict[Any, int] = {int(c): i for i, c in enumerate(fp["COMID"].values)}
+
+    n = len(order)
+    length_m = np.full(n, np.nan, dtype=np.float32)
+    slope = np.full(n, np.nan, dtype=np.float32)
+
+    has_lengthkm = "lengthkm" in fp.columns
+    has_slope = "slope" in fp.columns
+
+    if not has_lengthkm and not has_slope:
+        print("MERIT GeoDataFrame has neither 'lengthkm' nor 'slope' columns. Skipping attribute write.")
+        return
+
+    for i, comid in enumerate(order):
+        fp_idx = comid_to_idx.get(int(comid))
+        if fp_idx is not None:
+            row = fp.iloc[fp_idx]
+            if has_lengthkm:
+                val = row["lengthkm"]
+                length_m[i] = np.float32(val * 1000.0) if not np.isnan(val) else np.nan
+            if has_slope:
+                slope[i] = np.float32(row["slope"])
+
+    if has_lengthkm:
+        arr = root.create_array(name="length_m", shape=length_m.shape, dtype=length_m.dtype)
+        arr[:] = length_m
+
+    if has_slope:
+        arr = root.create_array(name="slope", shape=slope.shape, dtype=slope.dtype)
+        arr[:] = slope
+
+    print(f"MERIT flowpath attributes written to zarr at {out_path}")
+
+
 def build_merit_adjacency(
     fp: gpd.GeoDataFrame,
     out_path: Path,
@@ -141,6 +196,9 @@ def build_merit_adjacency(
 
     print(f"Matrix shape: {matrix.shape}, nnz: {matrix.nnz}")
     coo_to_zarr(matrix, ts_order, out_path)
+
+    # Write flowpath physical attributes if available
+    write_merit_flowpath_attributes(fp, out_path)
 
     return out_path
 

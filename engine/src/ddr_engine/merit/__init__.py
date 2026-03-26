@@ -4,6 +4,7 @@ from .build import (
     build_gauge_adjacencies,
     build_merit_adjacency,
     create_adjacency_matrix,
+    write_merit_flowpath_attributes,
 )
 from .graph import (
     build_graph,
@@ -22,6 +23,7 @@ __all__ = [
     "build_gauge_adjacencies",
     "build_merit_adjacency",
     "create_adjacency_matrix",
+    "write_merit_flowpath_attributes",
     # graph
     "build_graph",
     "build_upstream_dict",

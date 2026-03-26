@@ -6,9 +6,11 @@ import matplotlib
 matplotlib.use("Agg")
 import colormaps as cmaps
 import contextily as ctx
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import xarray as xr
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
@@ -702,3 +704,103 @@ def plot_gauge_map(
         plt.show()
 
     return fig
+
+
+def _select_plot_segments(
+    predictions: xr.DataArray,
+    target_catchments: list[str] | None = None,
+    gage_ids: list[str] | None = None,
+) -> list[str]:
+    """Choose which segment IDs to plot from routing predictions.
+
+    Selection priority:
+    1. ``target_catchments`` if provided.
+    2. ``gage_ids`` if provided.
+    3. The single segment with the highest mean discharge (likely basin outlet).
+
+    Parameters
+    ----------
+    predictions : xr.DataArray
+        Routed discharge with dims ``(catchment_ids, time)``.
+    target_catchments : list[str] | None, optional
+        Explicit catchment IDs to plot.
+    gage_ids : list[str] | None, optional
+        Gage outlet segment IDs to plot.
+
+    Returns
+    -------
+    list[str]
+        Segment IDs to include in the hydrograph.
+    """
+    if target_catchments is not None:
+        return [c for c in target_catchments if c in predictions.coords["catchment_ids"].values]
+    if gage_ids is not None:
+        return [g for g in gage_ids if g in predictions.coords["catchment_ids"].values]
+    # Fall back to the segment with the largest mean discharge
+    mean_q = predictions.mean(dim="time")
+    max_idx = int(np.argmax(mean_q.values))
+    return [str(predictions.coords["catchment_ids"].values[max_idx])]
+
+
+def plot_routing_hydrograph(
+    predictions: xr.DataArray,
+    path: Path,
+    target_catchments: list[str] | None = None,
+    gage_ids: list[str] | None = None,
+    dpi: int = 150,
+) -> Path:
+    """Create a publication-ready hydrograph PNG from routed discharge.
+
+    Parameters
+    ----------
+    predictions : xr.DataArray
+        Routed discharge with dims ``(catchment_ids, time)`` and a ``time``
+        coordinate of datetime-like values.  Units are assumed m3/s.
+    path : Path
+        Destination file path for the saved PNG.
+    target_catchments : list[str] | None, optional
+        If provided, plot these outlet segment IDs.
+    gage_ids : list[str] | None, optional
+        If provided (and ``target_catchments`` is None), plot these gage
+        outlet segment IDs.
+    dpi : int, optional
+        Resolution of the saved image, by default 150.
+
+    Returns
+    -------
+    Path
+        The path to the saved PNG file.
+    """
+    segment_ids = _select_plot_segments(predictions, target_catchments, gage_ids)
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    time_vals = pd.to_datetime(predictions.coords["time"].values)
+
+    for seg_id in segment_ids:
+        seg_data = predictions.sel(catchment_ids=seg_id).values
+        ax.plot(time_vals, seg_data, linewidth=1.2, label=f"Segment {seg_id}")
+
+    ax.set_xlabel("Date", fontsize=11)
+    ax.set_ylabel(r"Discharge (m$^3$/s)", fontsize=11)
+
+    if len(segment_ids) == 1:
+        ax.set_title(f"DDR Routed Discharge \u2014 Segment {segment_ids[0]}", fontsize=13)
+    else:
+        ax.set_title("DDR Routed Discharge", fontsize=13)
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    fig.autofmt_xdate(rotation=30)
+
+    ax.tick_params(axis="both", labelsize=9)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    if len(segment_ids) > 1:
+        ax.legend(fontsize=9, frameon=False)
+
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=dpi, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return path

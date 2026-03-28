@@ -709,14 +709,12 @@ def plot_gauge_map(
 def _select_plot_segments(
     predictions: xr.DataArray,
     target_catchments: list[str] | None = None,
-    gage_ids: list[str] | None = None,
 ) -> list[str]:
     """Choose which segment IDs to plot from routing predictions.
 
     Selection priority:
-    1. ``target_catchments`` if provided.
-    2. ``gage_ids`` if provided.
-    3. The single segment with the highest mean discharge (likely basin outlet).
+    1. ``target_catchments`` if provided and present in predictions.
+    2. The single segment with the highest mean discharge (likely basin outlet).
 
     Parameters
     ----------
@@ -724,8 +722,6 @@ def _select_plot_segments(
         Routed discharge with dims ``(catchment_ids, time)``.
     target_catchments : list[str] | None, optional
         Explicit catchment IDs to plot.
-    gage_ids : list[str] | None, optional
-        Gage outlet segment IDs to plot.
 
     Returns
     -------
@@ -733,9 +729,9 @@ def _select_plot_segments(
         Segment IDs to include in the hydrograph.
     """
     if target_catchments is not None:
-        return [c for c in target_catchments if c in predictions.coords["catchment_ids"].values]
-    if gage_ids is not None:
-        return [g for g in gage_ids if g in predictions.coords["catchment_ids"].values]
+        matched = [c for c in target_catchments if c in predictions.coords["catchment_ids"].values]
+        if matched:
+            return matched
     # Fall back to the segment with the largest mean discharge
     mean_q = predictions.mean(dim="time")
     max_idx = int(np.argmax(mean_q.values))
@@ -746,7 +742,6 @@ def plot_routing_hydrograph(
     predictions: xr.DataArray,
     path: Path,
     target_catchments: list[str] | None = None,
-    gage_ids: list[str] | None = None,
     dpi: int = 150,
 ) -> Path:
     """Create a publication-ready hydrograph PNG from routed discharge.
@@ -760,9 +755,6 @@ def plot_routing_hydrograph(
         Destination file path for the saved PNG.
     target_catchments : list[str] | None, optional
         If provided, plot these outlet segment IDs.
-    gage_ids : list[str] | None, optional
-        If provided (and ``target_catchments`` is None), plot these gage
-        outlet segment IDs.
     dpi : int, optional
         Resolution of the saved image, by default 150.
 
@@ -771,7 +763,7 @@ def plot_routing_hydrograph(
     Path
         The path to the saved PNG file.
     """
-    segment_ids = _select_plot_segments(predictions, target_catchments, gage_ids)
+    segment_ids = _select_plot_segments(predictions, target_catchments)
 
     fig, ax = plt.subplots(figsize=(10, 4.5))
     time_vals = pd.to_datetime(predictions.coords["time"].values)

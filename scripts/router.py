@@ -242,24 +242,21 @@ def main(cfg: DictConfig) -> None:
                     predictions=ds["predictions"],
                     path=plot_path,
                     target_catchments=config.data_sources.target_catchments,
-                    gage_ids=(
-                        config.data_sources.gages.split(",")
-                        if isinstance(config.data_sources.gages, str)
-                        and config.data_sources.target_catchments is None
-                        else None
-                    ),
                 )
             except Exception:
                 log.exception("Failed to generate routing hydrograph plot")
                 plot_path = None
 
             # Print terminal summary
-            print_routing_summary(
-                ds=ds,
-                save_path=config.params.save_path,
-                runtime_seconds=total_time,
-                plot_path=plot_path,
-            )
+            try:
+                print_routing_summary(
+                    ds=ds,
+                    save_path=config.params.save_path,
+                    runtime_seconds=total_time,
+                    plot_path=plot_path,
+                )
+            except Exception:
+                log.exception("Failed to print routing summary")
         else:
             log.info("Cleaning up...")
 

@@ -39,15 +39,11 @@ class TestSelectPlotSegments:
         result = _select_plot_segments(pred, target_catchments=["seg-1", "seg-999"])
         assert result == ["seg-1"]
 
-    def test_selects_gage_ids_when_no_targets(self) -> None:
-        pred = _make_predictions()
-        result = _select_plot_segments(pred, gage_ids=["seg-2"])
-        assert result == ["seg-2"]
-
-    def test_target_catchments_takes_priority_over_gages(self) -> None:
-        pred = _make_predictions()
-        result = _select_plot_segments(pred, target_catchments=["seg-0"], gage_ids=["seg-4"])
-        assert result == ["seg-0"]
+    def test_all_targets_missing_falls_back_to_max_mean(self) -> None:
+        pred = _make_predictions(n_segments=3, n_timesteps=5)
+        pred.values[1, :] = 9999.0
+        result = _select_plot_segments(pred, target_catchments=["seg-999"])
+        assert result == ["seg-1"]
 
     def test_falls_back_to_max_mean_discharge(self) -> None:
         pred = _make_predictions(n_segments=3, n_timesteps=5)

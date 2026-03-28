@@ -57,7 +57,7 @@ def main() -> None:
     network = network.filter(pl.col("id").str.starts_with("wb-").not_())
 
     out_path = args.path / "hydrofabric_v2.2_conus_adjacency.zarr"
-    build_lynker_hydrofabric_adjacency(fp, network, out_path)
+    build_lynker_hydrofabric_adjacency(fp, network, out_path, gpkg_path=args.pkg)
     conn.close()
 
     if args.gages is not None:

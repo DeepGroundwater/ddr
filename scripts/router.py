@@ -18,12 +18,93 @@ from ddr import dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.scripts_utils import compute_daily_runoff, load_checkpoint
 from ddr.validation import Config, validate_config
+from ddr.validation.plots import plot_routing_hydrograph
 
 log = logging.getLogger(__name__)
 
 
-def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
-    """Route a trained model over a specific amount of defined catchments"""
+def print_routing_summary(
+    ds: xr.Dataset,
+    save_path: Path,
+    runtime_seconds: float,
+    plot_path: Path | None = None,
+) -> str:
+    """Print a human-readable summary of routing results to the terminal.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        The routing output dataset containing a ``predictions`` variable.
+    save_path : Path
+        Directory where the zarr output was saved.
+    runtime_seconds : float
+        Wall-clock routing time in seconds.
+    plot_path : Path | None, optional
+        Path to the generated hydrograph PNG, if available.
+
+    Returns
+    -------
+    str
+        The formatted summary string (also printed to stdout).
+    """
+    pred = ds["predictions"]
+    num_segments = pred.sizes["catchment_ids"]
+    time_coords = pred.coords["time"].values
+    time_start = str(np.datetime_as_string(time_coords[0], unit="D"))
+    time_end = str(np.datetime_as_string(time_coords[-1], unit="D"))
+
+    values = pred.values
+    q_min = float(np.nanmin(values))
+    q_mean = float(np.nanmean(values))
+    q_max = float(np.nanmax(values))
+
+    zarr_path = save_path / "chrout.zarr"
+
+    lines = [
+        "",
+        "\u2550" * 46,
+        "  DDR Routing Complete",
+        "\u2550" * 46,
+        f"  Segments routed:  {num_segments:,}",
+        f"  Time range:       {time_start} \u2192 {time_end}",
+        f"  Output:           {zarr_path}",
+        "",
+        "  Discharge summary (m\u00b3/s):",
+        f"    Min:    {q_min:,.2f}",
+        f"    Mean:   {q_mean:,.1f}",
+        f"    Max:    {q_max:,.1f}",
+        "",
+        f"  Runtime: {runtime_seconds:.1f}s",
+    ]
+    if plot_path is not None:
+        lines.append(f"  Plot:    {plot_path}")
+    lines.append("\u2550" * 46)
+
+    summary = "\n".join(lines)
+    print(summary)
+    return summary
+
+
+def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> xr.Dataset:
+    """Route a trained model over a specific amount of defined catchments.
+
+    Parameters
+    ----------
+    cfg : Config
+        Validated DDR configuration.
+    flow : streamflow
+        Streamflow reader instance.
+    routing_model : dmc
+        Differentiable Muskingum-Cunge routing model.
+    nn : kan
+        KAN spatial parameter network.
+
+    Returns
+    -------
+    xr.Dataset
+        The routing output dataset written to zarr, containing a
+        ``predictions`` DataArray with dims ``(catchment_ids, time)``.
+    """
     dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
 
     if cfg.experiment.checkpoint:
@@ -117,6 +198,7 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
     )
 
     log.info("Routing complete.")
+    return ds
 
 
 @hydra.main(
@@ -130,6 +212,7 @@ def main(cfg: DictConfig) -> None:
     (cfg.params.save_path / "saved_models").mkdir(exist_ok=True)
     config = validate_config(cfg)
     start_time = time.perf_counter()
+    ds: xr.Dataset | None = None
     try:
         nn = kan(
             input_var_names=config.kan.input_var_names,
@@ -143,15 +226,40 @@ def main(cfg: DictConfig) -> None:
         )
         routing_model = dmc(cfg=config, device=cfg.device)
         flow = streamflow(config)
-        route_trained_model(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
+        ds = route_trained_model(cfg=config, flow=flow, routing_model=routing_model, nn=nn)
 
     except KeyboardInterrupt:
         log.info("Keyboard interrupt received")
 
     finally:
-        log.info("Cleaning up...")
-
         total_time = time.perf_counter() - start_time
+
+        if ds is not None:
+            # Generate hydrograph plot
+            plot_path = config.params.save_path / "routing_summary.png"
+            try:
+                plot_routing_hydrograph(
+                    predictions=ds["predictions"],
+                    path=plot_path,
+                    target_catchments=config.data_sources.target_catchments,
+                )
+            except Exception:
+                log.exception("Failed to generate routing hydrograph plot")
+                plot_path = None
+
+            # Print terminal summary
+            try:
+                print_routing_summary(
+                    ds=ds,
+                    save_path=config.params.save_path,
+                    runtime_seconds=total_time,
+                    plot_path=plot_path,
+                )
+            except Exception:
+                log.exception("Failed to print routing summary")
+        else:
+            log.info("Cleaning up...")
+
         log.info(f"Time Elapsed: {(total_time / 60):.6f} minutes")
 
 

@@ -90,7 +90,7 @@ def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[int]]:
         The COO matrix and topological order (as COMID integers).
     """
     coo, order = coo_from_zarr_generic(zarr_path, merit_converter)
-    return coo, order
+    return coo, list(order)
 
 
 def create_subset_coo(

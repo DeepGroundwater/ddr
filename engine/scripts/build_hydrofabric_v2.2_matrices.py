@@ -15,6 +15,7 @@ from ddr_engine.lynker_hydrofabric import (
     find_origin,
     preprocess_river_network,
     subset,
+    write_flowpath_attributes,
 )
 from tqdm import tqdm
 
@@ -82,6 +83,9 @@ if __name__ == "__main__":
     matrix, ts_order = create_matrix(fp, network)
     coo_to_zarr(matrix, ts_order, out_path)
     conn.close()
+
+    # Write flowpath physical attributes into the zarr store
+    write_flowpath_attributes(args.pkg, out_path)
 
     if gages_out_path is not None:
         print("Creating Gages Adjacency Matrix")

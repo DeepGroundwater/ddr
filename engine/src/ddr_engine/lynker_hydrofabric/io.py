@@ -212,7 +212,8 @@ def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list[str]]:
     tuple[sparse.coo_matrix, list[str]]
         The COO matrix and topological order (as wb-* strings).
     """
-    return coo_from_zarr_generic(zarr_path, lynker_converter)
+    coo, order = coo_from_zarr_generic(zarr_path, lynker_converter)
+    return coo, order
 
 
 def create_coo(

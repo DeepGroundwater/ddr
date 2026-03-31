@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-import geopandas as gpd
 import numpy as np
 import torch
 import xarray as xr
@@ -187,7 +186,7 @@ class BaseGeoDataset(Dataset, ABC):
         self,
         csr_matrix: sparse.csr_matrix,
         catchment_ids: np.ndarray,
-        flowpath_attr: gpd.GeoDataFrame,
+        active_indices: np.ndarray,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Convert a compressed subgraph into the tensors needed by the routing engine.
 
@@ -202,11 +201,10 @@ class BaseGeoDataset(Dataset, ABC):
         catchment_ids : np.ndarray
             Array of N catchment identifiers in compressed-index order
             (i.e. ``catchment_ids[i]`` is the dataset ID for segment *i*).
-        flowpath_attr : gpd.GeoDataFrame
-            GeoDataFrame indexed by catchment ID containing at minimum the
-            physical reach attributes needed to populate the routing tensors
-            (length, slope, and optionally top-width, side-slope, and
-            Muskingum *x*).
+        active_indices : np.ndarray
+            Integer indices into the CONUS-level zarr arrays (order, length_m,
+            slope, etc.) identifying the N active segments. Used to slice
+            pre-loaded flowpath attribute arrays.
 
         Returns
         -------

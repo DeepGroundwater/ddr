@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import geopandas as gpd
 import numpy as np
 import rustworkx as rx
 import torch
@@ -68,24 +67,31 @@ class LynkerHydrofabric(BaseGeoDataset):
             dtype=torch.float32,
         ).unsqueeze(1)
 
-        # Load flowpath attributes
-        _flowpath_attr = gpd.read_file(
-            self.cfg.data_sources.geospatial_fabric_gpkg, layer="flowpath-attributes-ml"
-        ).set_index("id")
-        self.flowpath_attr = _flowpath_attr[~_flowpath_attr.index.duplicated(keep="first")]
+        # Load adjacency data and flowpath attributes from zarr
+        self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
+        self.hf_ids = self.conus_adjacency["order"][:]
+
+        self.zarr_length_m = self.conus_adjacency["length_m"][:]
+        self.zarr_slope = self.conus_adjacency["slope"][:]
+        self.zarr_top_width = self.conus_adjacency["top_width"][:]
+        self.zarr_side_slope = self.conus_adjacency["side_slope"][:]
+        self.zarr_muskingum_x = self.conus_adjacency["muskingum_x"][:]
+        self.zarr_toid = self.conus_adjacency["toid"][:]
 
         self.phys_means = torch.tensor(
             [
-                naninfmean(self.flowpath_attr[attr].values)
-                for attr in ["Length_m", "So", "TopWdth", "ChSlp", "MusX"]
+                naninfmean(arr)
+                for arr in [
+                    self.zarr_length_m,
+                    self.zarr_slope,
+                    self.zarr_top_width,
+                    self.zarr_side_slope,
+                    self.zarr_muskingum_x,
+                ]
             ],
             device=self.cfg.device,
             dtype=torch.float32,
         ).unsqueeze(1)
-
-        # Load adjacency data
-        self.conus_adjacency = read_zarr(Path(cfg.data_sources.conus_adjacency))
-        self.hf_ids = self.conus_adjacency["order"][:]
 
         if cfg.mode == Mode.TRAINING:
             self._init_training()
@@ -217,10 +223,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         )
         compressed_csr = compressed_coo.tocsr()
         compressed_hf_ids = self.hf_ids[active_indices]
-
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
         divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
-        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         outflow_idx = []
         for _idx in _gage_idx:
@@ -241,15 +244,16 @@ class LynkerHydrofabric(BaseGeoDataset):
             if mask.any():
                 non_headwater_mask.extend(outflow_idx[i].tolist())
         if non_headwater_mask:
+            compressed_toid = self.zarr_toid[active_indices]
+            toid_values = compressed_toid[non_headwater_mask]
+            unique_toid_ids = []
+            seen = set()
+            for _id in toid_values:
+                if _id not in seen:
+                    seen.add(_id)
+                    unique_toid_ids.append(_id.split("-")[1])
             assert (
-                np.array(
-                    [
-                        _id.split("-")[1]
-                        for _id in compressed_flowpath_attr.iloc[non_headwater_mask]["to"]
-                        .drop_duplicates(keep="first")
-                        .values
-                    ]
-                )
+                np.array(unique_toid_ids)
                 == np.array(
                     [
                         _id.split("-")[1]
@@ -268,7 +272,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         )
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
-            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+            self._build_common_tensors(compressed_csr, divide_ids, active_indices)
         )
 
         hydrofabric_observations = create_hydrofabric_observations(
@@ -299,7 +303,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         self,
         csr_matrix: sparse.csr_matrix,
         catchment_ids: np.ndarray,
-        flowpath_attr: gpd.GeoDataFrame,
+        active_indices: np.ndarray,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         """Build tensors common to all collate methods."""
         adjacency_matrix = torch.sparse_csr_tensor(
@@ -327,23 +331,23 @@ class LynkerHydrofabric(BaseGeoDataset):
 
         flowpath_tensors = {
             "length": fill_nans(
-                torch.tensor(flowpath_attr["Length_m"].values, dtype=torch.float32),
+                torch.tensor(self.zarr_length_m[active_indices], dtype=torch.float32),
                 row_means=self.phys_means[0],
             ),
             "slope": fill_nans(
-                torch.tensor(flowpath_attr["So"].values, dtype=torch.float32),
+                torch.tensor(self.zarr_slope[active_indices], dtype=torch.float32),
                 row_means=self.phys_means[1],
             ),
             "top_width": fill_nans(
-                torch.tensor(flowpath_attr["TopWdth"].values, dtype=torch.float32),
+                torch.tensor(self.zarr_top_width[active_indices], dtype=torch.float32),
                 row_means=self.phys_means[2],
             ),
             "side_slope": fill_nans(
-                torch.tensor(flowpath_attr["ChSlp"].values, dtype=torch.float32),
+                torch.tensor(self.zarr_side_slope[active_indices], dtype=torch.float32),
                 row_means=self.phys_means[3],
             ),
             "x": fill_nans(
-                torch.tensor(flowpath_attr["MusX"].values, dtype=torch.float32),
+                torch.tensor(self.zarr_muskingum_x[active_indices], dtype=torch.float32),
                 row_means=self.phys_means[4],
             ),
         }
@@ -403,15 +407,12 @@ class LynkerHydrofabric(BaseGeoDataset):
         )
         compressed_csr = compressed_coo.tocsr()
         compressed_hf_ids = self.hf_ids[active_indices]
-
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
         divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
-        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         outflow_idx = [np.array([i]) for i in range(compressed_size)]
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
-            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+            self._build_common_tensors(compressed_csr, divide_ids, active_indices)
         )
 
         log.info(f"Created target catchments adjacency matrix of shape: {adjacency_matrix.shape}")
@@ -446,12 +447,11 @@ class LynkerHydrofabric(BaseGeoDataset):
             shape=shape,
         ).tocsr()
 
-        wb_ids = np.array([f"wb-{_id}" for _id in self.hf_ids])
         divide_ids = np.array([f"cat-{_id}" for _id in self.hf_ids])
-        flowpath_attr = self.flowpath_attr.reindex(wb_ids)
+        all_indices = np.arange(len(self.hf_ids))
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
-            self._build_common_tensors(csr_matrix, divide_ids, flowpath_attr)
+            self._build_common_tensors(csr_matrix, divide_ids, all_indices)
         )
 
         log.info(f"Created all segments adjacency matrix of shape: {adjacency_matrix.shape}")
@@ -502,10 +502,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         )
         compressed_csr = compressed_coo.tocsr()
         compressed_hf_ids = self.hf_ids[active_indices]
-
-        wb_ids = np.array([f"wb-{_id}" for _id in compressed_hf_ids])
         divide_ids = np.array([f"cat-{_id}" for _id in compressed_hf_ids])
-        compressed_flowpath_attr = self.flowpath_attr.reindex(wb_ids)
 
         outflow_idx = []
         for _idx in _gage_idx:
@@ -527,7 +524,7 @@ class LynkerHydrofabric(BaseGeoDataset):
         )
 
         adjacency_matrix, spatial_attributes, normalized_spatial_attributes, flowpath_tensors = (
-            self._build_common_tensors(compressed_csr, divide_ids, compressed_flowpath_attr)
+            self._build_common_tensors(compressed_csr, divide_ids, active_indices)
         )
 
         hydrofabric_observations = create_hydrofabric_observations(

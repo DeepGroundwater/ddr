@@ -1,5 +1,6 @@
 from . import validation
 from ._version import __version__
+from .geometry import GeometryPredictor
 from .io import functions as ddr_functions
 from .io.readers import StreamflowReader as streamflow
 from .nn import kan
@@ -10,4 +11,13 @@ try:
 except ImportError:
     bmi = None  # type: ignore[assignment]
 
-__all__ = ["__version__", "dmc", "streamflow", "ddr_functions", "kan", "validation", "bmi"]
+__all__ = [
+    "__version__",
+    "dmc",
+    "streamflow",
+    "ddr_functions",
+    "kan",
+    "validation",
+    "bmi",
+    "GeometryPredictor",
+]

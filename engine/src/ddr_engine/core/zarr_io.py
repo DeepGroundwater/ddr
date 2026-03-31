@@ -248,7 +248,7 @@ def coo_from_zarr(zarr_path: Path) -> tuple[sparse.coo_matrix, list]:
 def coo_from_zarr_generic(
     zarr_path: Path,
     converter: OrderConverter,
-) -> tuple[sparse.coo_matrix, list]:
+) -> tuple[sparse.coo_matrix, list[Any]]:
     """
     Load a COO adjacency matrix from a zarr group (generic version).
 

@@ -145,39 +145,24 @@ def _get_trapezoid_velocity(
     tuple[torch.Tensor, torch.Tensor, torch.Tensor]
         (celerity, top_width, side_slope)
     """
-    q_eps = _q_spatial + 1e-6
-    numerator = q_t * _n * (q_eps + 1)
-    denominator = p_spatial * torch.pow(_s0, 0.5)
-    depth = torch.clamp(
-        torch.pow(
-            torch.div(numerator, denominator + 1e-8),
-            torch.div(3.0, 5.0 + 3.0 * q_eps),
-        ),
-        min=depth_lb,
+    from ddr.geometry.trapezoidal import compute_trapezoidal_geometry
+
+    geom = compute_trapezoidal_geometry(
+        n=_n,
+        p_spatial=p_spatial,
+        q_spatial=_q_spatial,
+        discharge=q_t,
+        slope=_s0,
+        depth_lb=float(depth_lb) if isinstance(depth_lb, torch.Tensor) else depth_lb,
+        bottom_width_lb=float(_btm_width_lb) if isinstance(_btm_width_lb, torch.Tensor) else _btm_width_lb,
     )
 
-    # Derive top_width and side_slope from Leopold & Maddock power law
-    top_width = p_spatial * torch.pow(depth, q_eps)
-    top_width = _apply_data_override(top_width, data_top_width)
+    # Apply observed data overrides (Lynker/SWOT) where available
+    top_width = _apply_data_override(geom["top_width"], data_top_width)
+    side_slope = _apply_data_override(geom["side_slope"], data_side_slope)
 
-    side_slope = torch.clamp(top_width * q_eps / (2 * depth), min=0.5, max=50.0)
-    side_slope = _apply_data_override(side_slope, data_side_slope)
-
-    # For z:1 side slopes (z horizontal : 1 vertical)
-    _bottom_width = top_width - (2 * side_slope * depth)
-    bottom_width = torch.clamp(_bottom_width, min=_btm_width_lb)
-
-    # Area = (top_width + bottom_width)*depth/2
-    area = (top_width + bottom_width) * depth / 2
-
-    # Side length = sqrt(1 + z^2) * depth
-    # Since for every 1 unit vertical, we go z units horizontal
-    wetted_p = bottom_width + 2 * depth * torch.sqrt(1 + side_slope**2)
-
-    # Calculate hydraulic radius
-    R = area / wetted_p
-
-    v = torch.div(1, _n) * torch.pow(R, (2 / 3)) * torch.pow(_s0, (1 / 2))
+    # Compute celerity from velocity (routing-specific, not in geometry module)
+    v = geom["velocity"]
     c_ = torch.clamp(v, min=velocity_lb, max=torch.tensor(15.0, device=v.device))
     c = c_ * 5 / 3
     return c, top_width, side_slope

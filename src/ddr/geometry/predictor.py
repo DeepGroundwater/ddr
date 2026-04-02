@@ -126,7 +126,8 @@ class GeometryPredictor:
         # Load and validate config
         omega_cfg = OmegaConf.load(str(config_path))
         omega_cfg.device = device
-        omega_cfg.mode = "route"
+        omega_cfg.mode = "routing"
+        omega_cfg.experiment.checkpoint = str(Path(checkpoint_path).resolve())
         cfg = validate_config(omega_cfg, save_config=False)
 
         # Build the KAN with the same architecture as training
@@ -251,8 +252,16 @@ class GeometryPredictor:
             Normalized attribute tensor, shape ``(N, n_attrs)``.
         """
         arrays = []
-        for attr_name in self._attribute_names:
+        for i, attr_name in enumerate(self._attribute_names):
             arr = np.asarray(adapted[attr_name].values, dtype=np.float32)
+            # Fill NaN with training mean (matches geodataset loader behavior)
+            nan_mask = np.isnan(arr)
+            if nan_mask.any():
+                arr = arr.copy()
+                arr[nan_mask] = self._means[i].item()
+                log.info(
+                    "Attribute %s: filled %d NaN values with training mean", attr_name, int(nan_mask.sum())
+                )
             arrays.append(arr)
 
         # Shape: (n_attrs, N)

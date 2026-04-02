@@ -1,0 +1,54 @@
+# MERIT-Hydro Geometry Predictor Configuration
+# Used by geometry_predictor.ipynb to predict channel geometry from a trained KAN.
+# Set DDR_DATA_DIR to your data directory, or edit paths below.
+name: ddr-v0.5.2-merit-geometry
+mode: routing
+geodataset: merit
+device: cpu
+seed: 42
+np_seed: 42
+s3_region: us-east-2
+
+data_sources:
+  attributes: ${oc.env:DDR_DATA_DIR,./../../data}/merit_global_attributes_v2.nc
+  geospatial_fabric_gpkg: ${oc.env:DDR_DATA_DIR,./../../data}/merit/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp
+  conus_adjacency: ${oc.env:DDR_DATA_DIR,./../../data}/merit_conus_adjacency.zarr
+  statistics: ${oc.env:DDR_DATA_DIR,./../../data}/statistics
+  streamflow: ${oc.env:DDR_DATA_DIR,./../../data}/merit_dhbv2_UH_retrospective
+  observations: ${oc.env:DDR_OBS_STORE,s3://mhpi-spatial/usgs_streamflow_observations/}
+
+params:
+  save_path: ./
+  parameter_ranges:
+    n: [0.015, 0.25]
+    q_spatial: [0.0, 1.0]
+    p_spatial: [1.0, 200.0]
+  log_space_parameters: [p_spatial]
+
+experiment:
+  checkpoint: ./ddr-v0.5.2-merit-geometry-weights.pt
+  batch_size: 365
+  start_time: 1995/10/01
+  end_time: 1996/09/30
+  warmup: 3
+
+kan:
+  hidden_size: 21
+  input_var_names:
+    - SoilGrids1km_clay
+    - aridity
+    - meanelevation
+    - meanP
+    - NDVI
+    - meanslope
+    - log10_uparea
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
+  num_hidden_layers: 2
+  learnable_parameters:
+    - n
+    - q_spatial
+    - p_spatial
+  grid: 50
+  k: 2

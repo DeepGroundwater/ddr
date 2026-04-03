@@ -1,0 +1,55 @@
+defaults:
+  - _self_
+  - hydra: settings
+
+mode: routing
+geodataset: merit
+name: ddr-v${oc.env:DDR_VERSION,dev}-${geodataset}-geometry
+device: cpu
+seed: 42
+np_seed: 42
+s3_region: us-east-2
+
+data_sources:
+  attributes: ${oc.env:DDR_DATA_DIR,/home/tbindas/projects/ddr/data}/merit_global_attributes_v2.nc
+  geospatial_fabric_gpkg: ${oc.env:DDR_DATA_DIR,/home/tbindas/projects/ddr/data}/merit/riv_pfaf_7_MERIT_Hydro_v07_Basins_v01_bugfix1.shp
+  conus_adjacency: ${oc.env:DDR_DATA_DIR,/home/tbindas/projects/ddr/data}/merit_conus_adjacency.zarr
+  statistics: ${oc.env:DDR_DATA_DIR,/home/tbindas/projects/ddr/data}/statistics
+  streamflow: ${oc.env:DDR_DATA_DIR,/home/tbindas/projects/ddr/data}/merit_dhbv2_UH_retrospective
+  observations: ${oc.env:DDR_DATA_DIR,/home/tbindas/projects/ddr/data}/usgs_daily_observations
+
+params:
+  save_path: ./
+  parameter_ranges:
+    n: [0.015, 0.25]
+    q_spatial: [0.0, 1.0]
+    p_spatial: [1.0, 200.0]
+  log_space_parameters: [p_spatial]
+
+experiment:
+  checkpoint: ${oc.env:DDR_GEOMETRY_CHECKPOINT,/home/tbindas/projects/ddr/examples/merit/ddr-v0.5.2-merit-geometry-weights.pt}
+  batch_size: 30  # days per StreamflowReader batch
+  start_time: 1999/10/01
+  end_time: 2000/09/30
+  warmup: 3
+
+kan:
+  hidden_size: 21
+  input_var_names:
+    - SoilGrids1km_clay
+    - aridity
+    - meanelevation
+    - meanP
+    - NDVI
+    - meanslope
+    - log10_uparea
+    - SoilGrids1km_sand
+    - ETPOT_Hargr
+    - Porosity
+  num_hidden_layers: 2
+  learnable_parameters:
+    - n
+    - q_spatial
+    - p_spatial
+  grid: 50
+  k: 2

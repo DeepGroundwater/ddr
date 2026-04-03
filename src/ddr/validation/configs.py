@@ -82,7 +82,7 @@ class Params(BaseModel):
         description="Minimum values for physical routing components to ensure numerical stability",
         default_factory=lambda: {
             "discharge": 0.0001,
-            "slope": 0.0001,
+            "slope": 0.001,
             "velocity": 0.01,
             "depth": 0.01,
             "bottom_width": 0.01,

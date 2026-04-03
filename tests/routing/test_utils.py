@@ -49,7 +49,7 @@ def create_mock_config() -> Config:
                 "depth": 0.01,
                 "discharge": 0.001,
                 "bottom_width": 0.1,
-                "slope": 0.0001,
+                "slope": 0.001,
             },
             "tau": 7,
         },
@@ -97,7 +97,7 @@ class MockRoutingDataclass:
 
         # Ensure positive values
         self.length = torch.clamp(self.length, min=100.0)
-        self.slope = torch.clamp(self.slope, min=0.0001)
+        self.slope = torch.clamp(self.slope, min=0.001)
         self.top_width = torch.clamp(self.top_width, min=1.0)
         self.side_slope = torch.clamp(self.side_slope, min=0.5)
         self.x = torch.clamp(self.x, min=0.1, max=0.4)

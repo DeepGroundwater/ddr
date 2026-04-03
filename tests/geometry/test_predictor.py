@@ -84,7 +84,7 @@ def predictor(synthetic_checkpoint: Path, synthetic_stats: Path) -> GeometryPred
         parameter_ranges={"n": [0.015, 0.25], "q_spatial": [0.0, 1.0]},
         log_space_parameters=[],
         defaults={"p_spatial": 21.0},
-        attribute_minimums={"discharge": 0.0001, "slope": 0.0001, "depth": 0.01, "bottom_width": 0.01},
+        attribute_minimums={"discharge": 0.0001, "slope": 0.001, "depth": 0.01, "bottom_width": 0.01},
         stats_ranges=ranges,
         device="cpu",
     )

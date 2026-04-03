@@ -427,7 +427,7 @@ def create_ddr_config():
                 "depth": 0.01,
                 "discharge": 0.0001,
                 "bottom_width": 0.1,
-                "slope": 0.0001,
+                "slope": 0.001,
             },
             "tau": 3,
         },

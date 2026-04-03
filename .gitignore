@@ -212,3 +212,5 @@ site/
 .ruff_cache/
 !benchmarks/config/
 *.png
+*.nc
+*.gpkg

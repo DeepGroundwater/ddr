@@ -56,6 +56,20 @@ You can also call scripts directly if preferred:
 uv run python scripts/train.py --config-name=my_training
 ```
 
+4. **Generate geometry predictions** from a trained checkpoint:
+   ```sh
+   uv run python scripts/geometry_predictor.py --config-name=merit_geometry_config
+   ```
+   This predicts KAN parameters (n, p, q) for all MERIT reaches and computes
+   trapezoidal geometry statistics (depth, top width, bottom width, side slope,
+   hydraulic radius) using real accumulated discharge over a water year.
+   CONUS reaches get full geometry stats; non-CONUS reaches get KAN parameters only.
+   Output is a NetCDF file. Override the water year with:
+   ```sh
+   uv run python scripts/geometry_predictor.py --config-name=merit_geometry_config \
+       experiment.start_time=2001/10/01 experiment.end_time=2002/09/30
+   ```
+
 ### Data Engine
 
 Before training, you need to create adjacency matrices for your domain:

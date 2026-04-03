@@ -209,7 +209,7 @@ class GeometryPredictor:
         s_tensor = torch.tensor(np.asarray(slope.values, dtype=np.float32), device=self._device)
 
         # Clamp slope to physical minimum
-        slope_lb = self._attribute_minimums.get("slope", 0.0001)
+        slope_lb = self._attribute_minimums.get("slope", 0.001)
         q_tensor = torch.clamp(q_tensor, min=self._attribute_minimums.get("discharge", 0.0001))
         s_tensor = torch.clamp(s_tensor, min=slope_lb)
 

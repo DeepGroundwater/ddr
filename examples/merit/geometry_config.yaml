@@ -28,8 +28,8 @@ params:
 experiment:
   checkpoint: ./ddr-v0.5.2-merit-geometry-weights.pt
   batch_size: 365
-  start_time: 1995/10/01
-  end_time: 1996/09/30
+  start_time: 1999/10/01
+  end_time: 2000/09/30
   warmup: 3
 
 kan:

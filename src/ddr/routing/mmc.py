@@ -332,6 +332,7 @@ class MuskingumCunge:
         if carry_state and self._discharge_t is not None:
             return
         assert self.q_prime is not None, "q_prime must be set before initializing discharge state"
+        assert ~torch.any(torch.isnan(self.q_prime)), "q_prime has NaN flows"
         mapper, _, _ = self.create_pattern_mapper()
         self._discharge_t = compute_hotstart_discharge(
             self.q_prime[0].to(self.device),

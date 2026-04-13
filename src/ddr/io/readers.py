@@ -452,6 +452,10 @@ class StreamflowReader(torch.nn.Module):
         self.ds = read_ic(self.cfg.data_sources.streamflow, region=self.cfg.s3_region)
         # Index Lookup Dictionary
         self.divide_id_to_index = {divide_id: idx for idx, divide_id in enumerate(self.ds.divide_id.values)}
+        # Offset between the Dates origin (1980/01/01) and the store's actual start date
+        store_start = pd.Timestamp(self.ds.time.values[0])
+        origin = pd.Timestamp("1980/01/01")
+        self._time_offset = (store_start - origin).days
 
     def forward(self, **kwargs: Any) -> torch.Tensor:
         """The forward function of the module for generating streamflow values
@@ -482,9 +486,20 @@ class StreamflowReader(torch.nn.Module):
 
         assert len(valid_divide_indices) != 0, "No valid divide IDs found in this batch. Throwing error"
 
-        _ds = self.ds.isel(time=routing_dataclass.dates.numerical_time_range, divide_id=valid_divide_indices)[
-            "Qr"
-        ]
+        adjusted_time_indices = routing_dataclass.dates.numerical_time_range - self._time_offset
+        assert adjusted_time_indices[0] >= 0, (
+            f"Adjusted time index {adjusted_time_indices[0]} is negative. "
+            f"Store starts {self.ds.time.values[0]}, requested dates start before store coverage."
+        )
+        assert adjusted_time_indices[-1] < len(self.ds.time), (
+            f"Adjusted time index {adjusted_time_indices[-1]} exceeds store length {len(self.ds.time)}. "
+            f"Store ends {self.ds.time.values[-1]}, requested dates extend beyond store coverage."
+        )
+
+        _ds = self.ds.isel(
+            time=adjusted_time_indices,
+            divide_id=valid_divide_indices,
+        )["Qr"]
 
         if use_hourly is False:
             _ds = _ds.interp(

@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import cupy as cp
 import hydra
 import numpy as np
 import pandas as pd
@@ -183,10 +184,69 @@ def eval_q_prime(
         freq="D",
         inclusive="both",
     )
+    n_eval_days = len(eval_daily_time_range)
+    is_hourly = cfg.data_sources.get("is_hourly", False)
+
+    # Pre-collect all upstream divides across all gauges before loading any data.
+    # This mirrors what the training dataloader does via construct_network_matrix().
+    gauge_basins: dict[str, np.ndarray] = {}
+    all_needed_basins: set = set()
+    for gauge in valid_gauges:
+        if cfg.geodataset == GeoDataset.LYNKER_HYDROFABRIC.value:
+            basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])
+        elif cfg.geodataset == GeoDataset.MERIT.value:
+            basins = gages_adjacency[gauge]["order"][:]
+        else:
+            raise ValueError("Cannot run Summed Q` calculation without specifying basin identifiers")
+        gauge_basins[gauge] = basins
+        all_needed_basins.update(basins)
+
     conus_divide_ids = streamflow.divide_id.values
-    conus_time_range = streamflow.time.values
-    time_indices = np.where(np.isin(conus_time_range, eval_daily_time_range))[0]
-    preds = np.zeros([len(valid_gauges), len(eval_daily_time_range)], dtype=np.float32)
+    needed_divide_indices = np.where(np.isin(conus_divide_ids, list(all_needed_basins)))[0]
+    log.info(f"Loading {len(needed_divide_indices)}/{len(conus_divide_ids)} divides needed for evaluation")
+
+    if is_hourly:
+        # Collapse hourly→daily via isel + numpy reshape (faster than lazy resample)
+        log.info("Hourly store — collapsing eval period to daily means via isel")
+        store_start = pd.Timestamp(streamflow.time.values[0])
+        store_len = len(streamflow.time)
+        start_idx = int((eval_daily_time_range[0] - store_start).total_seconds() // 3600)
+        end_idx = int(
+            (eval_daily_time_range[-1] + pd.Timedelta(hours=23) - store_start).total_seconds() // 3600
+        )
+        assert start_idx >= 0, (
+            f"Eval start {eval_daily_time_range[0]} precedes store start {store_start}. "
+            f"Adjusted start index: {start_idx}"
+        )
+        assert end_idx < store_len, (
+            f"Eval end index {end_idx} exceeds store length {store_len}. "
+            f"Store ends {streamflow.time.values[-1]}, eval ends {eval_daily_time_range[-1]}"
+        )
+        hourly = streamflow.isel(
+            time=slice(start_idx, end_idx + 1), divide_id=needed_divide_indices
+        ).compute()
+        qr_hourly = hourly["Qr"].values  # (n_needed_divides, hours) — stays on CPU
+        n_days = qr_hourly.shape[1] // 24
+        qr_daily = qr_hourly[:, : n_days * 24].reshape(qr_hourly.shape[0], n_days, 24).mean(axis=2)
+        filtered_divide_ids = conus_divide_ids[needed_divide_indices]
+        qr_gpu = cp.asarray(qr_daily.astype(np.float32))  # daily result (24x smaller) → GPU
+        log.info(f"Collapsed to {n_days} daily timesteps")
+    else:
+        conus_time_range = streamflow.time.values
+        time_indices = np.where(np.isin(conus_time_range, eval_daily_time_range))[0]
+        if len(time_indices) != n_eval_days:
+            log.warning(
+                f"Time alignment: matched {len(time_indices)}/{n_eval_days} eval days in store. "
+                f"Store range: {conus_time_range[0]} to {conus_time_range[-1]}"
+            )
+        filtered_divide_ids = conus_divide_ids[needed_divide_indices]
+        qr_gpu = cp.asarray(
+            streamflow.isel(time=time_indices, divide_id=needed_divide_indices)["Qr"].values.astype(
+                np.float32
+            )
+        )  # (n_needed_divides, n_eval_days)
+
+    preds = cp.zeros([len(valid_gauges), qr_gpu.shape[1]], dtype=cp.float32)
     target: np.ndarray = (
         observations.sel(time=eval_daily_time_range)
         .reindex(gage_id=valid_gauges)
@@ -195,15 +255,9 @@ def eval_q_prime(
     for i, gauge in tqdm(
         enumerate(valid_gauges), total=len(valid_gauges), desc="Processing gauges", ncols=140, ascii=True
     ):
-        if cfg.geodataset == GeoDataset.LYNKER_HYDROFABRIC.value:
-            basins: np.ndarray = np.array([f"cat-{_id}" for _id in gages_adjacency[gauge]["order"][:]])
-        elif cfg.geodataset == GeoDataset.MERIT.value:
-            basins = gages_adjacency[gauge]["order"][:]
-        else:
-            raise ValueError("Cannot run Summed Q` calculation without specifying basin identifiers")
-        divide_indices = np.where(np.isin(conus_divide_ids, basins))[0]
-        qr = streamflow.isel(time=time_indices, divide_id=divide_indices)["Qr"].values.astype(np.float32)
-        preds[i] = np.nansum(qr, axis=0)
+        divide_indices = np.where(np.isin(filtered_divide_ids, gauge_basins[gauge]))[0]
+        preds[i] = cp.nansum(qr_gpu[divide_indices], axis=0)
+    preds = cp.asnumpy(preds)
     metrics = Metrics(pred=preds, target=target)
 
     start_time = pd.to_datetime(eval_daily_time_range.values[0]).strftime("%Y-%m-%d")

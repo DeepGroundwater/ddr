@@ -450,12 +450,13 @@ class StreamflowReader(torch.nn.Module):
         super().__init__()
         self.cfg = cfg
         self.ds = read_ic(self.cfg.data_sources.streamflow, region=self.cfg.s3_region)
+        self.is_hourly = self.cfg.data_sources.is_hourly
         # Index Lookup Dictionary
         self.divide_id_to_index = {divide_id: idx for idx, divide_id in enumerate(self.ds.divide_id.values)}
         # Offset between the Dates origin (1980/01/01) and the store's actual start date
-        store_start = pd.Timestamp(self.ds.time.values[0])
+        self._store_start = pd.Timestamp(self.ds.time.values[0])
         origin = pd.Timestamp("1980/01/01")
-        self._time_offset = (store_start - origin).days
+        self._time_offset = (self._store_start - origin).days
 
     def forward(self, **kwargs: Any) -> torch.Tensor:
         """The forward function of the module for generating streamflow values
@@ -473,7 +474,6 @@ class StreamflowReader(torch.nn.Module):
         routing_dataclass = kwargs["routing_dataclass"]
         device = kwargs.get("device", "cpu")  # defaulting to a CPU tensor
         dtype = kwargs.get("dtype", torch.float32)  # defaulting to float32
-        use_hourly = kwargs.get("use_hourly", False)
         valid_divide_indices = []
         divide_idx_mask = []
 
@@ -486,7 +486,16 @@ class StreamflowReader(torch.nn.Module):
 
         assert len(valid_divide_indices) != 0, "No valid divide IDs found in this batch. Throwing error"
 
-        adjusted_time_indices = routing_dataclass.dates.numerical_time_range - self._time_offset
+        if self.is_hourly:
+            # Hourly store: compute indices directly from batch_hourly_time_range
+            hourly_timestamps = routing_dataclass.dates.batch_hourly_time_range
+            adjusted_time_indices = (
+                ((hourly_timestamps - self._store_start).total_seconds() // 3600).astype(int).values
+            )
+        else:
+            # Daily store: use day-based numerical_time_range with offset
+            adjusted_time_indices = routing_dataclass.dates.numerical_time_range - self._time_offset
+
         assert adjusted_time_indices[0] >= 0, (
             f"Adjusted time index {adjusted_time_indices[0]} is negative. "
             f"Store starts {self.ds.time.values[0]}, requested dates start before store coverage."
@@ -501,14 +510,15 @@ class StreamflowReader(torch.nn.Module):
             divide_id=valid_divide_indices,
         )["Qr"]
 
-        if use_hourly is False:
-            _ds = _ds.interp(
-                time=routing_dataclass.dates.batch_hourly_time_range,
-                method="nearest",
-            )
-        streamflow_data = (
-            _ds.compute().values.astype(np.float32).T
-        )  # Transposing to (num_timesteps, num_features)
+        if not self.is_hourly:
+            # Daily store: nearest-neighbor to hourly is just repeat(24),
+            # trimmed to match batch_hourly_time_range (excludes last day boundary)
+            n_hourly = len(routing_dataclass.dates.batch_hourly_time_range)
+            streamflow_data = np.repeat(_ds.compute().values.astype(np.float32), 24, axis=1)[
+                :, :n_hourly
+            ].T  # (num_timesteps, num_features)
+        else:
+            streamflow_data = _ds.compute().values.astype(np.float32).T  # (num_timesteps, num_features)
 
         # Creating an output tensor where we're filling any missing data with minimum flow
         output = torch.full(

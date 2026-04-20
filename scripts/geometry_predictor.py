@@ -78,7 +78,7 @@ def _predict_kan_params(
     log_space = cfg.params.log_space_parameters
 
     # Batch KAN inference to avoid OOM on 2.9M reaches
-    batch_size = 500_000
+    batch_size = 50_000
     n_all, p_all, q_all = [], [], []
     for start in range(0, normalized.shape[0], batch_size):
         chunk = normalized[start : start + batch_size].to(cfg.device)

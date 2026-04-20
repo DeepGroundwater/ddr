@@ -17,7 +17,7 @@ name = "ddr"
 description = "Distributed Differentiable Routing"
 readme = "README.md"
 dynamic = ["version"]
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.12,<3.15"
 license = {file = "LICENSE"}
 authors = [
     {name = "Tadd Bindas"},
@@ -36,7 +36,7 @@ dependencies = [
   "geopandas",
   "hatch",
   "hydra-core",
-  "icechunk",
+  "icechunk>=2.0",
   "matplotlib",
   "netcdf4",
   "numpy>=2.4.1",
@@ -170,6 +170,7 @@ convention = "numpy"
 "mkdocs.yaml" = ["I"]
 "mkdocs.yml" = ["I"]
 "tests/*" = ["D"]
+"tests/scripts/test_summed_q_prime.py" = ["D", "E402"]
 "*/__init__.py" = ["F401"]
 "src/ddr/bmi/ddr_bmi.py" = ["D102"]  # BMI interface methods are self-documenting (bmipy.Bmi)
 "*.ipynb" = ["E402", "E501", "F401", "F811", "F841", "T201"]  # Common notebook exceptions
@@ -178,7 +179,7 @@ convention = "numpy"
 docstring-code-format = true
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 explicit_package_bases = true
 warn_return_any = true
 warn_unused_configs = true

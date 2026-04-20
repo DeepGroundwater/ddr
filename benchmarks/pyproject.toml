@@ -9,7 +9,7 @@ packages = ["src/ddr_benchmarks"]
 name = "ddr-benchmarks"
 version = "0.1.0"
 description = "Benchmarking tools for DDR routing model"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "ddr",
     "xarray",

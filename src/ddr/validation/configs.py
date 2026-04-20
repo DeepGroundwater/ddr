@@ -58,6 +58,11 @@ class DataSources(BaseModel):
         default="s3://mhpi-spatial/hydrofabric_v2.2_dhbv_retrospective",  # MHPI dhbv v2.2 streamflow retrospective
         description="Path to the icechunk store containing modeled streamflow data",
     )
+    is_hourly: bool = Field(
+        default=False,
+        description="Whether the streamflow store contains hourly data. "
+        "When True, StreamflowReader indexes directly with hourly timestamps and skips daily-to-hourly interpolation.",
+    )
     observations: str = Field(
         default="s3://mhpi-spatial/usgs_streamflow_observations/",  # MHPI versioned USGS data
         description="Path to the USGS streamflow observations for model validation",

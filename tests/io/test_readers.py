@@ -347,17 +347,30 @@ class _FakeRoutingDC:
     dates: _FakeDates = field(default_factory=_FakeDates)
 
 
-def _build_reader(ds: xr.Dataset) -> StreamflowReader:
+def _make_hourly_streamflow_ds(start_date: str, n_hours: int = 9600, n_divides: int = 3) -> xr.Dataset:
+    """Build a minimal xr.Dataset that mimics an hourly icechunk streamflow store."""
+    time = pd.date_range(start_date, periods=n_hours, freq="h")
+    divide_ids = np.arange(1000, 1000 + n_divides)
+    rng = np.random.default_rng(42)
+    data = rng.uniform(0.01, 5.0, size=(n_divides, n_hours)).astype(np.float32)
+    return xr.Dataset(
+        {"Qr": (["divide_id", "time"], data, {"units": "m^3/s"})},
+        coords={"divide_id": divide_ids, "time": time},
+    )
+
+
+def _build_reader(ds: xr.Dataset, is_hourly: bool = False) -> StreamflowReader:
     """Construct a StreamflowReader without hitting icechunk by patching read_ic."""
     with patch("ddr.io.readers.read_ic", return_value=ds):
         # Config is only used for read_ic args; the mock ignores it
         reader = StreamflowReader.__new__(StreamflowReader)
         reader.cfg = None  # type: ignore[assignment,unused-ignore]
         reader.ds = ds
+        reader.is_hourly = is_hourly
         reader.divide_id_to_index = {did: i for i, did in enumerate(ds.divide_id.values)}
-        store_start = pd.Timestamp(ds.time.values[0])
+        reader._store_start = pd.Timestamp(ds.time.values[0])
         origin = pd.Timestamp("1980/01/01")
-        reader._time_offset = (store_start - origin).days
+        reader._time_offset = (reader._store_start - origin).days
     return reader
 
 
@@ -444,6 +457,77 @@ class TestStreamflowReaderTimeOffset:
                 numerical_time_range=numerical,
                 batch_daily_time_range=pd.date_range(batch_start, periods=10, freq="D"),
                 batch_hourly_time_range=pd.date_range(batch_start, periods=9 * 24, freq="h"),
+            ),
+        )
+
+        with pytest.raises(AssertionError, match="exceeds store length"):
+            reader.forward(routing_dataclass=rc, device="cpu")
+
+
+class TestStreamflowReaderHourly:
+    """Tests for StreamflowReader with is_hourly=True."""
+
+    def test_hourly_forward_returns_correct_shape(self) -> None:
+        """Hourly reader should return (num_hours, num_divides) without interpolation."""
+        ds = _make_hourly_streamflow_ds("1981-01-13", n_hours=9600, n_divides=3)
+        reader = _build_reader(ds, is_hourly=True)
+
+        batch_start = pd.Timestamp("1981-02-01")
+        n_batch_days = 10
+        batch_daily = pd.date_range(batch_start, periods=n_batch_days, freq="D")
+        batch_hourly = pd.date_range(batch_start, periods=(n_batch_days - 1) * 24, freq="h")
+
+        origin = pd.Timestamp("1980/01/01")
+        day_offset_start = (batch_start - origin).days
+        numerical = np.arange(day_offset_start, day_offset_start + n_batch_days)
+
+        rc = _FakeRoutingDC(
+            divide_ids=np.array([1000, 1001, 1002]),
+            dates=_FakeDates(
+                numerical_time_range=numerical,
+                batch_daily_time_range=batch_daily,
+                batch_hourly_time_range=batch_hourly,
+            ),
+        )
+
+        output = reader.forward(routing_dataclass=rc, device="cpu")
+        assert output.shape == ((n_batch_days - 1) * 24, 3)
+        assert not np.isnan(output.numpy()).any()
+
+    def test_hourly_forward_asserts_on_dates_before_store(self) -> None:
+        """Requesting hourly dates before the store's start should raise AssertionError."""
+        ds = _make_hourly_streamflow_ds("1982-01-01", n_hours=2400)
+        reader = _build_reader(ds, is_hourly=True)
+
+        batch_start = pd.Timestamp("1981-06-01")
+        batch_hourly = pd.date_range(batch_start, periods=9 * 24, freq="h")
+
+        rc = _FakeRoutingDC(
+            divide_ids=np.array([1000]),
+            dates=_FakeDates(
+                numerical_time_range=np.empty(0),
+                batch_daily_time_range=pd.date_range(batch_start, periods=10, freq="D"),
+                batch_hourly_time_range=batch_hourly,
+            ),
+        )
+
+        with pytest.raises(AssertionError, match="negative"):
+            reader.forward(routing_dataclass=rc, device="cpu")
+
+    def test_hourly_forward_asserts_on_dates_beyond_store(self) -> None:
+        """Requesting hourly dates past the store's end should raise AssertionError."""
+        ds = _make_hourly_streamflow_ds("1981-01-13", n_hours=720)  # only 30 days
+        reader = _build_reader(ds, is_hourly=True)
+
+        batch_start = pd.Timestamp("1981-06-01")
+        batch_hourly = pd.date_range(batch_start, periods=9 * 24, freq="h")
+
+        rc = _FakeRoutingDC(
+            divide_ids=np.array([1000]),
+            dates=_FakeDates(
+                numerical_time_range=np.empty(0),
+                batch_daily_time_range=pd.date_range(batch_start, periods=10, freq="D"),
+                batch_hourly_time_range=batch_hourly,
             ),
         )
 

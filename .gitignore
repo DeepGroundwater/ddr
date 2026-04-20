@@ -214,3 +214,5 @@ site/
 *.png
 *.nc
 *.gpkg
+
+papers/

@@ -2,8 +2,10 @@
 aggregation path (isel + reshape + CuPy) produces correct predictions and
 matches a pure-NumPy reference implementation."""
 
-import cupy as cp
 import numpy as np
+import pytest
+
+cp = pytest.importorskip("cupy")
 import pandas as pd
 import xarray as xr
 import zarr

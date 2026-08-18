@@ -18,10 +18,8 @@ class TestBundleContract:
     def test_merit_builds_routing_dataclass(self) -> None:
         from examples.juniata.train_and_test import make_config
 
-        from ddr.validation.enums import GeoDataset
-
         cfg = make_config(bundle_dir=BUNDLE)
-        dataset = GeoDataset.get_dataset_class(cfg=cfg)
+        dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
         batch = dataset.collate_fn(list(dataset.gage_ids))
         n = batch.adjacency_matrix.shape[0]
         assert n == 213
@@ -33,13 +31,11 @@ class TestBundleContract:
         assert len(batch.outflow_idx) == 1 and batch.outflow_idx[0].shape == (1,)
 
     def test_streamflow_reader_returns_hourly_tensor(self) -> None:
+        from ddr import streamflow
         from examples.juniata.train_and_test import make_config
 
-        from ddr import streamflow
-        from ddr.validation.enums import GeoDataset
-
         cfg = make_config(bundle_dir=BUNDLE)
-        dataset = GeoDataset.get_dataset_class(cfg=cfg)
+        dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
         batch = dataset.collate_fn(list(dataset.gage_ids))
         flow = streamflow(cfg)
         q_prime = flow(routing_dataclass=batch)
@@ -50,11 +46,25 @@ class TestBundleContract:
     def test_observations_aligned(self) -> None:
         from examples.juniata.train_and_test import make_config
 
-        from ddr.validation.enums import GeoDataset
-
         cfg = make_config(bundle_dir=BUNDLE)
-        dataset = GeoDataset.get_dataset_class(cfg=cfg)
+        dataset = cfg.geodataset.get_dataset_class(cfg=cfg)
         batch = dataset.collate_fn(list(dataset.gage_ids))
         obs = batch.observations.streamflow.values
         assert obs.shape[0] == 1
         assert np.isfinite(obs).mean() > 0.9  # Juniata record is nearly complete
+
+
+@needs_bundle
+class TestSmoke:
+    def test_one_epoch_train_and_metrics(self, tmp_path: Path) -> None:
+        from examples.juniata.train_and_test import make_config, summed_qprime_baseline, test, train
+
+        cfg = make_config(bundle_dir=BUNDLE, epochs=1, rho=30)
+        cfg.params.save_path = tmp_path
+        ckpt = train(cfg)
+        assert ckpt.exists()
+        result = test(cfg, ckpt, test_period=("1996/10/01", "1997/09/30"))
+        baseline = summed_qprime_baseline(cfg, test_period=("1996/10/01", "1997/09/30"))
+        assert np.isfinite(result.attrs["nse"])
+        assert np.isfinite(baseline.attrs["nse"])
+        assert result.predictions.shape == result.observations.shape

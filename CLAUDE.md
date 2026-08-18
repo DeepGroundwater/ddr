@@ -18,7 +18,8 @@ parameters end-to-end via PyTorch autograd.
    `top_width = p_spatial * depth^(q_spatial + 1e-6)`.
 3. **MC routing** solves the linearized Saint-Venant equations on a trapezoidal
    channel cross-section using a sparse CSR matrix solve at **dt = 3600s**
-   (1-hour timestep, hardcoded in `mmc.py:192`).
+   (1-hour timestep, hardcoded in `mmc.py`). Celerity is trapezoid-exact
+   (`c = v·β`) and Muskingum X is Cunge-derived per timestep.
 4. Gradients flow from the loss (L1/MAE) back through the routing physics into
    the KAN weights. Only KAN weights are learned; routing physics are
    differentiable but not parameterized.
@@ -57,15 +58,15 @@ Lateral Inflow (Q') ──► StreamflowReader ──► hourly tensor
 
 | Path | Role |
 |---|---|
-| `routing/mmc.py` | `MuskingumCunge` engine — sparse matrix solve, trapezoid velocity, Muskingum coefficients. Key: `route()` loops timesteps, `route_timestep()` solves one step, `setup_inputs()` denormalizes NN params and cold-starts discharge. |
+| `routing/mmc.py` | `MuskingumCunge` engine — sparse matrix solve, trapezoid velocity, Cunge-derived Muskingum X, negative-solve counter. Key: `route()` loops timesteps, `route_timestep()` solves one step, `setup_inputs()` denormalizes NN params and cold-starts discharge. |
 | `routing/torch_mc.py` | PyTorch `nn.Module` wrapper (`dmc` class). Manages `MuskingumCunge` lifecycle, exposes `forward()` for autograd. |
 | `nn/kan.py` | KAN neural network. Architecture: `Linear → KAN layers → Linear → Sigmoid`. Input: normalized attributes `(batch, n_attrs)`. Output: `dict[str, Tensor]` of [0,1] parameter predictions. |
 | `io/readers.py` | `StreamflowReader` — reads lateral inflows from icechunk stores via `isel`. Daily stores are nearest-neighbor interpolated to hourly via `np.repeat(..., 24)`. Also: `IcechunkUSGSReader`, `AttributesReader`, `read_ic()`, gage filtering functions, `build_flow_scale_tensor()`. |
 | `io/functions.py` | `downsample()` — hourly → daily via `F.interpolate(mode="area")`. |
 | `io/builders.py` | `construct_network_matrix()` — unions per-gage COO subgraphs from zarr into a single adjacency matrix. `_build_network_graph()` — creates rustworkx DiGraph from CONUS adjacency zarr. |
 | `geodatazoo/base_geodataset.py` | `BaseGeoDataset(ABC)` — PyTorch Dataset. Training: `__getitem__` returns gage IDs, `collate_fn` calls `_collate_gages()`. Inference: pre-builds `RoutingDataclass` once in `__init__`. |
-| `geodatazoo/merit.py` | `Merit(BaseGeoDataset)` — MERIT-Hydro dataset. Uses integer COMIDs, NetCDF attributes, Leopold & Maddock geometry (no observed top_width/side_slope). Muskingum x fixed at 0.3. |
-| `geodatazoo/lynker_hydrofabric.py` | `LynkerHydrofabric(BaseGeoDataset)` — Lynker v2.2 dataset. Uses `"cat-{id}"` divide IDs, icechunk attributes, observed trapezoid geometry, Muskingum x from zarr. |
+| `geodatazoo/merit.py` | `Merit(BaseGeoDataset)` — MERIT-Hydro dataset. Uses integer COMIDs, NetCDF attributes, Leopold & Maddock geometry (no observed top_width/side_slope). |
+| `geodatazoo/lynker_hydrofabric.py` | `LynkerHydrofabric(BaseGeoDataset)` — Lynker v2.2 dataset. Uses `"cat-{id}"` divide IDs, icechunk attributes, observed trapezoid geometry. |
 | `geodatazoo/dataclasses.py` | `RoutingDataclass` — batch container (adjacency matrix, attributes, physical tensors, observations). `Dates` — temporal window management; `calculate_time_period()` for random batch sampling, `set_batch_time()` for hourly/daily ranges. |
 | `validation/configs.py` | Pydantic config models: `Config`, `DataSources`, `Params`, `Kan`, `ExperimentConfig`, `AttributeMinimums`. Also `validate_config()` entry point. |
 | `validation/enums.py` | `GeoDataset` enum (merit, lynker_hydrofabric) with `get_dataset_class()` factory. `Mode` enum (training, testing, routing). |
@@ -300,7 +301,6 @@ Pre-builds `RoutingDataclass` once in `__init__()`. Three modes (priority order)
 | Divide IDs | Integer COMIDs | `"cat-{id}"` strings |
 | Attributes | NetCDF (`xr.open_mfdataset`) | Icechunk (`read_ic`) |
 | Geometry | Leopold & Maddock only | Observed top_width, side_slope |
-| Muskingum x | Fixed 0.3 | From zarr (per-segment) |
 | Area field | `log10_uparea` | `log_uparea` |
 
 ---
@@ -398,7 +398,9 @@ All config in `pyproject.toml`. Pre-commit hooks in `.pre-commit-config.yaml`.
 - **Parameter denormalization**: KAN outputs [0,1] → physical bounds.
   Linear: `val = sigmoid * (max - min) + min`.
   Log-space (for `p_spatial`): `val = exp(sigmoid * (log_max - log_min) + log_min)`.
-- **Celerity factor**: wave speed = velocity * 5/3.
+- **Celerity**: `c = v·β`, `β = 5/3 − (4/3)·A·√(1+z²)/(T·P)` (trapezoid-exact;
+  the wide-rectangular 5/3 limit was removed 2026-08-17). Muskingum X is
+  Cunge-derived per timestep: `X = clamp(0.5·(1 − Q/(T·S·c·L)), 0, 0.5)`.
 - `__init__.py` files use `F401` ignore for re-exports.
 
 ### Data Stores

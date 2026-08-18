@@ -274,7 +274,6 @@ class Merit(BaseGeoDataset):
             slope=flowpath_tensors["slope"],
             side_slope=flowpath_tensors["side_slope"],
             top_width=flowpath_tensors["top_width"],
-            x=flowpath_tensors["x"],
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
@@ -325,9 +324,6 @@ class Merit(BaseGeoDataset):
                 row_means=self.phys_means[1],
             ),
         }
-        flowpath_tensors["x"] = torch.full_like(
-            flowpath_tensors["length"], fill_value=0.3, dtype=torch.float32
-        )
         flowpath_tensors["top_width"] = torch.empty(0)
         flowpath_tensors["side_slope"] = torch.empty(0)
 
@@ -400,7 +396,6 @@ class Merit(BaseGeoDataset):
             slope=flowpath_tensors["slope"],
             side_slope=flowpath_tensors["side_slope"],
             top_width=flowpath_tensors["top_width"],
-            x=flowpath_tensors["x"],
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
@@ -438,7 +433,6 @@ class Merit(BaseGeoDataset):
             slope=flowpath_tensors["slope"],
             side_slope=flowpath_tensors["side_slope"],
             top_width=flowpath_tensors["top_width"],
-            x=flowpath_tensors["x"],
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
@@ -507,7 +501,6 @@ class Merit(BaseGeoDataset):
             slope=flowpath_tensors["slope"],
             side_slope=flowpath_tensors["side_slope"],
             top_width=flowpath_tensors["top_width"],
-            x=flowpath_tensors["x"],
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,

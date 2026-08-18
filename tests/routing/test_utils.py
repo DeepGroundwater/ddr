@@ -88,7 +88,6 @@ class MockRoutingDataclass:
         self.slope = torch.ones(num_reaches, device=device) * 0.001
         self.top_width = torch.ones(num_reaches, device=device) * 10.0
         self.side_slope = torch.ones(num_reaches, device=device) * 2.0
-        self.x = torch.ones(num_reaches, device=device) * 0.2
 
         # Add some variability
         self.length += torch.randn(num_reaches, device=device) * 100
@@ -100,7 +99,6 @@ class MockRoutingDataclass:
         self.slope = torch.clamp(self.slope, min=0.001)
         self.top_width = torch.clamp(self.top_width, min=1.0)
         self.side_slope = torch.clamp(self.side_slope, min=0.5)
-        self.x = torch.clamp(self.x, min=0.1, max=0.4)
 
         # mock spatial attributes
         attrs = [

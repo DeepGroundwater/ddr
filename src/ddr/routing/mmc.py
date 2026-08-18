@@ -191,6 +191,11 @@ class MuskingumCunge:
         # Time step (1 hour in seconds)
         self.t = torch.tensor(3600.0, device=self.device)
 
+        # Negative-solve instrumentation: the clamp in route_timestep rewrites
+        # negative solve output to discharge_lb, creating mass. Count first.
+        self.neg_solve_count: int = 0
+        self.neg_solve_total: int = 0
+
         # Routing parameters
         self.n: torch.Tensor | None = None
         self.q_spatial: torch.Tensor | None = None
@@ -411,6 +416,9 @@ class MuskingumCunge:
             )
             output[:, 0] = torch.clamp(initial, min=self.discharge_lb)
 
+        self.neg_solve_count = 0
+        self.neg_solve_total = 0
+
         # Route through time series
         for timestep in tqdm(
             range(1, num_timesteps),
@@ -439,6 +447,13 @@ class MuskingumCunge:
                 )
 
             self._discharge_t = q_t1
+
+        if self.neg_solve_total > 0 and self.neg_solve_count > 0:
+            rate = 100.0 * self.neg_solve_count / self.neg_solve_total
+            log.info(
+                f"negative solve output: {self.neg_solve_count}/{self.neg_solve_total} "
+                f"reach-timesteps ({rate:.4f}%) clamped to discharge_lb"
+            )
 
         return output
 
@@ -552,6 +567,10 @@ class MuskingumCunge:
             False,  # unit_diagonal=False
             self.device,
         )
+
+        # Count negatives BEFORE the clamp rewrites them (mass creation)
+        self.neg_solve_count += int((solution < 0).sum().item())
+        self.neg_solve_total += solution.numel()
 
         # Clamp solution to physical bounds
         q_t1 = torch.clamp(solution, min=self.discharge_lb)

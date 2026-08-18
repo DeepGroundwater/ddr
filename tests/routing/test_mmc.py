@@ -634,3 +634,41 @@ class TestComputeHotstartDischarge:
         mc.setup_inputs(hydrofabric, streamflow, spatial_params, carry_state=True)
 
         assert torch.allclose(mc._discharge_t, torch.ones(num_reaches) * 99.0)
+
+
+class TestNegativeSolveCounter:
+    """The solve-output clamp silently creates mass; count violations first."""
+
+    def test_counter_counts_negative_solutions(self) -> None:
+        cfg = create_mock_config()
+        mc = MuskingumCunge(cfg, device="cpu")
+        hydrofabric = create_mock_routing_dataclass(num_reaches=4)
+        streamflow = create_mock_streamflow(num_timesteps=6, num_reaches=4)
+        spatial_params = create_mock_spatial_parameters(num_reaches=4)
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+
+        def mock_solver(*args: Any, **kwargs: Any) -> torch.Tensor:
+            # Two negative entries per timestep
+            return torch.tensor([-1.0, 2.0, -0.5, 3.0])
+
+        with patch("ddr.routing.mmc.triangular_sparse_solve", side_effect=mock_solver):
+            mc.forward()
+
+        # 5 routed timesteps (num_timesteps - 1), 2 negatives of 4 reaches each
+        assert mc.neg_solve_total == 5 * 4
+        assert mc.neg_solve_count == 5 * 2
+
+    def test_counter_resets_between_forwards(self) -> None:
+        cfg = create_mock_config()
+        mc = MuskingumCunge(cfg, device="cpu")
+        hydrofabric = create_mock_routing_dataclass(num_reaches=4)
+        streamflow = create_mock_streamflow(num_timesteps=6, num_reaches=4)
+        spatial_params = create_mock_spatial_parameters(num_reaches=4)
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+
+        mc.forward()
+        first_total = mc.neg_solve_total
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc.forward()
+
+        assert mc.neg_solve_total == first_total  # reset, not accumulated

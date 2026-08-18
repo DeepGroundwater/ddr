@@ -204,11 +204,15 @@ def train(cfg: Config) -> Path:
         )[:, :-2]
 
         w = cfg.experiment.warmup
-        # Mirror scripts/train.py loss: l1 over (warmup:) slice, transposed
-        loss = torch.nn.functional.l1_loss(
-            input=daily.transpose(0, 1)[w:].unsqueeze(2),
-            target=obs.transpose(0, 1)[w:].unsqueeze(2),
-        )
+        daily_w = daily.transpose(0, 1)[w:].unsqueeze(2)  # (T-w, N, 1)
+        obs_w = obs.transpose(0, 1)[w:].unsqueeze(2)  # (T-w, N, 1)
+
+        # Per-timestep NaN guard: mask out any obs day that is NaN so those
+        # timesteps do not contribute to the gradient.  This is safer than
+        # scripts/train.py's gage-level drop (isnull().any(dim="time")) which
+        # would silently zero the loss for the single gauge if it has any gap.
+        mask = torch.isfinite(obs_w)
+        loss = torch.nn.functional.l1_loss(daily_w[mask], obs_w[mask])
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(nn.parameters(), max_norm=1.0)

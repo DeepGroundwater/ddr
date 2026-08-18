@@ -3,49 +3,78 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 
+from ddr.io.functions import downsample
 from ddr.scripts_utils import (
     compute_daily_runoff,
     load_checkpoint,
     resolve_learning_rate,
     safe_mean,
     safe_percentile,
+    tau_trim_and_downsample,
 )
 
 
-class TestComputeDailyRunoff:
-    """Tests for compute_daily_runoff()."""
+class TestTauTrimAndDownsample:
+    """Signed-at-zero tau convention: slice [tau : -(24-tau)], day i ↔ obs day i."""
 
-    def test_compute_daily_runoff_shape(self) -> None:
-        # 5 gages, 240 hours → with tau=3, sliced = [:, 16:-8] = 216 hours → 9 days
+    def test_shape(self) -> None:
+        # 5 gages, 240 hours (10 hourly-days) → slice removes 24 h → 9 days
         hourly = torch.rand(5, 240)
-        result = compute_daily_runoff(hourly, tau=3)
-        sliced_len = 240 - 16 - 8  # 216
-        expected_days = sliced_len // 24  # 9
-        assert result.shape == (5, expected_days)
+        result = tau_trim_and_downsample(hourly, tau=9)
+        assert result.shape == (5, 9)
 
-    def test_compute_daily_runoff_known_values(self) -> None:
-        # 1 gage, 48+16+8=72 hours → sliced is 48 hours → 2 days
-        hourly = torch.ones(1, 72)
-        result = compute_daily_runoff(hourly, tau=3)
-        # flat ones → daily average = 1.0
-        assert np.allclose(result, 1.0, atol=1e-4)
+    def test_tau_zero_is_day_aligned(self) -> None:
+        # Day 0 = hours [0, 24). Encode the day index in the data.
+        hourly = torch.arange(72, dtype=torch.float32).unsqueeze(0) // 24
+        result = tau_trim_and_downsample(hourly, tau=0)
+        assert torch.allclose(result[0], torch.tensor([0.0, 1.0]))
 
-    def test_compute_daily_runoff_different_tau(self) -> None:
-        hourly = torch.rand(3, 300)
-        r0 = compute_daily_runoff(hourly, tau=0)
-        r3 = compute_daily_runoff(hourly, tau=3)
-        # Different tau → different number of days
-        assert r0.shape[1] != r3.shape[1] or r0.shape[1] == r3.shape[1]
-        # At minimum, both should produce valid output
-        assert r0.shape[0] == 3
-        assert r3.shape[0] == 3
+    def test_tau_advances_window(self) -> None:
+        # With tau=6, pooled day 0 covers hours [6, 30): 18 h of day-0 value
+        # (0.0) and 6 h of day-1 value (1.0) → mean 6/24 = 0.25.
+        hourly = torch.arange(72, dtype=torch.float32).unsqueeze(0) // 24
+        result = tau_trim_and_downsample(hourly, tau=6)
+        assert torch.allclose(result[0], torch.tensor([0.25, 1.25]))
 
-    def test_compute_daily_runoff_tensor_input(self) -> None:
+    def test_legacy_equivalence_pin(self) -> None:
+        # ddrs findings §5i: legacy tau=3 cut hours [16:-8]; the new convention
+        # cuts the same hour window at tau=16.
+        hourly = torch.rand(3, 240)
+        new = tau_trim_and_downsample(hourly, tau=16)
+        legacy_sliced = hourly[:, 16:-8]
+        legacy = downsample(legacy_sliced, rho=legacy_sliced.shape[1] // 24)
+        assert torch.allclose(new, legacy)
+
+    def test_preserves_gradients(self) -> None:
+        hourly = torch.rand(2, 120, requires_grad=True)
+        result = tau_trim_and_downsample(hourly, tau=9)
+        result.sum().backward()
+        assert hourly.grad is not None
+
+    def test_rejects_out_of_range_tau(self) -> None:
+        hourly = torch.rand(1, 96)
+        with pytest.raises(ValueError):
+            tau_trim_and_downsample(hourly, tau=24)
+        with pytest.raises(ValueError):
+            tau_trim_and_downsample(hourly, tau=-1)
+
+
+class TestComputeDailyRunoff:
+    """Numpy wrapper around tau_trim_and_downsample."""
+
+    def test_returns_numpy(self) -> None:
         hourly = torch.rand(2, 120)
-        result = compute_daily_runoff(hourly, tau=3)
+        result = compute_daily_runoff(hourly, tau=9)
         assert isinstance(result, np.ndarray)
+        assert result.shape == (2, 4)
+
+    def test_flat_input_daily_mean(self) -> None:
+        hourly = torch.ones(1, 72)
+        result = compute_daily_runoff(hourly, tau=9)
+        assert np.allclose(result, 1.0, atol=1e-4)
 
 
 class TestLoadCheckpoint:

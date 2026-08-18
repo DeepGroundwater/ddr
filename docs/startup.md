@@ -79,6 +79,7 @@ ddr --help
 ```python
 # Or verify from Python
 import ddr
+
 print(ddr.__version__)
 ```
 

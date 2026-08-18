@@ -75,7 +75,6 @@ class LynkerHydrofabric(BaseGeoDataset):
         self.zarr_slope = self.conus_adjacency["slope"][:]
         self.zarr_top_width = self.conus_adjacency["top_width"][:]
         self.zarr_side_slope = self.conus_adjacency["side_slope"][:]
-        self.zarr_muskingum_x = self.conus_adjacency["muskingum_x"][:]
         self.zarr_toid = self.conus_adjacency["toid"][:]
 
         self.phys_means = torch.tensor(
@@ -86,7 +85,6 @@ class LynkerHydrofabric(BaseGeoDataset):
                     self.zarr_slope,
                     self.zarr_top_width,
                     self.zarr_side_slope,
-                    self.zarr_muskingum_x,
                 ]
             ],
             device=self.cfg.device,
@@ -288,7 +286,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             slope=flowpath_tensors["slope"],
             side_slope=flowpath_tensors["side_slope"],
             top_width=flowpath_tensors["top_width"],
-            x=flowpath_tensors["x"],
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
@@ -345,10 +342,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             "side_slope": fill_nans(
                 torch.tensor(self.zarr_side_slope[active_indices], dtype=torch.float32),
                 row_means=self.phys_means[3],
-            ),
-            "x": fill_nans(
-                torch.tensor(self.zarr_muskingum_x[active_indices], dtype=torch.float32),
-                row_means=self.phys_means[4],
             ),
         }
 
@@ -422,7 +415,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             slope=flowpath_tensors["slope"],
             side_slope=flowpath_tensors["side_slope"],
             top_width=flowpath_tensors["top_width"],
-            x=flowpath_tensors["x"],
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
@@ -461,7 +453,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             slope=flowpath_tensors["slope"],
             side_slope=flowpath_tensors["side_slope"],
             top_width=flowpath_tensors["top_width"],
-            x=flowpath_tensors["x"],
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,
@@ -540,7 +531,6 @@ class LynkerHydrofabric(BaseGeoDataset):
             slope=flowpath_tensors["slope"],
             side_slope=flowpath_tensors["side_slope"],
             top_width=flowpath_tensors["top_width"],
-            x=flowpath_tensors["x"],
             dates=self.dates,
             adjacency_matrix=adjacency_matrix,
             normalized_spatial_attributes=normalized_spatial_attributes,

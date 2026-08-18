@@ -114,8 +114,15 @@ class Params(BaseModel):
         description="Default parameter values for physical processes when not learned",
     )
     tau: int = Field(
-        default=3,
-        description="Routing time step adjustment parameter to handle double routing and timezone differences",
+        default=9,
+        ge=0,
+        lt=24,
+        description=(
+            "Signed-at-zero timing advance: routed output is advanced tau hours "
+            "before daily pooling, pooled day i scores against obs day i. "
+            "Default 9 is the measured CONUS optimum (ddrs tau sweep, 2026-08-08). "
+            "Legacy [13+tau : -11+tau] convention removed 2026-08-17."
+        ),
     )
     save_path: Path = Field(
         default=Path("./"), description="Directory path where model outputs and checkpoints will be saved"

@@ -72,8 +72,8 @@ The hot-start is implemented in `compute_hotstart_discharge()` in `src/ddr/routi
 from ddr.routing.mmc import compute_hotstart_discharge
 
 discharge_t0 = compute_hotstart_discharge(
-    q_prime_t0=q_prime[0],   # lateral inflow at t=0
-    mapper=mapper,           # PatternMapper from the network
+    q_prime_t0=q_prime[0],  # lateral inflow at t=0
+    mapper=mapper,  # PatternMapper from the network
     discharge_lb=discharge_lb,
     device=device,
 )

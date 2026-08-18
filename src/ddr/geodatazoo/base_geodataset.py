@@ -225,7 +225,6 @@ class BaseGeoDataset(Dataset, ABC):
 
             * ``"length"`` — reach length in **metres**.
             * ``"slope"`` — dimensionless channel slope.
-            * ``"x"`` — Muskingum weighting factor (0 ≤ x ≤ 0.5).
             * ``"top_width"`` — bankfull top width in metres; set to
               ``torch.empty(0)`` when using Leopold & Maddock geometry
               (MERIT).

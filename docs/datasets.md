@@ -29,13 +29,13 @@ ds = xr.Dataset(
         "Qr": (["time", "divide_id"], qr_data),  # Lateral inflow in m³/s
     },
     coords={
-        "time": time_index,           # Daily timestamps
-        "divide_id": divide_ids,      # Catchment identifiers
+        "time": time_index,  # Daily timestamps
+        "divide_id": divide_ids,  # Catchment identifiers
     },
     attrs={
         "units": "m^3/s",
         "source": "your_model_name",
-    }
+    },
 )
 ```
 
@@ -88,13 +88,13 @@ The NOAA-OWP Hydrofabric v2.2 is the recommended geospatial dataset for CONUS ap
 ```python
 # Flowpath attributes
 flowpath_attrs = [
-    "id",              # Waterbody identifier (wb-XXXXX)
-    "toid",            # Downstream identifier
-    "Length_m",        # Channel length in meters
-    "So",              # Channel slope (dimensionless)
-    "TopWdth",         # Top width in meters
-    "ChSlp",           # Channel side slope
-    "MusX",            # Muskingum X parameter
+    "id",  # Waterbody identifier (wb-XXXXX)
+    "toid",  # Downstream identifier
+    "Length_m",  # Channel length in meters
+    "So",  # Channel slope (dimensionless)
+    "TopWdth",  # Top width in meters
+    "ChSlp",  # Channel side slope
+    "MusX",  # Muskingum X parameter
 ]
 ```
 
@@ -203,7 +203,7 @@ ds = xr.Dataset(
     },
     coords={
         "divide_id": divide_ids,  # Format: "cat-XXXXX"
-    }
+    },
 )
 ```
 
@@ -241,7 +241,7 @@ ds = xr.Dataset(
     coords={
         "time": time_index,
         "gage_id": gage_ids,  # 8-digit zero-padded strings
-    }
+    },
 )
 ```
 

@@ -23,12 +23,11 @@ The `ddr_engine` package exports I/O functions at the package level:
 ```python
 from ddr_engine import (
     # Primary API (recommended)
-    coo_to_zarr,      # Write COO matrix (pass geodataset name)
-    coo_from_zarr,    # Read COO matrix (auto-detects geodataset)
+    coo_to_zarr,  # Write COO matrix (pass geodataset name)
+    coo_from_zarr,  # Read COO matrix (auto-detects geodataset)
     coo_to_zarr_group,  # Write gauge subset
-
     # Converter registry
-    list_geodatasets,    # List available geodatasets
+    list_geodatasets,  # List available geodatasets
     register_converter,  # Register custom geodataset
 )
 ```

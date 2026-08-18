@@ -214,9 +214,6 @@ class RoutingDataclass:
     top_width : torch.Tensor or None
         Shape ``(N,)``.  Bankfull top width in metres.  Set to
         ``torch.empty(0)`` when using Leopold & Maddock geometry (e.g. MERIT).
-    x : torch.Tensor or None
-        Shape ``(N,)``.  Muskingum weighting factor (0 ≤ x ≤ 0.5); controls
-        the degree of diffusion in the MC scheme.
     dates : Dates or None
         Time metadata for the current batch, including the daily and hourly
         time ranges and the integer indices into the streamflow store.
@@ -254,7 +251,6 @@ class RoutingDataclass:
     slope: torch.Tensor | None = field(default=None)
     side_slope: torch.Tensor | None = field(default=None)
     top_width: torch.Tensor | None = field(default=None)
-    x: torch.Tensor | None = field(default=None)
     dates: Dates | None = field(default=None)
     normalized_spatial_attributes: torch.Tensor | None = field(default=None)
     observations: xr.Dataset | None = field(default=None)

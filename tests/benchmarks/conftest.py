@@ -479,7 +479,6 @@ def create_routing_dataclass(sandbox_zarr_path: Path, num_reaches: int = 5):
         adjacency_matrix=adjacency_matrix,
         length=torch.full((num_reaches,), 5000.0),  # 5km reaches
         slope=torch.full((num_reaches,), 0.001),  # 1m per km
-        x=torch.full((num_reaches,), 0.25),  # Muskingum x weighting factor
         top_width=torch.empty(0),  # Learned via spatial_params
         side_slope=torch.empty(0),  # Learned via spatial_params
         divide_ids=np.array(ts_order),

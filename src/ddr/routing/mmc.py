@@ -161,10 +161,16 @@ def _get_trapezoid_velocity(
     top_width = _apply_data_override(geom["top_width"], data_top_width)
     side_slope = _apply_data_override(geom["side_slope"], data_side_slope)
 
-    # Compute celerity from velocity (routing-specific, not in geometry module)
+    # Kinematic celerity c = dQ/dA = v·β for the trapezoid actually built above.
+    # β from the INTERNAL geometry (pre data-override) so celerity stays
+    # consistent with the section that produced the velocity. The old constant
+    # 5/3 is the wide-rectangular limit — 22-27% high on real channels (ddrs).
     v = geom["velocity"]
     c_ = torch.clamp(v, min=velocity_lb, max=torch.tensor(15.0, device=v.device))
-    c = c_ * 5 / 3
+    beta = 5.0 / 3.0 - (4.0 / 3.0) * geom["cross_sectional_area"] * torch.sqrt(
+        1.0 + geom["side_slope"] ** 2
+    ) / (geom["top_width"] * geom["wetted_perimeter"])
+    c = c_ * beta
     return c, top_width, side_slope
 
 
@@ -191,6 +197,11 @@ class MuskingumCunge:
         # Time step (1 hour in seconds)
         self.t = torch.tensor(3600.0, device=self.device)
 
+        # Negative-solve instrumentation: the clamp in route_timestep rewrites
+        # negative solve output to discharge_lb, creating mass. Count first.
+        self.neg_solve_count: int = 0
+        self.neg_solve_total: int = 0
+
         # Routing parameters
         self.n: torch.Tensor | None = None
         self.q_spatial: torch.Tensor | None = None
@@ -215,7 +226,6 @@ class MuskingumCunge:
         self.side_slope: torch.Tensor | None = None  # Derived per-timestep in route_timestep()
         self._data_top_width: torch.Tensor | None = None  # Observed data for override
         self._data_side_slope: torch.Tensor | None = None  # Observed data for override
-        self.x_storage: torch.Tensor | None = None
         self.observations: Any = None
         self.output_indices: list[Any] | None = None
         self.gage_catchment: list[str] | None = None
@@ -286,7 +296,6 @@ class MuskingumCunge:
             routing_dataclass.slope.to(self.device).to(torch.float32),
             min=self.cfg.params.attribute_minimums["slope"],
         )
-        self.x_storage = routing_dataclass.x.to(self.device).to(torch.float32)
 
         # Store observed geometry for data override in _get_trapezoid_velocity
         if routing_dataclass.top_width is not None and routing_dataclass.top_width.numel() > 0:
@@ -411,6 +420,9 @@ class MuskingumCunge:
             )
             output[:, 0] = torch.clamp(initial, min=self.discharge_lb)
 
+        self.neg_solve_count = 0
+        self.neg_solve_total = 0
+
         # Route through time series
         for timestep in tqdm(
             range(1, num_timesteps),
@@ -440,6 +452,13 @@ class MuskingumCunge:
 
             self._discharge_t = q_t1
 
+        if self.neg_solve_total > 0 and self.neg_solve_count > 0:
+            rate = 100.0 * self.neg_solve_count / self.neg_solve_total
+            log.info(
+                f"negative solve output: {self.neg_solve_count}/{self.neg_solve_total} "
+                f"reach-timesteps ({rate:.4f}%) clamped to discharge_lb"
+            )
+
         return output
 
     def create_pattern_mapper(self) -> tuple[PatternMapper, torch.Tensor, torch.Tensor]:
@@ -458,29 +477,31 @@ class MuskingumCunge:
         return mapper, dense_rows, dense_cols
 
     def calculate_muskingum_coefficients(
-        self, length: torch.Tensor, velocity: torch.Tensor, x_storage: torch.Tensor
+        self, length: torch.Tensor, celerity: torch.Tensor, x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Calculate Muskingum-Cunge routing coefficients.
+
+        c1 + c2 + c3 = 1 exactly for any (K, X) — mass conservation.
 
         Parameters
         ----------
         length : torch.Tensor
             Channel length
-        velocity : torch.Tensor
-            Flow velocity
-        x_storage : torch.Tensor
-            Storage coefficient
+        celerity : torch.Tensor
+            Kinematic wave celerity (v·β)
+        x : torch.Tensor
+            Cunge-derived Muskingum weighting factor, in [0, 0.5]
 
         Returns
         -------
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
             Routing coefficients c1, c2, c3, c4
         """
-        k = torch.div(length, velocity)
-        denom = (2.0 * k * (1.0 - x_storage)) + self.t
-        c_1 = (self.t - (2.0 * k * x_storage)) / denom
-        c_2 = (self.t + (2.0 * k * x_storage)) / denom
-        c_3 = ((2.0 * k * (1.0 - x_storage)) - self.t) / denom
+        k = torch.div(length, celerity)
+        denom = (2.0 * k * (1.0 - x)) + self.t
+        c_1 = (self.t - (2.0 * k * x)) / denom
+        c_2 = (self.t + (2.0 * k * x)) / denom
+        c_3 = ((2.0 * k * (1.0 - x)) - self.t) / denom
         c_4 = (2.0 * self.t) / denom
         return c_1, c_2, c_3, c_4
 
@@ -509,7 +530,6 @@ class MuskingumCunge:
             or self.slope is None
             or self.q_spatial is None
             or self.length is None
-            or self.x_storage is None
             or self.network is None
         ):
             raise ValueError("Required attributes not set. Call setup_inputs() first.")
@@ -528,8 +548,15 @@ class MuskingumCunge:
             _btm_width_lb=self.bottom_width_lb,
         )
 
-        # Calculate routing coefficients
-        c_1, c_2, c_3, c_4 = self.calculate_muskingum_coefficients(self.length, velocity, self.x_storage)
+        # Cunge X: match numerical diffusion c·L·(0.5−X) to physical
+        # diffusivity Q/(2·T·S). Clamped to [0, 0.5]; denominators are safe —
+        # slope/top_width/discharge are already clamped to positive floors.
+        x_cunge = torch.clamp(
+            0.5 * (1.0 - self._discharge_t / (self.top_width * self.slope * velocity * self.length)),
+            min=0.0,
+            max=0.5,
+        )
+        c_1, c_2, c_3, c_4 = self.calculate_muskingum_coefficients(self.length, velocity, x_cunge)
 
         # Calculate inflow from upstream
         i_t = torch.matmul(self.network, self._discharge_t)
@@ -552,6 +579,10 @@ class MuskingumCunge:
             False,  # unit_diagonal=False
             self.device,
         )
+
+        # Count negatives BEFORE the clamp rewrites them (mass creation)
+        self.neg_solve_count += int((solution < 0).sum().item())
+        self.neg_solve_total += solution.numel()
 
         # Clamp solution to physical bounds
         q_t1 = torch.clamp(solution, min=self.discharge_lb)

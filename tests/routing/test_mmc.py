@@ -60,10 +60,8 @@ class TestMuskingumCungeInputSetup:
         # Check spatial attributes
         assert mc.length is not None
         assert mc.slope is not None
-        assert mc.x_storage is not None
         assert_tensor_properties(mc.length, (10,))
         assert_tensor_properties(mc.slope, (10,))
-        assert_tensor_properties(mc.x_storage, (10,))
         # top_width and side_slope are now derived per-timestep in route_timestep()
 
         # Check parameter denormalization
@@ -112,11 +110,9 @@ class TestMuskingumCungeInputSetup:
         # Check that all tensors are on correct device
         assert mc.length is not None
         assert mc.slope is not None
-        assert mc.x_storage is not None
         assert mc.q_prime is not None
         assert mc.length.device.type == "cpu"
         assert mc.slope.device.type == "cpu"
-        assert mc.x_storage.device.type == "cpu"
         assert mc.q_prime.device.type == "cpu"
         # top_width and side_slope are derived per-timestep in route_timestep()
 
@@ -190,10 +186,10 @@ class TestMuskingumCungeCoefficients:
         mc = MuskingumCunge(cfg, device="cpu")
 
         length = torch.tensor([1000.0, 1500.0, 2000.0])
-        velocity = torch.tensor([1.0, 1.5, 2.0])
-        x_storage = torch.tensor([0.2, 0.25, 0.3])
+        celerity = torch.tensor([1.0, 1.5, 2.0])
+        x = torch.tensor([0.2, 0.25, 0.3])
 
-        c_1, c_2, c_3, c_4 = mc.calculate_muskingum_coefficients(length, velocity, x_storage)
+        c_1, c_2, c_3, c_4 = mc.calculate_muskingum_coefficients(length, celerity, x)
 
         # Check output shapes
         assert_tensor_properties(c_1, (3,))
@@ -217,10 +213,10 @@ class TestMuskingumCungeCoefficients:
 
         # Test with very small velocity
         length = torch.tensor([1000.0])
-        velocity = torch.tensor([0.01])
-        x_storage = torch.tensor([0.2])
+        celerity = torch.tensor([0.01])
+        x = torch.tensor([0.2])
 
-        c_1, c_2, c_3, c_4 = mc.calculate_muskingum_coefficients(length, velocity, x_storage)
+        c_1, c_2, c_3, c_4 = mc.calculate_muskingum_coefficients(length, celerity, x)
 
         assert_no_nan_or_inf(c_1, "c_1_small_velocity")
         assert_no_nan_or_inf(c_2, "c_2_small_velocity")
@@ -634,3 +630,41 @@ class TestComputeHotstartDischarge:
         mc.setup_inputs(hydrofabric, streamflow, spatial_params, carry_state=True)
 
         assert torch.allclose(mc._discharge_t, torch.ones(num_reaches) * 99.0)
+
+
+class TestNegativeSolveCounter:
+    """The solve-output clamp silently creates mass; count violations first."""
+
+    def test_counter_counts_negative_solutions(self) -> None:
+        cfg = create_mock_config()
+        mc = MuskingumCunge(cfg, device="cpu")
+        hydrofabric = create_mock_routing_dataclass(num_reaches=4)
+        streamflow = create_mock_streamflow(num_timesteps=6, num_reaches=4)
+        spatial_params = create_mock_spatial_parameters(num_reaches=4)
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+
+        def mock_solver(*args: Any, **kwargs: Any) -> torch.Tensor:
+            # Two negative entries per timestep
+            return torch.tensor([-1.0, 2.0, -0.5, 3.0])
+
+        with patch("ddr.routing.mmc.triangular_sparse_solve", side_effect=mock_solver):
+            mc.forward()
+
+        # 5 routed timesteps (num_timesteps - 1), 2 negatives of 4 reaches each
+        assert mc.neg_solve_total == 5 * 4
+        assert mc.neg_solve_count == 5 * 2
+
+    def test_counter_resets_between_forwards(self) -> None:
+        cfg = create_mock_config()
+        mc = MuskingumCunge(cfg, device="cpu")
+        hydrofabric = create_mock_routing_dataclass(num_reaches=4)
+        streamflow = create_mock_streamflow(num_timesteps=6, num_reaches=4)
+        spatial_params = create_mock_spatial_parameters(num_reaches=4)
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+
+        mc.forward()
+        first_total = mc.neg_solve_total
+        mc.setup_inputs(hydrofabric, streamflow, spatial_params)
+        mc.forward()
+
+        assert mc.neg_solve_total == first_total  # reset, not accumulated

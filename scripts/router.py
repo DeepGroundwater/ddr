@@ -167,7 +167,7 @@ def route_trained_model(cfg: Config, flow: streamflow, routing_model: dmc, nn: k
             predictions[:, dataset.dates.hourly_indices] = dmc_output["runoff"].cpu().numpy()
 
     daily_runoff = compute_daily_runoff(torch.tensor(predictions), cfg.params.tau)
-    time_range = dataset.dates.daily_time_range[1:-1]
+    time_range = dataset.dates.daily_time_range[:-2]
 
     pred_da = xr.DataArray(
         data=daily_runoff,

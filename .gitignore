@@ -204,6 +204,9 @@ examples/scratch
 # claude (keep .claude/ private, commit project-level CLAUDE.md)
 .claude/
 
+# LLM-maintained wiki (derived from src/, rebuilt by agent on demand)
+wiki/
+
 # built docs
 site/
 

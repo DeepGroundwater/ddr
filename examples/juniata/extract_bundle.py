@@ -130,12 +130,14 @@ def main() -> None:
     comids = sub["order"]
 
     # --- 2. juniata_conus_adjacency.zarr ---
+    n_reaches = len(sub["order"])
     cz = zarr.open_group(str(out / "juniata_conus_adjacency.zarr"), mode="w")
     for key in ("indices_0", "indices_1", "order"):
         cz.create_array(key, data=sub[key] if key != "order" else sub["order"])
     cz.create_array("values", data=np.ones(len(sub["indices_0"]), dtype=np.uint8))
     cz.create_array("length_m", data=sub["length_m"])
     cz.create_array("slope", data=sub["slope"])
+    cz.attrs.update({"format": "COO", "shape": [n_reaches, n_reaches], "geodataset": "merit"})
 
     # --- 3. juniata_gages_adjacency.zarr (single gage group, same schema) ---
     gz = zarr.open_group(str(out / "juniata_gages_adjacency.zarr"), mode="w")

@@ -26,6 +26,8 @@ walks the full physics and training chain on a laptop-sized bundle.
 · 4. Why differentiable · 5. Train & evaluate · 6. The road to end-to-end.""")
 
 # --- 1. The basin ---
+md("## 1. The basin")
+
 code("""import sys
 from pathlib import Path
 
@@ -62,10 +64,11 @@ mpl_draw(g, ax=ax, node_size=12, arrow_size=4)
 ax.set_title("Juniata reach network (edges point downstream)")""")
 
 code("""obs = batch.observations.streamflow.values[0]
-t = dataset.dates.daily_time_range
+t = dataset.dates.batch_daily_time_range[: len(obs)]
 fig, ax = plt.subplots(figsize=(12, 3))
-ax.plot(t[: len(obs)], obs, lw=0.5)
-ax.set_ylabel("Q (m³/s)"); ax.set_title("Observed discharge at Newport")""")
+ax.plot(t, obs, lw=0.5)
+ax.set_ylabel("Q (m³/s)")
+ax.set_title("Observed discharge at Newport")""")
 
 md("""At 8,657 km², the Juniata sits squarely in the 5–10 k km² drainage-area band
 where DDR's area-stratified skill analysis shows the largest gain over the
@@ -94,9 +97,11 @@ $K = L/c$ is the reach travel time; everything hinges on celerity $c$ and $X$.""
 
 code("""# Verify the mass identity on the actual implementation
 from ddr.routing.mmc import MuskingumCunge
+
 mc = MuskingumCunge(cfg, device="cpu")
 c1, c2, c3, c4 = mc.calculate_muskingum_coefficients(
-    length=torch.tensor([5000.0]), celerity=torch.tensor([1.2]), x=torch.tensor([0.4]))
+    length=torch.tensor([5000.0]), celerity=torch.tensor([1.2]), x=torch.tensor([0.4])
+)
 print(c1 + c2 + c3)  # tensor([1.])""")
 
 md(r"""### Trapezoid-exact celerity
@@ -112,12 +117,16 @@ code("""def beta(b, y, z):
     P = b + 2 * y * np.sqrt(1 + z**2)
     return 5 / 3 - (4 / 3) * A * np.sqrt(1 + z**2) / (T * P)
 
+
 by = np.logspace(-2, 3, 200)
 fig, ax = plt.subplots(figsize=(7, 4))
 for z in [0.0, 1.0, 2.0]:
     ax.semilogx(by, beta(by, 1.0, z), label=f"z={z}")
-ax.axhline(5 / 3, ls="--", c="k", lw=0.7); ax.axhline(4 / 3, ls=":", c="gray", lw=0.7)
-ax.set_xlabel("b / y"); ax.set_ylabel("β"); ax.legend()
+ax.axhline(5 / 3, ls="--", c="k", lw=0.7)
+ax.axhline(4 / 3, ls=":", c="gray", lw=0.7)
+ax.set_xlabel("b / y")
+ax.set_ylabel("β")
+ax.legend()
 ax.set_title("β is non-monotone in b/y and NOT bounded below by 4/3")""")
 
 md(r"""### Cunge X: matching numerical to physical diffusion
@@ -148,16 +157,22 @@ Cunge X, and β back into the KAN weights — one autograd chain.""")
 
 code("""from ddr import dmc, kan, streamflow
 
-nn = kan(input_var_names=cfg.kan.input_var_names,
-         learnable_parameters=cfg.kan.learnable_parameters,
-         hidden_size=cfg.kan.hidden_size, num_hidden_layers=cfg.kan.num_hidden_layers,
-         grid=cfg.kan.grid, k=cfg.kan.k, seed=cfg.seed, device="cpu")
+nn = kan(
+    input_var_names=cfg.kan.input_var_names,
+    learnable_parameters=cfg.kan.learnable_parameters,
+    hidden_size=cfg.kan.hidden_size,
+    num_hidden_layers=cfg.kan.num_hidden_layers,
+    grid=cfg.kan.grid,
+    k=cfg.kan.k,
+    seed=cfg.seed,
+    device="cpu",
+)
 routing = dmc(cfg=cfg, device="cpu")
 flow = streamflow(cfg)
 
 dataset.dates.calculate_time_period()
 b = dataset.collate_fn(list(dataset.gage_ids))
-q_prime = flow(routing_dataclass=b)          # <-- future runoff model plugs in HERE
+q_prime = flow(routing_dataclass=b)  # <-- future runoff model plugs in HERE
 params = nn(inputs=b.normalized_spatial_attributes)
 out = routing(routing_dataclass=b, spatial_parameters=params, streamflow=q_prime)
 loss = out["runoff"].mean()
@@ -166,9 +181,11 @@ g = [p.grad.abs().mean().item() for p in nn.parameters() if p.grad is not None]
 print(f"{len(g)} KAN tensors received gradients; mean |grad| {np.mean(g):.2e}")""")
 
 # --- 5. Train & evaluate ---
+md("## 5. Train & evaluate")
+
 code("""from examples.juniata.train_and_test import summed_qprime_baseline, test, train
 
-cfg = make_config(bundle_dir=BUNDLE, epochs=1)   # fast mode; raise to 30 for the README numbers
+cfg = make_config(bundle_dir=BUNDLE, epochs=1)  # fast mode; raise to 30 for the README numbers
 ckpt = train(cfg)
 result = test(cfg, ckpt)
 baseline = summed_qprime_baseline(cfg)
@@ -180,7 +197,8 @@ sl = slice(0, 730)
 ax.plot(result.time[sl], result.observations[0, sl], "k", lw=0.8, label="observed")
 ax.plot(result.time[sl], result.predictions[0, sl], "C0", lw=0.8, label="DDR routed")
 ax.plot(baseline.time[sl], baseline.predictions[0, sl], "C1", lw=0.6, ls="--", label="summed q'")
-ax.legend(); ax.set_ylabel("Q (m³/s)")""")
+ax.legend()
+ax.set_ylabel("Q (m³/s)")""")
 
 # --- 6. Road to end-to-end ---
 md("""## 6. The road to end-to-end

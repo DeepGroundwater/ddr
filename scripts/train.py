@@ -10,9 +10,9 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, RandomSampler
 
-from ddr import ddr_functions, dmc, kan, streamflow
+from ddr import dmc, kan, streamflow
 from ddr._version import __version__
-from ddr.scripts_utils import load_checkpoint, resolve_learning_rate
+from ddr.scripts_utils import load_checkpoint, resolve_learning_rate, tau_trim_and_downsample
 from ddr.validation import Config, Metrics, plot_time_series, utils, validate_config
 
 log = logging.getLogger(__name__)
@@ -75,11 +75,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                 }
                 dmc_output = routing_model(**dmc_kwargs)
 
-                num_days = len(dmc_output["runoff"][0][13 : (-11 + cfg.params.tau)]) // 24
-                daily_runoff = ddr_functions.downsample(
-                    dmc_output["runoff"][:, 13 : (-11 + cfg.params.tau)],
-                    rho=num_days,
-                )
+                daily_runoff = tau_trim_and_downsample(dmc_output["runoff"], cfg.params.tau)
 
                 nan_mask = routing_dataclass.observations.isnull().any(dim="time")
                 np_nan_mask = nan_mask.streamflow.values
@@ -87,7 +83,7 @@ def train(cfg: Config, flow: streamflow, routing_model: dmc, nn: kan) -> None:
                 filtered_ds = routing_dataclass.observations.where(~nan_mask, drop=True)
                 filtered_observations = torch.tensor(
                     filtered_ds.streamflow.values, device=cfg.device, dtype=torch.float32
-                )[:, 1:-1]  # Cutting off days to match with realigned timesteps
+                )[:, :-2]  # Pooled day i ↔ obs day i; last 2 obs days have no pooled window
 
                 filtered_predictions = daily_runoff[~np_nan_mask]
 

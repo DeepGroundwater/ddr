@@ -15,31 +15,62 @@ from ddr.io.functions import downsample
 log = logging.getLogger(__name__)
 
 
-def compute_daily_runoff(
+def tau_trim_and_downsample(
     hourly_predictions: torch.Tensor,
     tau: int,
-) -> np.ndarray:
-    """Slice hourly predictions with tau-dependent boundary trimming, downsample to daily.
+) -> torch.Tensor:
+    """Slice hourly predictions on the signed-at-zero tau convention, pool to daily.
 
-    The slicing removes boundary artifacts from timezone/routing alignment:
-    - Start index: 13 + tau (skip spin-up + timezone offset)
-    - End index: -11 + tau (trim trailing edge)
+    tau is the number of hours the routed output is advanced before daily
+    scoring (dMC-Juniata's sign; tau=0 is day-aligned): the slice is
+    ``[tau : -(24 - tau)]`` and pooled day *i* aligns with calendar day *i* of
+    the batch window. Ported from ddrs (tau-sweep findings §5i); the legacy
+    ``[13+tau : -11+tau]`` convention with shipped tau=3 was signed −8 —
+    mis-set in the wrong direction. Legacy pin: new tau=16 cuts the same hour
+    window as legacy tau=3.
+
+    Preserves autograd — used directly in the training loss path.
 
     Parameters
     ----------
     hourly_predictions : torch.Tensor
         Hourly discharge, shape (num_gages, num_hours).
     tau : int
-        Routing time step adjustment (typically 3).
+        Hours of advance, ``0 <= tau < 24``. Default in config is 9 (measured
+        optimum for the flagship Q' sources; per-source optima differ — the
+        aorc2f-lumped store measured ≈ −8, outside the runtime range).
+
+    Returns
+    -------
+    torch.Tensor
+        Daily discharge, shape (num_gages, num_days).
+    """
+    if not 0 <= tau < 24:
+        raise ValueError(f"tau must be in [0, 24), got {tau}")
+    sliced = hourly_predictions[:, tau : -(24 - tau)]
+    num_days = sliced.shape[1] // 24
+    return downsample(sliced, rho=num_days)
+
+
+def compute_daily_runoff(
+    hourly_predictions: torch.Tensor,
+    tau: int,
+) -> np.ndarray:
+    """Numpy wrapper around :func:`tau_trim_and_downsample` for eval scripts.
+
+    Parameters
+    ----------
+    hourly_predictions : torch.Tensor
+        Hourly discharge, shape (num_gages, num_hours).
+    tau : int
+        Hours of advance, ``0 <= tau < 24``.
 
     Returns
     -------
     np.ndarray
         Daily discharge, shape (num_gages, num_days).
     """
-    sliced = hourly_predictions[:, (13 + tau) : (-11 + tau)]
-    num_days = sliced.shape[1] // 24
-    return downsample(sliced, rho=num_days).numpy()
+    return tau_trim_and_downsample(hourly_predictions, tau).numpy()
 
 
 def load_checkpoint(

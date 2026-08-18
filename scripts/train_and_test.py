@@ -95,8 +95,8 @@ def _test(
             torch.cuda.empty_cache()
 
     daily_runoff = compute_daily_runoff(torch.tensor(predictions), cfg.params.tau)
-    daily_obs = observations[:, 1:-1]
-    time_range = dataset.dates.daily_time_range[1:-1]
+    daily_obs = observations[:, :-2]
+    time_range = dataset.dates.daily_time_range[:-2]
 
     pred_da = xr.DataArray(
         data=daily_runoff,

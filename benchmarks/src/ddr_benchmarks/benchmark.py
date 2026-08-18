@@ -23,10 +23,11 @@ from torch.utils.data import DataLoader, SequentialSampler
 from tqdm import tqdm
 
 # Reuse ALL DDR imports
-from ddr import ddr_functions, dmc, kan, streamflow
+from ddr import dmc, kan, streamflow
 from ddr._version import __version__
 from ddr.geodatazoo.dataclasses import Dates, RoutingDataclass
 from ddr.io.readers import read_zarr
+from ddr.scripts_utils import compute_daily_runoff
 from ddr.validation import Config, Metrics, plot_box_fig, plot_cdf, plot_gauge_map, plot_time_series, utils
 from ddr.validation.enums import GeoDataset
 
@@ -784,19 +785,10 @@ def benchmark(
     diffroute_predictions = diffroute_predictions[non_headwater]
 
     # === EVALUATION (same as test.py) ===
-    num_days = len(ddr_predictions[0][13 : (-11 + cfg.params.tau)]) // 24
+    ddr_daily = compute_daily_runoff(torch.tensor(ddr_predictions), cfg.params.tau)
+    diffroute_daily = compute_daily_runoff(torch.tensor(diffroute_predictions), cfg.params.tau)
 
-    ddr_daily = ddr_functions.downsample(
-        torch.tensor(ddr_predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
-        rho=num_days,
-    ).numpy()
-
-    diffroute_daily = ddr_functions.downsample(
-        torch.tensor(diffroute_predictions[:, (13 + cfg.params.tau) : (-11 + cfg.params.tau)]),
-        rho=num_days,
-    ).numpy()
-
-    daily_obs = observations[:, 1:-1]
+    daily_obs = observations[:, :-2]  # Pooled day i ↔ obs day i
 
     # Compute metrics using DDR's Metrics class
     log.info("=" * 50)

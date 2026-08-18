@@ -121,7 +121,7 @@ Hydra YAML (config/) → OmegaConf DictConfig → validate_config() → Pydantic
 - `parameter_ranges: dict[str, list[float]]` — physical bounds (e.g., `n: [0.015, 0.25]`)
 - `log_space_parameters: list[str]` — parameters denormalized in log-space
 - `attribute_minimums: dict[str, float]` — clamping floors for routing stability
-- `tau: int = 3` — timezone/boundary adjustment (hours trimmed from routing output)
+- `tau: int = 9` — signed-at-zero timing advance (hours routed output is advanced before daily pooling; 0 ≤ tau < 24)
 - `save_path: Path`
 
 **Kan**:
@@ -176,7 +176,7 @@ output/{name}/{YYYY-MM-DD_HH-MM-SS}/
          2. q_prime = flow(routing_dataclass)      # hourly lateral inflow
          3. params = nn(normalized_attributes)     # KAN → {n, q_spatial}
          4. output = dmc(routing_dataclass, q_prime, params)  # route @ 1hr
-         5. daily = downsample(output[:, 13+tau:-11+tau])     # hourly → daily
+         5. daily = downsample(output[:, tau:-(24-tau)])      # hourly → daily
          6. loss = L1(daily[warmup:], observations[warmup:])  # skip spin-up
          7. loss.backward() → grad_clip → optimizer.step()
          8. save_state() periodically
@@ -245,9 +245,13 @@ Baseline evaluation — unrouted sum of upstream lateral inflows:
 
 ### Boundary Trimming
 
-Routing output is trimmed before downsampling:
-`output[:, (13+tau):(-11+tau)]` where `tau` (default 3) handles timezone
-alignment. This removes ~13 hours of spin-up and ~8 hours of edge effects.
+Routing output is trimmed before downsampling on the signed-at-zero tau
+convention: `output[:, tau : -(24-tau)]` where `tau` (default 9) is the
+number of hours the routed output is advanced before daily pooling. Pooled
+day *i* scores against obs day *i* (tau=0 is day-aligned); predictions pair
+with `obs[:, :-2]`. Ported from ddrs 2026-08-17 — the legacy
+`[13+tau : -11+tau]` convention with shipped tau=3 was signed −8, mis-set in
+the wrong direction (worth −0.086 median NSE).
 
 ### Downsampling
 

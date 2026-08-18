@@ -113,9 +113,9 @@ import xarray as xr
 ds = xr.open_dataset("merit_geometry_predictions.nc")
 
 # All 2.9M reaches have KAN parameters
-print(ds["n"])           # Manning's roughness
-print(ds["p_spatial"])   # width coefficient
-print(ds["q_spatial"])   # width-depth exponent
+print(ds["n"])  # Manning's roughness
+print(ds["p_spatial"])  # width coefficient
+print(ds["q_spatial"])  # width-depth exponent
 
 # 346K CONUS reaches have geometry statistics
 conus = ds.where(ds["slope"].notnull(), drop=True)

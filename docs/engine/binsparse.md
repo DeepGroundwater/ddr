@@ -71,11 +71,14 @@ print(list_geodatasets())  # ['hydrofabric_v2.2', 'lynker', 'merit']
 ```python
 from ddr_engine import register_converter
 
+
 class MyConverter:
     def to_zarr(self, ids):
         return np.array(ids, dtype=np.int32)
+
     def from_zarr(self, order):
         return order.tolist()
+
 
 register_converter("my_geodataset", MyConverter())
 ```

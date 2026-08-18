@@ -86,9 +86,7 @@ Expected: FAIL with `ImportError: cannot import name '_gage_outflow_indices'`
 In `src/ddr/geodatazoo/merit.py`, add a module-level function (near the top, after imports):
 
 ```python
-def _gage_outflow_indices(
-    gage_idx: np.ndarray, index_mapping: dict[int, int]
-) -> list[np.ndarray]:
+def _gage_outflow_indices(gage_idx: np.ndarray, index_mapping: dict[int, int]) -> list[np.ndarray]:
     """Compressed outflow index for each gauge — the gauge reach itself.
 
     A USGS gauge measures all drainage above it, and the Muskingum-Cunge solve
@@ -649,9 +647,13 @@ class TestRoutingUsesBeta:
         # Recompute the Manning velocity at the SAME discharge the captured
         # call used (forward() advances _discharge_t after each step)
         geom = compute_trapezoidal_geometry(
-            n=mc.n, p_spatial=mc.p_spatial, q_spatial=mc.q_spatial,
-            discharge=captured["discharge"], slope=mc.slope,
-            depth_lb=float(mc.depth_lb), bottom_width_lb=float(mc.bottom_width_lb),
+            n=mc.n,
+            p_spatial=mc.p_spatial,
+            q_spatial=mc.q_spatial,
+            discharge=captured["discharge"],
+            slope=mc.slope,
+            depth_lb=float(mc.depth_lb),
+            bottom_width_lb=float(mc.bottom_width_lb),
         )
         # β < 5/3 strictly for any finite trapezoid: celerity must be < v·5/3
         v = torch.clamp(geom["velocity"], min=mc.velocity_lb, max=torch.tensor(15.0))
@@ -697,8 +699,11 @@ class TestCungeXFormula:
     def test_diffusion_matching_interior(self) -> None:
         # Interior X: D_num = c·L·(0.5−X) must equal D_phys = Q/(2·T·S)
         q, t, s, c, length = (
-            torch.tensor(50.0), torch.tensor(30.0), torch.tensor(1e-3),
-            torch.tensor(1.5), torch.tensor(5000.0),
+            torch.tensor(50.0),
+            torch.tensor(30.0),
+            torch.tensor(1e-3),
+            torch.tensor(1.5),
+            torch.tensor(5000.0),
         )
         x = _cunge_x(q, t, s, c, length)
         assert 0.0 < x < 0.5
@@ -709,15 +714,21 @@ class TestCungeXFormula:
     def test_clamps_to_zero_for_diffusive_channels(self) -> None:
         # Large Q over a short flat reach → raw X negative → clamp at 0
         x = _cunge_x(
-            torch.tensor(500.0), torch.tensor(10.0), torch.tensor(1e-3),
-            torch.tensor(1.0), torch.tensor(500.0),
+            torch.tensor(500.0),
+            torch.tensor(10.0),
+            torch.tensor(1e-3),
+            torch.tensor(1.0),
+            torch.tensor(500.0),
         )
         assert x == 0.0
 
     def test_never_exceeds_half(self) -> None:
         x = _cunge_x(
-            torch.tensor(1e-4), torch.tensor(50.0), torch.tensor(0.01),
-            torch.tensor(3.0), torch.tensor(10000.0),
+            torch.tensor(1e-4),
+            torch.tensor(50.0),
+            torch.tensor(0.01),
+            torch.tensor(3.0),
+            torch.tensor(10000.0),
         )
         assert x <= 0.5
 
@@ -797,17 +808,17 @@ In `src/ddr/routing/mmc.py` (~lines 160-168), replace:
 with:
 
 ```python
-    # Kinematic celerity c = dQ/dA = v·β for the trapezoid actually built above.
-    # β from the INTERNAL geometry (pre data-override) so celerity stays
-    # consistent with the section that produced the velocity. The old constant
-    # 5/3 is the wide-rectangular limit — 22-27% high on real channels (ddrs).
-    v = geom["velocity"]
-    c_ = torch.clamp(v, min=velocity_lb, max=torch.tensor(15.0, device=v.device))
-    beta = 5.0 / 3.0 - (4.0 / 3.0) * geom["cross_sectional_area"] * torch.sqrt(
-        1.0 + geom["side_slope"] ** 2
-    ) / (geom["top_width"] * geom["wetted_perimeter"])
-    c = c_ * beta
-    return c, top_width, side_slope
+# Kinematic celerity c = dQ/dA = v·β for the trapezoid actually built above.
+# β from the INTERNAL geometry (pre data-override) so celerity stays
+# consistent with the section that produced the velocity. The old constant
+# 5/3 is the wide-rectangular limit — 22-27% high on real channels (ddrs).
+v = geom["velocity"]
+c_ = torch.clamp(v, min=velocity_lb, max=torch.tensor(15.0, device=v.device))
+beta = 5.0 / 3.0 - (4.0 / 3.0) * geom["cross_sectional_area"] * torch.sqrt(1.0 + geom["side_slope"] ** 2) / (
+    geom["top_width"] * geom["wetted_perimeter"]
+)
+c = c_ * beta
+return c, top_width, side_slope
 ```
 
 - [ ] **Step 5: Implement Cunge X in `route_timestep` and rename coefficient params**

@@ -42,9 +42,9 @@ DDR stores adjacency matrices in Coordinate (COO) format, which efficiently repr
 
 ```python
 # COO representation
-row_indices = [1, 2, 3, 3]      # Downstream segment indices
-col_indices = [0, 1, 1, 2]      # Upstream segment indices
-values = [1, 1, 1, 1]           # Connection weights (always 1)
+row_indices = [1, 2, 3, 3]  # Downstream segment indices
+col_indices = [0, 1, 1, 2]  # Upstream segment indices
+values = [1, 1, 1, 1]  # Connection weights (always 1)
 shape = (n_segments, n_segments)
 
 # Matrix interpretation:

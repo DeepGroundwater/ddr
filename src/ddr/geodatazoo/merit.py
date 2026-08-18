@@ -34,6 +34,30 @@ from ddr.validation.enums import Mode
 log = logging.getLogger(__name__)
 
 
+def _gage_outflow_indices(gage_idx: np.ndarray, index_mapping: dict[int, int]) -> list[np.ndarray]:
+    """Compressed outflow index for each gauge — the gauge reach itself.
+
+    A USGS gauge measures all drainage above it, and the Muskingum-Cunge solve
+    at the gauge reach already carries everything upstream plus the reach's own
+    lateral inflow, so extracting the gauge reach is the mass-conserving
+    choice. Summing the upstream columns instead (pre-2026-08-17 behavior)
+    dropped the gauge reach's local drainage — up to ~78% of a small basin.
+
+    Parameters
+    ----------
+    gage_idx : np.ndarray
+        CONUS-index of the gauge reach for each gauge in the batch.
+    index_mapping : dict[int, int]
+        CONUS index → compressed (batch) index.
+
+    Returns
+    -------
+    list[np.ndarray]
+        One single-element array per gauge, in batch order.
+    """
+    return [np.array([index_mapping[int(_idx)]]) for _idx in gage_idx]
+
+
 class Merit(BaseGeoDataset):
     """An implementation of the BaseDataset for the MERIT Hydro dataset."""
 
@@ -223,16 +247,7 @@ class Merit(BaseGeoDataset):
         compressed_csr = compressed_coo.tocsr()
         compressed_merit_ids = self.merit_ids[active_indices]
 
-        outflow_idx = []
-        for _idx in _gage_idx:
-            mask = np.isin(coo.row, _idx)
-            local_gage_inflow_idx = np.where(mask)[0]
-            original_col_indices = coo.col[local_gage_inflow_idx]
-            if len(original_col_indices) > 0:
-                compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
-            else:
-                compressed_col_indices = np.array([index_mapping[int(_idx)]])
-            outflow_idx.append(compressed_col_indices)
+        outflow_idx = _gage_outflow_indices(_gage_idx, index_mapping)
 
         gage_compressed_indices = [index_mapping[int(idx)] for idx in _gage_idx]
         flow_scale = build_flow_scale_tensor(
@@ -465,16 +480,7 @@ class Merit(BaseGeoDataset):
         compressed_csr = compressed_coo.tocsr()
         compressed_merit_ids = self.merit_ids[active_indices]
 
-        outflow_idx = []
-        for _idx in _gage_idx:
-            mask = np.isin(coo.row, _idx)
-            local_gage_inflow_idx = np.where(mask)[0]
-            original_col_indices = coo.col[local_gage_inflow_idx]
-            if len(original_col_indices) > 0:
-                compressed_col_indices = np.array([index_mapping[idx] for idx in original_col_indices])
-            else:
-                compressed_col_indices = np.array([index_mapping[int(_idx)]])
-            outflow_idx.append(compressed_col_indices)
+        outflow_idx = _gage_outflow_indices(_gage_idx, index_mapping)
 
         gage_compressed_indices = [index_mapping[int(idx)] for idx in _gage_idx]
         flow_scale = build_flow_scale_tensor(

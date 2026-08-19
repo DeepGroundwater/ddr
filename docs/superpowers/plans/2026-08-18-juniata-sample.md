@@ -178,8 +178,16 @@ OBS_IC = "/mnt/ssd1/data/icechunk/usgs_daily_observations"
 TIME_SLICE = slice("1980-01-01", "2010-12-31")
 
 KAN_INPUT_VARS = [
-    "SoilGrids1km_clay", "aridity", "meanelevation", "meanP", "NDVI",
-    "meanslope", "log10_uparea", "SoilGrids1km_sand", "ETPOT_Hargr", "Porosity",
+    "SoilGrids1km_clay",
+    "aridity",
+    "meanelevation",
+    "meanP",
+    "NDVI",
+    "meanslope",
+    "log10_uparea",
+    "SoilGrids1km_sand",
+    "ETPOT_Hargr",
+    "Porosity",
 ]
 
 
@@ -554,8 +562,16 @@ def make_config(
             "grid": 50,
             "k": 2,
             "input_var_names": [
-                "SoilGrids1km_clay", "aridity", "meanelevation", "meanP", "NDVI",
-                "meanslope", "log10_uparea", "SoilGrids1km_sand", "ETPOT_Hargr", "Porosity",
+                "SoilGrids1km_clay",
+                "aridity",
+                "meanelevation",
+                "meanP",
+                "NDVI",
+                "meanslope",
+                "log10_uparea",
+                "SoilGrids1km_sand",
+                "ETPOT_Hargr",
+                "Porosity",
             ],
             "learnable_parameters": ["n", "q_spatial", "p_spatial"],
         },
@@ -590,17 +606,17 @@ def train(cfg: Config) -> Path:
     for epoch in range(1, cfg.experiment.epochs + 1):
         for g in optimizer.param_groups:
             g["lr"] = resolve_learning_rate(cfg.experiment.learning_rate, epoch)
-        dataset.dates.calculate_time_period()          # random rho-day window
+        dataset.dates.calculate_time_period()  # random rho-day window
         batch = dataset.collate_fn(list(dataset.gage_ids))
 
-        q_prime = flow(routing_dataclass=batch)        # <-- runoff-model seam
+        q_prime = flow(routing_dataclass=batch)  # <-- runoff-model seam
         params = nn(inputs=batch.normalized_spatial_attributes.to(cfg.device))
         out = routing_model(routing_dataclass=batch, spatial_parameters=params, streamflow=q_prime)
         daily = tau_trim_and_downsample(out["runoff"], cfg.params.tau)
 
-        obs = torch.tensor(
-            batch.observations.streamflow.values, device=cfg.device, dtype=torch.float32
-        )[:, :-2]
+        obs = torch.tensor(batch.observations.streamflow.values, device=cfg.device, dtype=torch.float32)[
+            :, :-2
+        ]
         w = cfg.experiment.warmup
         loss = torch.nn.functional.l1_loss(daily[:, w:], obs[:, w:])
         optimizer.zero_grad()
@@ -621,7 +637,7 @@ def _eval_dataset_and_batch(cfg: Config, test_period: tuple[str, str]):
     eval_cfg.experiment.end_time = test_period[1]
     eval_cfg.experiment.rho = None
     dataset = GeoDataset.get_dataset_class(cfg=eval_cfg)
-    batch = dataset.collate_fn([0])   # inference mode: pre-built dataclass
+    batch = dataset.collate_fn([0])  # inference mode: pre-built dataclass
     return eval_cfg, dataset, batch
 
 
@@ -665,8 +681,8 @@ def summed_qprime_baseline(
     eval_cfg, dataset, batch = _eval_dataset_and_batch(cfg, test_period)
     flow = streamflow(eval_cfg)
     with torch.no_grad():
-        q_prime = flow(routing_dataclass=batch)              # hourly (T, N)
-        total = q_prime.sum(dim=1, keepdim=True).T           # (1, T)
+        q_prime = flow(routing_dataclass=batch)  # hourly (T, N)
+        total = q_prime.sum(dim=1, keepdim=True).T  # (1, T)
         daily = tau_trim_and_downsample(total, tau=0).cpu().numpy()  # day-aligned
     time = dataset.dates.daily_time_range[:-2]
     obs = batch.observations.streamflow.values[:, :-2]
@@ -692,7 +708,7 @@ def main() -> None:
     baseline = summed_qprime_baseline(cfg)
     print(f"{'':>12} {'NSE':>8} {'KGE':>8}")
     print(f"{'routed':>12} {result.attrs['nse']:8.3f} {result.attrs['kge']:8.3f}")
-    print(f"{'summed q\'':>12} {baseline.attrs['nse']:8.3f} {baseline.attrs['kge']:8.3f}")
+    print(f"{"summed q'":>12} {baseline.attrs['nse']:8.3f} {baseline.attrs['kge']:8.3f}")
 
 
 if __name__ == "__main__":
@@ -808,8 +824,10 @@ t = dataset.dates.daily_time_range
 fig, ax = plt.subplots(figsize=(12, 3))
 ax.plot(t[: len(obs)], obs, lw=0.5)
 ax.set_ylabel("Q (m³/s)"); ax.set_title("Observed discharge at Newport")""")
-md("(§1 prose: why 5–10k km² is where routing physically acts — cite the "
-   "area-stratified ddrs table: +0.135 median NSE at 5–10k km².)")
+md(
+    "(§1 prose: why 5–10k km² is where routing physically acts — cite the "
+    "area-stratified ddrs table: +0.135 median NSE at 5–10k km².)"
+)
 
 # --- 2. Physics ---
 md(r"""## 2. Muskingum-Cunge physics

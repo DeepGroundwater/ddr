@@ -113,7 +113,7 @@ schedule `{1: 1e-3, 3: 5e-4}`, KAN identical to
 `config/merit_training_config.yaml`).
 
 ```python
-def train(cfg: Config) -> Path: ...        # returns last checkpoint path
+def train(cfg: Config) -> Path: ...  # returns last checkpoint path
 def test(cfg: Config, checkpoint: Path) -> xr.Dataset: ...
 def summed_qprime_baseline(cfg: Config) -> xr.Dataset: ...
 ```

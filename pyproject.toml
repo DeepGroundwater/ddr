@@ -173,7 +173,7 @@ convention = "numpy"
 "tests/scripts/test_summed_q_prime.py" = ["D", "E402"]
 "*/__init__.py" = ["F401"]
 "src/ddr/bmi/ddr_bmi.py" = ["D102"]  # BMI interface methods are self-documenting (bmipy.Bmi)
-"*.ipynb" = ["E402", "E501", "F401", "F811", "F841", "T201"]  # Common notebook exceptions
+"*.ipynb" = ["E402", "E501", "F401", "F811", "F841", "T201", "D103", "B905", "I001"]  # Common notebook exceptions
 
 [tool.ruff.format]
 docstring-code-format = true

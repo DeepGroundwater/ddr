@@ -198,6 +198,10 @@ config/
 # eval example data
 examples/eval/*.zarr
 
+# Juniata bundle — commit the bundle but not derived statistics
+!examples/juniata/data/
+examples/juniata/data/statistics/
+
 # scratch notebooks
 examples/scratch
 
@@ -217,5 +221,7 @@ site/
 *.png
 *.nc
 *.gpkg
+# Allow the Juniata attributes NetCDF (must come after the *.nc block)
+!examples/juniata/data/juniata_attributes.nc
 
 papers/

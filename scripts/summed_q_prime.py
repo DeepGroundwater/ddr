@@ -18,7 +18,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from ddr._version import __version__
-from ddr.io.readers import read_ic
+from ddr.io.readers import qr_as_divide_time, read_ic
 from ddr.scripts_utils import safe_mean, safe_percentile
 from ddr.validation import GeoDataset, Metrics
 
@@ -225,7 +225,7 @@ def eval_q_prime(
         hourly = streamflow.isel(
             time=slice(start_idx, end_idx + 1), divide_id=needed_divide_indices
         ).compute()
-        qr_hourly = hourly["Qr"].values  # (n_needed_divides, hours) — stays on CPU
+        qr_hourly = qr_as_divide_time(hourly)  # (n_needed_divides, hours) — stays on CPU
         n_days = qr_hourly.shape[1] // 24
         qr_daily = qr_hourly[:, : n_days * 24].reshape(qr_hourly.shape[0], n_days, 24).mean(axis=2)
         filtered_divide_ids = conus_divide_ids[needed_divide_indices]
@@ -241,7 +241,7 @@ def eval_q_prime(
             )
         filtered_divide_ids = conus_divide_ids[needed_divide_indices]
         qr_gpu = cp.asarray(
-            streamflow.isel(time=time_indices, divide_id=needed_divide_indices)["Qr"].values.astype(
+            qr_as_divide_time(streamflow.isel(time=time_indices, divide_id=needed_divide_indices)).astype(
                 np.float32
             )
         )  # (n_needed_divides, n_eval_days)

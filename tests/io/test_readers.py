@@ -533,3 +533,44 @@ class TestStreamflowReaderHourly:
 
         with pytest.raises(AssertionError, match="exceeds store length"):
             reader.forward(routing_dataclass=rc, device="cpu")
+
+
+class TestQrAsDivideTime:
+    """Q' must be read by dimension name, never by axis position.
+
+    zarr answers an out-of-range read with fill values rather than raising, so a
+    positional reader turns a transposed store into an all-NaN lateral inflow and a
+    silently zero baseline instead of an error.
+    """
+
+    @staticmethod
+    def _ds(dims: tuple[str, str]) -> xr.Dataset:
+        vals = np.arange(6, dtype="float32").reshape(2, 3)  # 2 divides x 3 times
+        return xr.Dataset(
+            {"Qr": (dims, vals if dims[0] == "divide_id" else vals.T)},
+            coords={"divide_id": [10, 20], "time": np.arange(3)},
+        )
+
+    def test_contract_order_passes_through(self) -> None:
+        from ddr.io.readers import qr_as_divide_time
+
+        out = qr_as_divide_time(self._ds(("divide_id", "time")))
+        assert out.shape == (2, 3)
+        assert np.array_equal(out[0], [0.0, 1.0, 2.0])
+
+    def test_transposed_store_gives_the_same_matrix(self) -> None:
+        from ddr.io.readers import qr_as_divide_time
+
+        a = qr_as_divide_time(self._ds(("divide_id", "time")))
+        b = qr_as_divide_time(self._ds(("time", "divide_id")))
+        assert np.array_equal(a, b)
+
+    def test_dimensions_matching_neither_layout_raise(self) -> None:
+        from ddr.io.readers import qr_as_divide_time
+
+        bad = xr.Dataset(
+            {"Qr": (("divide_id", "band", "time"), np.zeros((2, 2, 3), dtype="float32"))},
+            coords={"divide_id": [10, 20], "time": np.arange(3)},
+        )
+        with pytest.raises(ValueError, match="divide_id"):
+            qr_as_divide_time(bad)

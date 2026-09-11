@@ -256,6 +256,38 @@ def filter_headwater_gages(
     return filtered, n_removed
 
 
+def qr_as_divide_time(ds: xr.Dataset) -> np.ndarray:
+    """Return the ``Qr`` variable as a dense ``(divide_id, time)`` array.
+
+    Q' stores follow the contract ``Qr(divide_id, time)``, but a store written
+    transposed is silently readable rather than an error: an out-of-range read
+    returns fill values, so indexing axes by position yields an all-NaN lateral
+    inflow and a baseline of zero. Selecting by dimension name is correct for either
+    layout; anything whose dimensions match neither is refused.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        Dataset holding a ``Qr`` variable over ``divide_id`` and ``time``.
+
+    Returns
+    -------
+    np.ndarray
+        ``Qr`` with divides on the first axis and time on the second.
+
+    Raises
+    ------
+    ValueError
+        If ``Qr`` is absent or its dimensions are not exactly ``divide_id`` and ``time``.
+    """
+    if "Qr" not in ds:
+        raise ValueError(f"expected a 'Qr' variable; found {list(ds.data_vars)}")
+    qr = ds["Qr"]
+    if set(qr.dims) != {"divide_id", "time"}:
+        raise ValueError(f"Qr must have dimensions (divide_id, time) in either order; got {qr.dims}")
+    return qr.transpose("divide_id", "time").values
+
+
 def compute_flow_scale_factor(
     drain_sqkm: float,
     comid_drain_sqkm: float,

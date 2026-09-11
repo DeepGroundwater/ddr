@@ -193,6 +193,12 @@ sub-daily wave timing that daily aggregation removes. Sub-reach networks are non
 used by default on the argument that a well-conditioned operator should yield cleaner
 gradients during training, a claim that remains untested.
 
+The benchmark reported here reads the same area-weighted lateral inflow as training
+(Section 5.1). An earlier implementation assigned each catchment's discharge to the cell
+containing its flowline midpoint; the two agree in aggregate, with a paired median
+difference of 0.0003 in efficiency across 321 gauges, but disagree by more than 0.05 at 71
+of them, so they are not interchangeable for an individual basin.
+
 ## 5. Lateral inflow and observations
 
 ### 5.1 Runoff

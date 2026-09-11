@@ -84,9 +84,13 @@ def main() -> None:
         out[start:stop] = apply_weights(qr, comids, weights, cells).astype(np.float32)
         log.info("regridded days %d-%d", start, stop)
 
+    # Write (divide_id, time), matching the source store's contract. Readers should still
+    # transpose by name: a store written the other way round is silently readable, because
+    # an out-of-range read returns fill values rather than raising, which yields an
+    # all-NaN baseline instead of an error.
     result = xr.Dataset(
-        {"Qr": (("time", "divide_id"), out)},
-        coords={"time": ds.time.values, "divide_id": cells},
+        {"Qr": (("divide_id", "time"), out.T)},
+        coords={"divide_id": cells, "time": ds.time.values},
     )
     result["Qr"].attrs["units"] = "m^3/s"
     result.attrs["description"] = (

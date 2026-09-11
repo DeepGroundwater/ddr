@@ -117,6 +117,14 @@ Any per-catchment runoff works. For the dHBV2 UH retrospective:
 
     uv run python scripts/build_gridded_qprime.py
 
+!!! warning "Write `Qr(divide_id, time)`, and read by dimension name"
+    The store follows the source contract, `Qr(divide_id, time)`. A store written
+    transposed is still *readable*: an out-of-range read returns fill values instead of
+    raising, so a mismatched reader silently yields an all-NaN lateral inflow and a
+    baseline of zero rather than an error. Readers here call
+    `.transpose("time", "divide_id")`, which resolves by name and is correct either way.
+    Do not index axes positionally.
+
 Q′ is volumetric per catchment (m³/s), so moving it onto cells is mass-conserving
 aggregation: each catchment's discharge is split across the cells it overlaps in
 proportion to overlapping area. About 40% of catchments straddle a cell edge, so

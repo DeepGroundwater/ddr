@@ -25,12 +25,19 @@ PATHS = GriddedPaths(
     obs_icechunk=Path("/mnt/ssd1/data/icechunk/usgs_daily_observations"),
     gages_csv=REPO / "references/gage_info/dhbv2_gages.csv",
     cache_dir=REPO / "data/ddm30",
+    # the area-weighted store, so the gate measures the forcing training reads
+    qprime_icechunk=Path("/mnt/ssd1/data/icechunk/ddm30_conus_uh_retrospective_regridded.ic"),
 )
 
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.skipif(
-        not (PATHS.ddm30_zarr.exists() and PATHS.qr_icechunk.exists()),
+        not (
+            PATHS.ddm30_zarr.exists()
+            and PATHS.qr_icechunk.exists()
+            and PATHS.qprime_icechunk is not None
+            and PATHS.qprime_icechunk.exists()
+        ),
         reason="local DDM30/dHBV2 data not available",
     ),
 ]

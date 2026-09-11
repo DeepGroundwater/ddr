@@ -129,3 +129,46 @@ class TestSnapGauges:
         )
         out = snap_gauges(gauges, grid)
         assert out.STAID.tolist() == ["a"]
+
+
+class TestQprimeAxisOrder:
+    """A Q' store written either way round must aggregate identically.
+
+    zarr answers an out-of-range read with fill values rather than raising, so a
+    reader that indexes axes positionally turns a transposed store into an all-NaN
+    lateral inflow and a silently zero baseline instead of an error.
+    """
+
+    def _store(self, dims: tuple[str, str]):  # returns an xr.Dataset; xarray is imported lazily
+        import numpy as np
+        import xarray as xr
+
+        vals = np.arange(6, dtype="float32").reshape(2, 3)  # 2 divides, 3 days
+        data = vals if dims[0] == "divide_id" else vals.T
+        return xr.Dataset(
+            {"Qr": (dims, data)},
+            coords={"divide_id": [10, 20], "time": pd.date_range("2000-01-01", periods=3)},
+        )
+
+    def test_contract_and_transposed_agree(self) -> None:
+        import numpy as np
+        from ddr_benchmarks.gridded_runner import qprime_matrix
+
+        a = qprime_matrix(self._store(("divide_id", "time")), [10, 20])
+        b = qprime_matrix(self._store(("time", "divide_id")), [10, 20])
+        assert a.shape == (3, 2)  # (time, divide)
+        assert np.array_equal(a, b)
+        assert np.array_equal(a[:, 0], [0.0, 1.0, 2.0])
+
+    def test_rejects_a_shape_matching_neither_layout(self) -> None:
+        import numpy as np
+        import pytest as pt
+        import xarray as xr
+        from ddr_benchmarks.gridded_runner import qprime_matrix
+
+        bad = xr.Dataset(
+            {"Qr": (("divide_id", "band", "time"), np.zeros((2, 2, 3), dtype="float32"))},
+            coords={"divide_id": [10, 20], "time": pd.date_range("2000-01-01", periods=3)},
+        )
+        with pt.raises(ValueError, match="divide_id"):
+            qprime_matrix(bad, [10, 20])

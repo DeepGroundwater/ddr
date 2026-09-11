@@ -40,6 +40,11 @@ class GriddedPaths:
     obs_icechunk: Path
     gages_csv: Path
     cache_dir: Path
+    # Area-weighted Q' regridded onto cells (scripts/build_gridded_qprime.py). When set,
+    # the benchmark uses it, matching what training reads. When None it falls back to
+    # flowline-midpoint assignment, which misplaces the ~40% of catchments that straddle
+    # a cell edge and is kept only for comparison.
+    qprime_icechunk: Path | None = None
 
 
 def _open_icechunk(path: Path) -> "xr.Dataset":  # type: ignore[name-defined]  # noqa: F821
@@ -118,9 +123,13 @@ def run_conus_benchmark(
     dn = np.full(len(order), -1, dtype=np.int64)
     dn[cols_g] = rows_g
 
-    # --- network: cells receiving MERIT Q' plus their downstream chains ---
-    comid_cell = comid_cell_map(paths)
-    forced_pos = np.array(sorted({pos[c] for c in comid_cell.cell.unique() if c in pos}))
+    # --- network: cells receiving Q' plus their downstream chains ---
+    if paths.qprime_icechunk is not None:
+        qp_ds = _open_icechunk(paths.qprime_icechunk).sel(time=slice(start, end))
+        forced_pos = np.array(sorted({pos[int(c)] for c in qp_ds.divide_id.values if int(c) in pos}))
+    else:
+        comid_cell = comid_cell_map(paths)
+        forced_pos = np.array(sorted({pos[c] for c in comid_cell.cell.unique() if c in pos}))
     node_pos = downstream_closure(forced_pos, dn)
     n = len(node_pos)
     pos_to_c = {int(p): i for i, p in enumerate(node_pos)}
@@ -157,7 +166,10 @@ def run_conus_benchmark(
     outflow_idx = [np.array([pos_to_c[pos[c]]]) for c in gauges.cell]
 
     # --- lateral inflow: daily Qr summed per cell, repeated to hourly ---
-    qp_daily = _aggregate_qprime(paths, comid_cell, node_pos, order, pos_to_c, pos, start, end)
+    if paths.qprime_icechunk is not None:
+        qp_daily = _cell_qprime(qp_ds, node_pos, order, pos_to_c)
+    else:
+        qp_daily = _aggregate_qprime(paths, comid_cell, node_pos, order, pos_to_c, pos, start, end)
 
     return _route_and_score(
         paths,
@@ -173,7 +185,6 @@ def run_conus_benchmark(
         end,
         n_manning,
         q_spatial,
-        time.time(),
     )
 
 
@@ -191,11 +202,8 @@ def _route_and_score(  # type: ignore[no-untyped-def] # zarr/torch/xarray object
     end: str,
     n_manning: float,
     q_spatial: float,
-    _t0: float,
 ) -> dict:
     """Route the prepared network and score it against observations."""
-    import time
-
     import numpy as np
     import torch
 
@@ -256,6 +264,48 @@ def _route_and_score(  # type: ignore[no-untyped-def] # zarr/torch/xarray object
     }
 
 
+def qprime_matrix(ds: "xr.Dataset", divide_ids: "np.ndarray") -> "np.ndarray":  # type: ignore[name-defined] # noqa: F821
+    """Return Q' as a dense ``(time, divide)`` array for ``divide_ids``, whatever the store's layout.
+
+    Q' stores are written ``Qr(divide_id, time)`` by contract, but a transposed store is
+    silently readable: zarr answers an out-of-range read with fill values instead of
+    raising, so indexing axes positionally yields an all-NaN inflow and a zero baseline
+    rather than an error. Select and transpose by dimension name, and refuse anything
+    whose dimensions match neither layout.
+    """
+    import numpy as np
+
+    qr = ds["Qr"]
+    if set(qr.dims) != {"divide_id", "time"}:
+        raise ValueError(f"Qr must have dimensions (divide_id, time) in either order; got {qr.dims}")
+    sel = qr.sel(divide_id=np.asarray(divide_ids)).transpose("time", "divide_id")
+    return np.nan_to_num(sel.values.astype(np.float32))
+
+
+def _cell_qprime(
+    ds: "xr.Dataset",  # type: ignore[name-defined] # noqa: F821
+    node_pos: "np.ndarray",
+    order: "np.ndarray",
+    pos_to_c: dict[int, int],
+) -> "np.ndarray":
+    """Lateral inflow per node from an already-cell-indexed Q' store.
+
+    The store carries one series per cell, so this is a lookup rather than an
+    aggregation; cells absent from the store contribute nothing.
+    """
+    import numpy as np
+
+    cells = np.asarray(ds.divide_id.values, dtype=np.int64)
+    qr = qprime_matrix(ds, cells)  # (time, cell), layout-safe
+    col_of_cell = {int(c): j for j, c in enumerate(cells)}
+    qp = np.zeros((qr.shape[0], len(node_pos)), dtype=np.float32)
+    for p_ in node_pos:
+        j = col_of_cell.get(int(order[int(p_)]))
+        if j is not None:
+            qp[:, pos_to_c[int(p_)]] = qr[:, j]
+    return qp
+
+
 def _aggregate_qprime(
     paths: GriddedPaths,
     comid_cell: pd.DataFrame,
@@ -266,14 +316,13 @@ def _aggregate_qprime(
     start: str,
     end: str,
 ) -> np.ndarray:
-    ds = _open_icechunk(paths.qr_icechunk)
+    ds = _open_icechunk(paths.qr_icechunk).sel(time=slice(start, end))
     cell_to_node = {int(order[p]): pos_to_c[int(p)] for p in node_pos}
     contributing = comid_cell[comid_cell.cell.isin(cell_to_node)]
     contributing = contributing[contributing.COMID.isin(pd.Index(ds.divide_id.values))]
-    qr = ds["Qr"].sel(divide_id=contributing.COMID.values, time=slice(start, end)).values
-    qp = np.zeros((qr.shape[1], len(node_pos)), dtype=np.float32)
-    node_idx = contributing.cell.map(cell_to_node).values
-    np.add.at(qp.T, node_idx, np.nan_to_num(qr))
+    qr = qprime_matrix(ds, contributing.COMID.values)  # (time, comid), layout-safe
+    qp = np.zeros((qr.shape[0], len(node_pos)), dtype=np.float32)
+    np.add.at(qp.T, contributing.cell.map(cell_to_node).values, qr.T)
     return qp
 
 
@@ -295,8 +344,6 @@ def run_subreach_benchmark(
     carries the whole cell's accumulated flow. Q' comes from the area-weighted
     regridded store rather than flowline-midpoint assignment.
     """
-    import time
-
     import numpy as np
     import pandas as pd
     import torch
@@ -304,7 +351,6 @@ def run_subreach_benchmark(
 
     from ddr_benchmarks.gridded import cell_areas_km2, downstream_closure, snap_gauges, topo_accumulate
 
-    t0 = time.time()
     root = zarr.open_group(store=str(subreach_zarr), mode="r")
     node_ids, parent = root["order"][:], root["parent_cell"][:]
     rows_g, cols_g = root["indices_0"][:], root["indices_1"][:]
@@ -384,5 +430,4 @@ def run_subreach_benchmark(
         end,
         n_manning,
         q_spatial,
-        t0,
     )
